@@ -48,9 +48,9 @@
         <div id="top-scores-container" class="flex flex-wrap justify-center items-center gap-1.5 max-w-5xl mx-auto">
             <!-- Dynamic sticky player scores rows -->
         </div>
-        <!-- Card Count Small Divisions Row -->
+        <!-- Card Count Small Divisions Row (Excluding You) -->
         <div id="sticky-card-counts-container" class="flex flex-wrap justify-center items-center gap-1.5 max-w-5xl mx-auto border-t border-zinc-900 pt-1">
-            <!-- Dynamic card count divisions for all players -->
+            <!-- Dynamic card count divisions for other players only -->
         </div>
     </div>
 
@@ -820,10 +820,11 @@
                 topScoresContainer.appendChild(badge);
             });
 
-            // Render sticky card counts divisions for all players below scores
+            // Render sticky card counts divisions for other players only (Excluding You)
             const stickyCardCountsContainer = document.getElementById('sticky-card-counts-container');
             stickyCardCountsContainer.innerHTML = '';
-            players.forEach(p => {
+            players.forEach((p, idx) => {
+                if (idx === myIndex) return; // Skip your own card count
                 let countDiv = document.createElement('div');
                 countDiv.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-black border ${p.eliminated ? 'border-zinc-900 text-zinc-600' : 'border-zinc-800 text-zinc-300'} text-[10px]`;
                 countDiv.innerHTML = `<span class="truncate max-w-[70px] font-medium">${p.name}:</span> <span class="font-mono font-bold text-amber-400">🎴 ${p.eliminated ? 'OUT' : p.hand.length}</span>`;
