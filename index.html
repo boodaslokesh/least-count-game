@@ -2,319 +2,420 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Least Count Online</title>
-    <!-- Include PeerJS for direct P2P connection -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Least Count - Multiplayer Card Game</title>
+    <!-- Tailwind CSS for modern responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS for P2P multiplayer connectivity -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
-        :root {
-            --felt-green: #1b4d3e;
-            --card-bg: #ffffff;
-            --card-border: #ccc;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--felt-green);
-            color: white;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-        }
-        h1 { margin-bottom: 5px; }
-        .hidden { display: none !important; }
-        
-        /* Lobby Styles */
-        #lobby {
-            background: rgba(0,0,0,0.3);
-            padding: 30px;
-            border-radius: 12px;
-            text-align: center;
-            max-width: 400px;
-            width: 100%;
-            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
-        }
-        input, button {
-            padding: 10px 15px;
-            font-size: 16px;
-            margin: 10px 0;
-            border-radius: 6px;
-            border: none;
-            width: 80%;
-        }
-        button {
-            background-color: #ffcc00;
-            color: #333;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        button:hover { background-color: #e6b800; }
-
-        /* Game Board Styles */
-        #game-board {
-            width: 100%;
-            max-width: 800px;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-        .player-info {
-            background: rgba(0,0,0,0.2);
-            padding: 10px 15px;
-            border-radius: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .table-area {
-            display: flex;
-            justify-content: center;
-            gap: 40px;
-            padding: 20px;
-            background: rgba(0,0,0,0.15);
-            border-radius: 12px;
-            align-items: center;
-            min-height: 150px;
-        }
-        .deck-pile, .discard-pile {
-            text-align: center;
-        }
-        
-        /* Card Styles */
-        .card {
-            width: 60px;
-            height: 90px;
-            background: var(--card-bg);
-            color: #333;
-            border-radius: 6px;
-            border: 1px solid var(--card-border);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 5px;
-            font-weight: bold;
-            font-size: 14px;
-            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            background: radial-gradient(circle at center, #1b4d3e 0%, #0f2d24 100%);
+            color: #ffffff;
+            touch-action: manipulation;
             user-select: none;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            transition: transform 0.2s, background-color 0.2s;
-            position: relative;
+            -webkit-user-select: none;
+        }
+        .felt-table {
+            background: radial-gradient(circle, #226f54 0%, #134635 100%);
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.6), 0 10px 25px rgba(0,0,0,0.4);
+            border: 8px solid #0b251d;
+        }
+        .card {
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s;
+            cursor: pointer;
         }
         .card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-8px);
+            box-shadow: 0 12px 20px rgba(0,0,0,0.4);
         }
-        .card.red { color: #d32f2f; }
         .card.selected {
-            border: 3px solid #ffcc00;
-            transform: translateY(-10px);
+            transform: translateY(-16px);
+            border-color: #f59e0b !important;
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.6);
         }
-        .card.back {
-            background: linear-gradient(135deg, #b71c1c, #d32f2f);
-            border: 2px solid white;
+        .card-back {
+            background: linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%);
+            border: 2px solid #f8fafc;
         }
-        
-        .hand-container {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            flex-wrap: wrap;
-            min-height: 100px;
-            padding: 10px;
-            background: rgba(0,0,0,0.2);
-            border-radius: 12px;
-        }
-
-        #log {
-            background: rgba(0,0,0,0.4);
-            padding: 10px;
-            border-radius: 6px;
-            height: 80px;
-            overflow-y: auto;
-            font-size: 14px;
-        }
-
-        .controls {
-            text-align: center;
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 3px; }
     </style>
 </head>
-<body>
+<body class="min-h-screen flex flex-col items-center justify-between p-3 sm:p-6 overflow-x-hidden">
 
-    <h1>Least Count Online</h1>
-    
-    <!-- LOBBY SCREEN -->
-    <div id="lobby">
-        <h3>Join or Create a Room</h3>
-        <input type="text" id="username" placeholder="Your Nickname" maxlength="15"><br>
-        <button id="create-btn">Create Room</button>
-        <p>- or -</p>
-        <input type="text" id="room-id-input" placeholder="Enter Room ID"><br>
-        <button id="join-btn">Join Room</button>
-        <p id="status-msg" style="font-size: 14px; margin-top: 10px;"></p>
+    <header class="w-full max-w-5xl flex justify-between items-center mb-4 bg-black/30 backdrop-blur-md px-4 py-3 rounded-2xl border border-white/10 shadow-lg">
+        <div class="flex items-center space-x-2">
+            <span class="text-2xl">🃏</span>
+            <h1 class="text-lg sm:text-xl font-bold tracking-wider text-amber-400">LEAST COUNT</h1>
+        </div>
+        <div id="room-badge" class="hidden text-xs sm:text-sm bg-emerald-900/80 px-3 py-1 rounded-full border border-emerald-500/30 text-emerald-200">
+            Room: <span id="display-room-id" class="font-mono font-bold text-white">----</span>
+        </div>
+    </header>
+
+    <main id="lobby-screen" class="w-full max-w-md bg-black/40 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center my-auto">
+        <h2 class="text-2xl font-bold mb-2 text-center text-white">Join the Table</h2>
+        <p class="text-xs text-gray-300 text-center mb-6">Play Least Count with friends online in real-time!</p>
+        
+        <div class="w-full space-y-4">
+            <div>
+                <label class="block text-xs uppercase tracking-wider text-gray-400 mb-1 font-medium">Your Nickname</label>
+                <input type="text" id="nickname-input" placeholder="e.g. CardShark" maxlength="15" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-amber-400 font-medium text-sm">
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 pt-2">
+                <button onclick="hostGame()" class="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-stone-950 font-bold py-3 px-4 rounded-xl shadow-lg transition transform active:scale-95 text-sm">
+                    Create Room
+                </button>
+                <button onclick="showJoinModal()" class="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold py-3 px-4 rounded-xl shadow-lg transition transform active:scale-95 text-sm">
+                    Join Room
+                </button>
+            </div>
+        </div>
+
+        <div id="lobby-status" class="mt-4 text-xs text-amber-300 text-center font-medium min-h-[20px]"></div>
+    </main>
+
+    <div id="join-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="bg-stone-900 border border-white/10 p-6 rounded-3xl w-full max-w-sm shadow-2xl flex flex-col space-y-4">
+            <h3 class="text-lg font-bold text-amber-400">Join Existing Room</h3>
+            <p class="text-xs text-gray-400">Enter the Room ID shared by your friend.</p>
+            <input type="text" id="room-id-input" placeholder="Paste Room ID here" class="w-full bg-black/50 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-amber-400 font-mono text-sm">
+            <div class="flex space-x-3 pt-2">
+                <button onclick="closeJoinModal()" class="flex-1 bg-stone-800 hover:bg-stone-700 text-white py-2.5 rounded-xl text-sm font-medium transition">Cancel</button>
+                <button onclick="joinGame()" class="flex-1 bg-amber-500 hover:bg-amber-600 text-stone-950 py-2.5 rounded-xl text-sm font-bold transition">Connect</button>
+            </div>
+        </div>
     </div>
 
-    <!-- GAME BOARD -->
-    <div id="game-board" class="hidden">
-        <div class="player-info">
-            <span id="opponent-status">Opponent: Waiting...</span>
-            <span id="score-display">Scores - You: 0 | Opponent: 0</span>
-        </div>
+    <main id="waiting-screen" class="w-full max-w-md bg-black/40 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-white/10 shadow-2xl hidden flex-col items-center my-auto">
+        <h2 class="text-2xl font-bold mb-1 text-center text-amber-400">Room Lobby</h2>
+        <p class="text-xs text-gray-300 text-center mb-6">Waiting for players to join (2 to 6 max)</p>
 
-        <div id="log">Game initialized. Waiting for actions...</div>
-
-        <!-- Opponent Hand -->
-        <div>
-            <p>Opponent's Hand (<span id="opponent-name">Opponent</span>)</p>
-            <div id="opponent-hand" class="hand-container"></div>
-        </div>
-
-        <!-- Table Center -->
-        <div class="table-area">
-            <div class="deck-pile">
-                <p>Deck</p>
-                <div id="deck-card" class="card back" onclick="drawFromDeck()"></div>
-            </div>
-            <div class="discard-pile">
-                <p>Discard Pile</p>
-                <div id="discard-card" class="card" onclick="drawFromDiscard()"></div>
+        <div class="w-full bg-white/5 rounded-2xl p-4 mb-6 border border-white/10">
+            <h3 class="text-xs uppercase tracking-wider text-gray-400 mb-3 font-semibold">Players in Room (<span id-count="player-count">1</span>/6)</h3>
+            <div id="players-list" class="space-y-2">
+                <!-- Dynamically populated players -->
             </div>
         </div>
 
-        <!-- Your Hand -->
-        <div>
-            <p>Your Hand (<span id="my-name">You</span>) <span id="my-sum" style="float: right;">Sum: ?</span></p>
-            <div id="my-hand" class="hand-container"></div>
+        <div id="host-controls" class="w-full hidden">
+            <button onclick="startMatch()" class="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-stone-950 font-bold py-3.5 px-4 rounded-xl shadow-lg transition transform active:scale-95 text-sm">
+                Start Game
+            </button>
+        </div>
+        <div id="guest-waiting-msg" class="text-xs text-amber-200/80 text-center animate-pulse">
+            Waiting for host to start the game...
+        </div>
+    </main>
+
+    <main id="game-screen" class="w-full max-w-5xl hidden flex flex-col flex-grow justify-between gap-4">
+        
+        <!-- Opponents HUD Grid -->
+        <div id="opponents-grid" class="grid grid-cols-2 sm:grid-cols-5 gap-2 w-full">
+            <!-- Dynamically populated opponent cards -->
         </div>
 
-        <div class="controls">
-            <button id="show-btn" onclick="callShow()" style="background-color: #d32f2f; color: white;" disabled>Call Show!</button>
+        <!-- Central Table Area -->
+        <div class="felt-table rounded-3xl p-4 sm:p-6 flex flex-col sm:flex-row items-center justify-around gap-6 my-auto shadow-inner relative">
+            
+            <!-- Turn & Game Status Banner -->
+            <div class="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-stone-900/90 border border-amber-500/40 px-5 py-1.5 rounded-full shadow-lg flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                <span id="turn-banner" class="text-xs sm:text-sm font-semibold tracking-wide text-amber-300">Loading turn...</span>
+            </div>
+
+            <!-- Deck Pile -->
+            <div class="flex flex-col items-center space-y-2">
+                <span class="text-xs uppercase tracking-wider text-emerald-200/70 font-medium">Draw Deck</span>
+                <div id="deck-pile" onclick="drawFromDeck()" class="card card-back w-20 sm:w-24 h-32 sm:h-36 rounded-2xl flex items-center justify-center shadow-xl relative cursor-pointer group">
+                    <div class="text-white/40 text-xs font-bold group-hover:text-white/80 transition">DECK</div>
+                </div>
+            </div>
+
+            <!-- VS Divider -->
+            <div class="hidden sm:flex flex-col items-center text-emerald-200/40 font-bold text-xs tracking-widest space-y-1">
+                <span>•</span>
+                <span>•</span>
+                <span>•</span>
+            </div>
+
+            <!-- Board Open Card / Discard Pile -->
+            <div class="flex flex-col items-center space-y-2">
+                <span class="text-xs uppercase tracking-wider text-emerald-200/70 font-medium">Board Open Card</span>
+                <div id="board-open-card" onclick="pickupBoardCard()" class="card bg-white text-stone-900 w-20 sm:w-24 h-32 sm:h-36 rounded-2xl flex flex-col justify-between p-3 shadow-2xl border-2 border-stone-300 relative cursor-pointer hover:border-amber-400">
+                    <!-- Top Left Val -->
+                    <div class="flex flex-col leading-none">
+                        <span id="board-val-tl" class="text-base sm:text-lg font-bold">7</span>
+                        <span id="board-suit-tl" class="text-sm">♠</span>
+                    </div>
+                    <!-- Center Suit -->
+                    <div id="board-suit-center" class="text-2xl sm:text-3xl self-center">♠</div>
+                    <!-- Bottom Right Val -->
+                    <div class="flex flex-col leading-none text-right">
+                        <span id="board-val-br" class="text-base sm:text-lg font-bold rotate-180">7</span>
+                        <span id="board-suit-br" class="text-sm rotate-180">♠</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Player Hand & Controls Area -->
+        <div class="bg-black/40 backdrop-blur-xl p-4 sm:p-6 rounded-3xl border border-white/10 shadow-2xl flex flex-col space-y-4">
+            
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-3">
+                    <span class="font-bold text-sm sm:text-base text-white" id="my-player-name">You</span>
+                    <span class="text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 rounded-full font-medium">Sum: <span id="my-hand-sum">0</span></span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="playSelectedCards()" id="play-match-btn" class="bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-stone-950 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold shadow transition transform active:scale-95">
+                        Drop Match Card(s)
+                    </button>
+                    <button onclick="callShow()" id="call-show-btn" class="bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-bold shadow transition transform active:scale-95">
+                        Call Show!
+                    </button>
+                </div>
+            </div>
+
+            <!-- Scrollable Hand Container -->
+            <div id="my-hand-container" class="flex gap-2 sm:gap-3 overflow-x-auto py-2 px-1 min-h-[140px] items-center">
+                <!-- Cards injected here -->
+            </div>
+        </div>
+
+    </main>
+
+    <div id="modal-overlay" class="fixed inset-0 bg-black/75 backdrop-blur-md hidden items-center justify-center p-4 z-50">
+        <div class="bg-stone-900 border border-white/10 p-6 sm:p-8 rounded-3xl w-full max-w-md shadow-2xl flex flex-col space-y-5 text-center">
+            <h3 id="modal-title" class="text-xl sm:text-2xl font-bold text-amber-400">Round Summary</h3>
+            <div id="modal-body" class="text-xs sm:text-sm text-gray-300 space-y-2 max-h-60 overflow-y-auto text-left bg-black/30 p-4 rounded-2xl border border-white/5">
+                <!-- Summary details injected here -->
+            </div>
+            <button onclick="closeModal()" class="w-full bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold py-3 rounded-xl text-sm transition shadow-lg">
+                Continue Game
+            </button>
         </div>
     </div>
 
     <script>
-        let peer, conn;
+        // --- GAME & P2P STATE ---
+        let peer = null;
+        let conn = null;
+        let connections = []; // For host to track all clients
         let isHost = false;
-        let myName = "";
-        let opponentName = "Opponent";
-        
-        // Game State
-        let deck = [];
-        let discardPile = [];
+        let myId = '';
+        let myName = '';
+        let roomId = '';
+
+        // Room & Player Roster
+        let players = []; // { id, name, score, handSize, eliminated }
         let myHand = [];
-        let opponentHandSize = 0;
-        let turn = ""; // 'me' or 'opponent'
-        let drawnCard = null;
-        let hasDrawnThisTurn = false;
-        let myScores = 0;
-        let opponentScores = 0;
+        let deck = [];
+        let discardPile = []; // Top card is board open card
+        let currentTurnIndex = 0;
+        let gameActive = false;
+        let selectedCards = []; // Indices of cards selected in hand
 
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
-        document.getElementById('create-btn').addEventListener('click', createRoom);
-        document.getElementById('join-btn').addEventListener('click', joinRoom);
-
-        function log(msg) {
-            const logBox = document.getElementById('log');
-            logBox.innerHTML += `<div>> ${msg}</div>`;
-            logBox.scrollTop = logBox.scrollHeight;
+        // --- NOTIFICATIONS & UI HELPERS ---
+        function showNotification(title, htmlContent) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-body').innerHTML = htmlContent;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            document.getElementById('modal-overlay').classList.add('flex');
         }
 
-        function createRoom() {
-            myName = document.getElementById('username').value.trim();
-            if (!myName) { alert("Please enter a nickname"); return; }
-            
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.remove('flex');
+            document.getElementById('modal-overlay').classList.add('hidden');
+        }
+
+        function showLobbyStatus(msg) {
+            document.getElementById('lobby-status').innerText = msg;
+        }
+
+        // --- LOBBY & ROOM SETUP ---
+        function hostGame() {
+            myName = document.getElementById('nickname-input').value.trim();
+            if (!myName) {
+                showLobbyStatus("Please enter your nickname first!");
+                return;
+            }
             isHost = true;
-            peer = new Peer(); // Auto generates a random ID
+            showLobbyStatus("Initializing host server...");
             
+            peer = new Peer();
             peer.on('open', (id) => {
-                document.getElementById('status-msg').innerHTML = `Room created! Send this ID to your friend: <br><b>${id}</b>`;
-                log("Waiting for opponent to connect...");
+                myId = id;
+                roomId = id;
+                players = [{ id: myId, name: myName, score: 0, handSize: 0, eliminated: false }];
+                
+                document.getElementById('display-room-id').innerText = roomId;
+                document.getElementById('room-badge').classList.remove('hidden');
+                
+                transitionToWaitingRoom();
+                updatePlayersList();
+                showLobbyStatus("");
             });
 
             peer.on('connection', (connection) => {
-                conn = connection;
-                setupConnection();
-            });
-        }
-
-        function joinRoom() {
-            myName = document.getElementById('username').value.trim();
-            const roomId = document.getElementById('room-id-input').value.trim();
-            if (!myName || !roomId) { alert("Enter nickname and Room ID"); return; }
-
-            isHost = false;
-            peer = new Peer();
-
-            peer.on('open', () => {
-                conn = peer.connect(roomId);
-                setupConnection();
-            });
-        }
-
-        function setupConnection() {
-            conn.on('open', () => {
-                log("Connected to peer!");
-                document.getElementById('lobby').classList.add('hidden');
-                document.getElementById('game-board').classList.remove('hidden');
-                
-                document.getElementById('my-name').innerText = myName;
-
-                // Send my name to peer
-                conn.send({ type: 'INIT', name: myName });
-
-                if (isHost) {
-                    initGame();
+                if (players.length >= 6) {
+                    connection.on('open', () => {
+                        connection.send({ type: 'ERROR', message: 'Room is full (Max 6 players).' });
+                        setTimeout(() => connection.close(), 500);
+                    });
+                    return;
                 }
-            });
+                if (gameActive) {
+                    connection.on('open', () => {
+                        connection.send({ type: 'ERROR', message: 'Game has already started.' });
+                        setTimeout(() => connection.close(), 500);
+                    });
+                    return;
+                }
 
-            conn.on('data', (data) => {
-                handleServerData(data);
+                connections.push(connection);
+                setupHostConnectionListeners(connection);
             });
         }
 
-        function handleServerData(data) {
-            switch(data.type) {
-                case 'INIT':
-                    opponentName = data.name;
-                    document.getElementById('opponent-name').innerText = opponentName;
-                    document.getElementById('opponent-status').innerText = `Opponent: ${opponentName}`;
-                    break;
-                case 'START_GAME':
-                    deck = data.deck;
-                    discardPile = data.discardPile;
-                    myHand = data.myHand;
-                    opponentHandSize = data.opponentHandSize;
-                    turn = data.turn;
-                    hasDrawnThisTurn = false;
-                    drawnCard = null;
-                    renderGame();
-                    log(`Game started! It's ${turn === 'me' ? 'your' : opponentName + "'s"} turn.`);
-                    break;
-                case 'ACTION_UPDATE':
-                    deck = data.deck;
-                    discardPile = data.discardPile;
-                    myHand = data.myHand;
-                    opponentHandSize = data.opponentHandSize;
-                    turn = data.turn;
-                    hasDrawnThisTurn = false;
-                    drawnCard = null;
-                    renderGame();
-                    log(data.message);
-                    break;
-                case 'CALL_SHOW':
-                    revealHandsAndScore(data.hostHand, data.joinerHand, data.caller);
-                    break;
+        function showJoinModal() {
+            myName = document.getElementById('nickname-input').value.trim();
+            if (!myName) {
+                showLobbyStatus("Please enter your nickname first!");
+                return;
+            }
+            document.getElementById('join-modal').classList.remove('hidden');
+            document.getElementById('join-modal').classList.add('flex');
+        }
+
+        function closeJoinModal() {
+            document.getElementById('join-modal').classList.remove('flex');
+            document.getElementById('join-modal').classList.add('hidden');
+        }
+
+        function joinGame() {
+            const targetRoomId = document.getElementById('room-id-input').value.trim();
+            if (!targetRoomId) {
+                alert("Please enter a valid Room ID");
+                return;
+            }
+            closeJoinModal();
+            isHost = false;
+            roomId = targetRoomId;
+            showLobbyStatus("Connecting to room...");
+
+            peer = new Peer();
+            peer.on('open', (id) => {
+                myId = id;
+                conn = peer.connect(roomId);
+                setupClientConnectionListeners();
+            });
+        }
+
+        function transitionToWaitingRoom() {
+            document.getElementById('lobby-screen').classList.add('hidden');
+            document.getElementById('waiting-screen').classList.remove('hidden');
+            if (isHost) {
+                document.getElementById('host-controls').classList.remove('hidden');
+                document.getElementById('guest-waiting-msg').classList.add('hidden');
             }
         }
 
-        // --- GAME LOGIC (Host handles state distribution) ---
+        // --- P2P CONNECTION HANDLING (HOST) ---
+        function setupHostConnectionListeners(connection) {
+            connection.on('data', (data) => {
+                if (data.type === 'JOIN_REQUEST') {
+                    // Check duplicate names or add player
+                    players.push({ id: connection.peer, name: data.name, score: 0, handSize: 0, eliminated: false });
+                    broadcastRoomState();
+                } else if (data.type === 'PLAYER_ACTION') {
+                    handlePlayerAction(data.action);
+                }
+            });
+
+            connection.on('close', () => {
+                players = players.filter(p => p.id !== connection.peer);
+                connections = connections.filter(c => c.peer !== connection.peer);
+                broadcastRoomState();
+            });
+        }
+
+        function broadcastRoomState() {
+            updatePlayersList();
+            connections.forEach(c => {
+                c.send({
+                    type: 'UPDATE_LOBBY',
+                    players: players
+                });
+            });
+        }
+
+        function updatePlayersList() {
+            const listEl = document.getElementById('players-list');
+            const countEl = document.getElementById('player-count');
+            countEl.innerText = players.length;
+            listEl.innerHTML = '';
+            players.forEach((p, idx) => {
+                listEl.innerHTML += `
+                    <div class="flex justify-between items-center bg-black/30 px-3 py-2 rounded-xl text-xs">
+                        <span class="font-medium text-white">${idx + 1}. ${p.name} ${p.id === myId ? '(You)' : ''}</span>
+                        <span class="text-emerald-400 font-bold">Ready</span>
+                    </div>
+                `;
+            });
+        }
+
+        // --- P2P CONNECTION HANDLING (CLIENT) ---
+        function setupClientConnectionListeners() {
+            conn.on('open', () => {
+                showLobbyStatus("Connected! Joining room...");
+                conn.send({ type: 'JOIN_REQUEST', name: myName });
+                transitionToWaitingRoom();
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'ERROR') {
+                    alert(data.message);
+                    window.location.reload();
+                } else if (data.type === 'UPDATE_LOBBY') {
+                    players = data.players;
+                    updatePlayersList();
+                } else if (data.type === 'START_GAME_STATE') {
+                    players = data.players;
+                    myHand = data.hands[myId];
+                    deck = data.deck;
+                    discardPile = data.discardPile;
+                    currentTurnIndex = data.currentTurnIndex;
+                    gameActive = true;
+                    
+                    document.getElementById('waiting-screen').classList.add('hidden');
+                    document.getElementById('game-screen').classList.remove('hidden');
+                    document.getElementById('my-player-name').innerText = myName;
+                    renderGameBoard();
+                } else if (data.type === 'GAME_STATE_UPDATE') {
+                    players = data.players;
+                    myHand = data.hands[myId] || myHand;
+                    deck = data.deck;
+                    discardPile = data.discardPile;
+                    currentTurnIndex = data.currentTurnIndex;
+                    renderGameBoard();
+                } else if (data.type === 'ROUND_OVER') {
+                    showNotification(data.title, data.html);
+                }
+            });
+        }
+
+        // --- GAME ENGINE & RULES (HOST) ---
         function createDeck() {
             let d = [];
             for (let s of suits) {
@@ -333,196 +434,333 @@
             return d;
         }
 
-        function initGame() {
+        function startMatch() {
+            if (players.length < 2) {
+                alert("You need at least 2 players to start!");
+                return;
+            }
+            
             let fullDeck = createDeck();
-            let hostHand = fullDeck.splice(0, 5);
-            let joinerHand = fullDeck.splice(0, 5);
-            let discard = [fullDeck.pop()];
-
-            deck = fullDeck;
-            discardPile = discard;
-            myHand = hostHand;
-            opponentHandSize = 5;
-            turn = 'me'; // Host starts
-
-            // Send initial state to joiner (inverted hands)
-            conn.send({
-                type: 'START_GAME',
-                deck: deck,
-                discardPile: discardPile,
-                myHand: joinerHand,
-                opponentHandSize: 5,
-                turn: 'opponent' // Joiner sees opponent's turn as 'opponent' (which is host)
+            let hands = {};
+            
+            players.forEach(p => {
+                p.score = 0;
+                p.eliminated = false;
+                p.handSize = 7;
+                hands[p.id] = fullDeck.splice(0, 7);
             });
 
-            renderGame();
-            log("Game started! Your turn.");
+            discardPile = [fullDeck.pop()];
+            deck = fullDeck;
+            currentTurnIndex = 0;
+            gameActive = true;
+
+            // Send to all clients
+            let statePayload = {
+                type: 'START_GAME_STATE',
+                players: players,
+                deck: deck,
+                discardPile: discardPile,
+                currentTurnIndex: currentTurnIndex,
+                hands: hands
+            };
+
+            // Setup local host hand & view
+            myHand = hands[myId];
+            document.getElementById('waiting-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            document.getElementById('my-player-name').innerText = myName;
+            
+            // Distribute state to clients
+            connections.forEach(c => {
+                c.send(statePayload);
+            });
+
+            renderGameBoard();
         }
 
+        // --- GAMEPLAY INTERACTIONS & ACTIONS ---
         function getCardPoints(card) {
             return card.points;
         }
 
         function calculateHandSum(hand) {
-            return hand.reduce((sum, card) => sum + getCardPoints(card), 0);
+            return hand.reduce((sum, c) => sum + getCardPoints(c), 0);
         }
 
-        function renderGame() {
-            // Render My Hand
-            const myHandEl = document.getElementById('my-hand');
-            myHandEl.innerHTML = '';
-            myHand.forEach((card, index) => {
-                myHandEl.appendChild(createCardElement(card, index, false));
+        function renderGameBoard() {
+            // 1. Render Opponents Grid
+            const oppGrid = document.getElementById('opponents-grid');
+            oppGrid.innerHTML = '';
+            players.forEach((p, idx) => {
+                if (p.id === myId) return; // Skip self
+                const isCurrentTurn = (idx === currentTurnIndex);
+                oppGrid.innerHTML += `
+                    <div class="bg-black/30 backdrop-blur-md p-2.5 rounded-2xl border ${isCurrentTurn ? 'border-amber-400 shadow-lg shadow-amber-500/20' : 'border-white/10'} flex flex-col justify-between">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="font-bold truncate text-white">${p.name}</span>
+                            <span class="text-emerald-300 font-mono">Pts: ${p.score}</span>
+                        </div>
+                        <div class="flex justify-center space-x-1 my-2">
+                            ${Array(p.handSize).fill(0).map(() => `<div class="w-4 h-6 bg-red-800 border border-white/40 rounded shadow"></div>`).join('')}
+                        </div>
+                        <div class="text-[10px] text-center text-gray-400">
+                            ${p.eliminated ? '<span class="text-red-400 font-bold">Eliminated</span>' : (isCurrentTurn ? '<span class="text-amber-400 font-bold">Thinking...</span>' : 'Waiting')}
+                        </div>
+                    </div>
+                `;
             });
 
-            // Render Opponent Hand (Face down)
-            const oppHandEl = document.getElementById('opponent-hand');
-            oppHandEl.innerHTML = '';
-            for (let i = 0; i < opponentHandSize; i++) {
-                let cardBack = document.createElement('div');
-                cardBack.className = 'card back';
-                oppHandEl.appendChild(cardBack);
-            }
-
-            // Render Discard Pile Top Card
-            const discardEl = document.getElementById('discard-card');
+            // 2. Render Board Open Card
             if (discardPile.length > 0) {
-                let topCard = discardPile[discardPile.length - 1];
-                discardEl.className = `card ${['♥', '♦'].includes(topCard.suit) ? 'red' : ''}`;
-                discardEl.innerHTML = `<div>${topCard.val} ${topCard.suit}</div><div style="text-align:right;">${topCard.val}</div>`;
+                const topCard = discardPile[discardPile.length - 1];
+                const isRed = ['♥', '♦'].includes(topCard.suit);
+                const colorClass = isRed ? 'text-red-600' : 'text-stone-900';
+
+                document.getElementById('board-val-tl').innerText = topCard.val;
+                document.getElementById('board-val-br').innerText = topCard.val;
+                document.getElementById('board-suit-tl').innerText = topCard.suit;
+                document.getElementById('board-suit-br').innerText = topCard.suit;
+                document.getElementById('board-suit-center').innerText = topCard.suit;
+                document.getElementById('board-open-card').className = `card bg-white ${colorClass} w-20 sm:w-24 h-32 sm:h-36 rounded-2xl flex flex-col justify-between p-3 shadow-2xl border-2 border-stone-300 relative cursor-pointer hover:border-amber-400`;
             }
 
-            document.getElementById('my-sum5').innerText = `Sum: ${calculateHandSum(myHand)}`;
-            document.getElementById('score-display').innerText = `Scores - You: ${myScores} | Opponent: ${opponentScores}`;
+            // 3. Render My Hand
+            const handContainer = document.getElementById('my-hand-container');
+            handContainer.innerHTML = '';
+            myHand.forEach((card, idx) => {
+                const isRed = ['♥', '♦'].includes(card.suit);
+                const colorClass = isRed ? 'text-red-600' : 'text-stone-900';
+                const isSelected = selectedCards.includes(idx);
+
+                const cardEl = document.createElement('div');
+                cardEl.className = `card bg-white ${colorClass} w-20 sm:w-24 h-32 sm:h-36 rounded-2xl flex flex-col justify-between p-3 shadow-xl border-2 ${isSelected ? 'selected border-amber-500' : 'border-stone-300'}`;
+                cardEl.innerHTML = `
+                    <div class="flex flex-col leading-none">
+                        <span class="text-base sm:text-lg font-bold">${card.val}</span>
+                        <span class="text-sm">${card.suit}</span>
+                    </div>
+                    <div class="text-2xl sm:text-3xl self-center">${card.suit}</div>
+                    <div class="flex flex-col leading-none text-right">
+                        <span class="text-base sm:text-lg font-bold rotate-180">${card.val}</span>
+                        <span class="text-sm rotate-180">${card.suit}</span>
+                    </div>
+                `;
+                cardEl.onclick = () => toggleSelectCard(idx);
+                handContainer.appendChild(cardEl);
+            });
+
+            // 4. Update Turn Banner & Buttons
+            const activePlayer = players[currentTurnIndex];
+            const isMyTurn = (activePlayer && activePlayer.id === myId);
+            const turnBanner = document.getElementById('turn-banner');
             
-            // Enable/Disable Show button (Can only show if sum is <= 5)
-            document.getElementById('show-btn').disabled = !(turn === 'me' && !hasDrawnThisTurn && calculateHandSum(myHand) <= 5);
+            if (isMyTurn) {
+                turnBanner.innerText = "It's YOUR turn! Drop matching cards or pick up card.";
+            } else {
+                turnBanner.innerText = `Waiting for ${activePlayer ? activePlayer.name : 'Player'}...`;
+            }
+
+            document.getElementById('my-hand-sum').innerText = calculateHandSum(myHand);
+            
+            // Show button validation: only on turn start and sum <= 5
+            const canShow = isMyTurn && calculateHandSum(myHand) <= 5;
+            document.getElementById('call-show-btn').disabled = !canShow;
+            document.getElementById('play-match-btn').disabled = !isMyTurn || selectedCards.length === 0;
         }
 
-        function createCardElement(card, index, isOpponent) {
-            let el = document.createElement('div');
-            el.className = `card ${['♥', '♦'].includes(card.suit) ? 'red' : ''}`;
-            el.innerHTML = `<div>${card.val} ${card.suit}</div><div style="text-align:right;">${card.val}</div>`;
+        function toggleSelectCard(idx) {
+            const activePlayer = players[currentTurnIndex];
+            if (!activePlayer || activePlayer.id !== myId) {
+                return; // Not your turn
+            }
+            const pos = selectedCards.indexOf(idx);
+            if (pos > -1) {
+                selectedCards.splice(pos, 1);
+            } else {
+                selectedCards.push(idx);
+            }
+            renderGameBoard();
+        }
+
+        // --- ACTION: DROP MATCHING CARDS OR PICKUP ---
+        function playSelectedCards() {
+            const activePlayer = players[currentTurnIndex];
+            if (!activePlayer || activePlayer.id !== myId) return;
+            if (selectedCards.length === 0) return;
+
+            const topBoardCard = discardPile[discardPile.length - 1];
             
-            el.onclick = () => {
-                if (turn !== 'me') {
-                    alert("Not your turn!");
+            // Rule validation: Selected cards must match the rank of the top board card
+            for (let idx of selectedCards) {
+                if (myHand[idx].val !== topBoardCard.val) {
+                    alert(`Selected cards must match the board card rank (${topBoardCard.val})!`);
                     return;
                 }
-                if (!hasDrawnThisTurn) {
-                    alert("Draw a card first!");
-                    return;
-                }
-                // Discard selected card from hand
-                playCardFromHand(index);
-            };
-            return el;
+            }
+
+            // Perform drop
+            let droppedCards = selectedCards.sort((a,b) => b - a).map(idx => myHand.splice(idx, 1)[0]);
+            droppedCards.forEach(c => discardPile.push(c));
+            selectedCards = [];
+
+            // Next player turn
+            advanceTurnAfterAction();
+        }
+
+        function pickupBoardCard() {
+            const activePlayer = players[currentTurnIndex];
+            if (!activePlayer || activePlayer.id !== myId) return;
+
+            if (discardPile.length === 0) return;
+
+            // Take top board card into hand
+            let takenCard = discardPile.pop();
+            myHand.push(takenCard);
+
+            advanceTurnAfterAction();
         }
 
         function drawFromDeck() {
-            if (turn !== 'me') { alert("Not your turn!"); return; }
-            if (hasDrawnThisTurn) { alert("You already drew a card this turn! Click a card in your hand to discard."); return; }
-            if (deck.length === 0) { reshuffleDeck(); }
+            const activePlayer = players[currentTurnIndex];
+            if (!activePlayer || activePlayer.id !== myId) return;
 
-            drawnCard = deck.pop();
-            myHand.push(drawnCard);
-            hasDrawnThisTurn = true;
-            renderGame();
-            log("You drew a card from the deck. Now discard one card from your hand.");
-        }
+            if (deck.length === 0) {
+                // Reshuffle discard into deck if empty
+                let top = discardPile.pop();
+                deck = discardPile;
+                discardPile = [top];
+                // Shuffle
+                for (let i = deck.length - 1; i > 0; i--) {
+                    let j = Math.floor(Math.random() * (i + 1));
+                    [deck[i], deck[j]] = [deck[j], deck[i]];
+                }
+            }
 
-        function drawFromDiscard() {
-            if (turn !== 'me') { alert("Not your turn!"); return; }
-            if (hasDrawnThisTurn) { alert("You already drew a card this turn!"); return; }
-            if (discardPile.length === 0) return;
-
-            drawnCard = discardPile.pop();
-            myHand.push(drawnCard);
-            hasDrawnThisTurn = true;
-            renderGame();
-            log("You picked up a card from the discard pile. Now discard one card from your hand.");
-        }
-
-        function playCardFromHand(index) {
-            let discarded = myHand.splice(index, 1)[0];
-            discardPile.push(discarded);
-            hasDrawnThisTurn = false;
-            turn = 'opponent'; // switch turn
-
-            // Sync state with peer
-            syncState(`You discarded ${discarded.val}${discarded.suit}. Opponent's turn.`);
-            renderGame();
-        }
-
-        function reshuffleDeck() {
-            if (discardPile.length <= 1) return;
-            let top = discardPile.pop();
-            deck = discardPile;
-            discardPile = [top];
-            // shuffle deck
-            for (let i = deck.length - 1; i > 0; i--) {
-                let j = Math.floor(Math.random() * (i + 1));
-                [deck[i], deck[j]] = [deck[j], deck[i]];
+            if (deck.length > 0) {
+                let drawn = deck.pop();
+                myHand.push(drawn);
+                advanceTurnAfterAction();
+            } else {
+                alert("Deck is completely empty!");
             }
         }
 
-        function syncState(msg) {
-            // Pack data for opponent view (Swap myHand and opponentHandSize roles)
-            let payload = {
-                type: 'ACTION_UPDATE',
-                deck: deck,
-                discardPile: discardPile,
-                myHand: myHand, // Will become opponent's hand on their end
-                opponentHandSize: myHand.length,
-                turn: 'me', // Will become 'me' on their end
-                message: `${myName} action: ${msg}`
-            };
-            conn.send(payload);
-            log(msg);
+        function advanceTurnAfterAction() {
+            // Update hand size in roster
+            const meObj = players.find(p => p.id === myId);
+            if (meObj) meObj.handSize = myHand.length;
+
+            if (isHost) {
+                nextTurnLogic();
+            } else {
+                // Send action update to host
+                conn.send({
+                    type: 'PLAYER_ACTION',
+                    action: {
+                        playerId: myId,
+                        hand: myHand,
+                        deck: deck,
+                        discardPile: discardPile,
+                        nextTurn: true
+                    }
+                });
+            }
         }
 
+        // Host handles action execution and broadcasting state
+        let globalHands = {}; // Host stores all hands
+
+        function handlePlayerAction(action) {
+            if (!isHost) return;
+            const p = players.find(x => x.id === action.playerId);
+            if (p) p.handSize = action.hand.length;
+            
+            deck = action.deck;
+            discardPile = action.discardPile;
+
+            // Advance turn index skipping eliminated players
+            do {
+                currentTurnIndex = (currentTurnIndex + 1) % players.length;
+            } while (players[currentTurnIndex].eliminated);
+
+            broadcastGameState(globalHands);
+        }
+
+        function nextTurnLogic() {
+            do {
+                currentTurnIndex = (currentTurnIndex + 1) % players.length;
+            } while (players[currentTurnIndex].eliminated);
+
+            broadcastGameState();
+        }
+
+        function broadcastGameState(handsMap = null) {
+            renderGameBoard();
+            if (!isHost) return;
+
+            // If we have connection sockets, sync state
+            connections.forEach(c => {
+                c.send({
+                    type: 'GAME_STATE_UPDATE',
+                    players: players,
+                    deck: deck,
+                    discardPile: discardPile,
+                    currentTurnIndex: currentTurnIndex,
+                    hands: {} // Sent individually or managed per client if needed
+                });
+            });
+        }
+
+        // --- CALL SHOW LOGIC ---
         function callShow() {
-            if (calculateHandSum(myHand) > 5) {
-                alert("Your total count must be 5 or less to call Show!");
+            const activePlayer = players[currentTurnIndex];
+            if (!activePlayer || activePlayer.id !== myId) return;
+
+            const mySum = calculateHandSum(myHand);
+            if (mySum > 5) {
+                alert("Your hand sum must be 5 or below to call Show!");
                 return;
             }
 
-            // Send show request
-            let payload = {
-                type: 'CALL_SHOW',
-                hostHand: isHost ? myHand : null, // Hand data handled conditionally
-                joinerHand: !isHost ? myHand : null,
-                caller: myName
-            };
+            // Execute show scoring
+            let summaryHTML = `<p class="font-bold text-amber-300 mb-2">${myName} called SHOW with sum: ${mySum}</p>`;
             
-            // If host has missing info, fill it locally first before sending or vice versa
-            // For simplicity, let's execute reveal directly via messaging
-            conn.send({
-                type: 'CALL_SHOW_REQUEST',
-                callerHand: myHand,
-                callerName: myName
+            // For single-session / host evaluation or peer broadcast:
+            // Calculate scores for all active players
+            let lowestSum = mySum;
+            let showCallerId = myId;
+
+            // In full P2P host setup, host evaluates all hands. Let's trigger host evaluation.
+            if (isHost) {
+                evaluateShowResults(showCallerId, mySum);
+            } else {
+                conn.send({
+                    type: 'PLAYER_ACTION',
+                    action: {
+                        type: 'CALL_SHOW',
+                        callerId: myId,
+                        callerSum: mySum
+                    }
+                });
+            }
+        }
+
+        function evaluateShowResults(callerId, callerSum) {
+            // For host evaluation: compute sums for all players
+            // (Assuming host has tracking or simplified round reset)
+            let resultText = `Player called Show with sum ${callerSum}. Round completed!`;
+            showNotification("Show Called!", `<p>${resultText}</p>`);
+            
+            // Broadcast round over
+            connections.forEach(c => {
+                c.send({
+                    type: 'ROUND_OVER',
+                    title: 'Round Summary',
+                    html: `<p>${resultText}</p>`
+                });
             });
         }
-        
-        // Handle incoming show request
-        // (Extend data handler)
-        const oldHandler = handleServerData;
-        handleServerData = function(data) {
-            if (data.type === 'CALL_SHOW_REQUEST') {
-                let opponentHand = data.callerHand;
-                let mySum = calculateHandSum(myHand);
-                let oppSum = calculateHandSum(opponentHand);
-                
-                let resultText = `${data.callerName} called SHOW!\n${data.callerName}'s sum: ${oppSum}\nYour sum (${myName}): ${mySum}`;
-                log(resultText);
-                alert(resultText);
-                
-                // Score logic: If caller has lower or equal, caller wins. If not, caller gets penalized.
-                // Reset game logic can follow here.
-            } else {
-                oldHandler(data);
-            }
-        };
 
     </script>
 </body>
