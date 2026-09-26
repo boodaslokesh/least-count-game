@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Least Count Online - Multiplayer</title>
+    <title>Least Count Online - Multiplayer & Solo</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
@@ -59,7 +59,7 @@
 
         <!-- LOBBY SCREEN -->
         <div id="lobby-screen" class="bg-black p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-zinc-800 text-center space-y-4 overflow-y-auto max-h-[85vh]">
-            <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">Multiplayer Lobby</h2>
+            <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">Multiplayer & Solo Lobby</h2>
             <div class="space-y-3 text-left">
                 <div>
                     <label class="block text-[11px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Your Nickname</label>
@@ -90,6 +90,11 @@
             </div>
 
             <div class="space-y-3 pt-1">
+                <!-- Play vs Computer Button -->
+                <button onclick="startSoloGame()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm">
+                    🤖 Play vs Computer (Solo)
+                </button>
+
                 <button onclick="createRoom()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm">
                     Create Room (Host)
                 </button>
@@ -241,6 +246,7 @@
         let conn = null;
         let connections = {};
         let isHost = false;
+        let isSoloMode = false;
         let myId = '';
         let myName = '';
         let maxPlayersLimit = 4;
@@ -284,8 +290,62 @@
             return code;
         }
 
+        // --- SOLO / COMPUTER MODE ---
+        function startSoloGame() {
+            myName = document.getElementById('nickname-input').value.trim() || "Player";
+            targetEliminationPoints = parseInt(document.getElementById('target-points-select').value);
+            maxPlayersLimit = parseInt(document.getElementById('max-players-select').value);
+            
+            isSoloMode = true;
+            isHost = true;
+            myId = 'player-me';
+            roomCode = 'SOLO';
+
+            players = [
+                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
+            ];
+
+            // Add computer bots to fill max players limit
+            for (let i = 1; i < maxPlayersLimit; i++) {
+                players.push({
+                    id: `bot-${i}`,
+                    name: `Bot ${i}`,
+                    isHost: false,
+                    scores: 0,
+                    hand: [],
+                    eliminated: false,
+                    isBot: true
+                });
+            }
+
+            myIndex = 0;
+            let fullDeck = createDeck();
+            players.forEach(p => {
+                p.hand = fullDeck.splice(0, 7);
+                p.eliminated = false;
+            });
+            
+            discardPile = [fullDeck.pop()];
+            deck = fullDeck;
+            currentTurnIndex = 0;
+            turnPhase = 'drop';
+            roundActive = true;
+
+            document.getElementById('lobby-screen').classList.add('hidden');
+            document.getElementById('game-board-screen').classList.remove('hidden');
+            document.getElementById('room-badge').classList.add('hidden'); // No room code needed for solo
+            document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
+            document.getElementById('game-status-banner').classList.remove('hidden');
+            document.getElementById('game-status-banner').innerText = "Solo vs Computer Mode";
+
+            renderGameBoard();
+            logTicker("Solo game started against Computer bots!");
+            checkBotTurn();
+        }
+
         // --- ROOM CREATION & JOINING ---
         function createRoom() {
+            isSoloMode = false;
             myName = document.getElementById('nickname-input').value.trim();
             if(!myName) { showLobbyError("Please enter your nickname."); return; }
             maxPlayersLimit = parseInt(document.getElementById('max-players-select').value);
@@ -298,7 +358,7 @@
 
             peer.on('open', (id) => {
                 myId = id;
-                players = [{ id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false }];
+                players = [{ id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
                 myIndex = 0;
 
                 document.getElementById('lobby-screen').classList.add('hidden');
@@ -332,6 +392,7 @@
         }
 
         function joinRoom() {
+            isSoloMode = false;
             myName = document.getElementById('nickname-input').value.trim();
             const codeInput = document.getElementById('join-room-input').value.trim().toUpperCase();
             if(!myName || !codeInput) { showLobbyError("Enter your nickname and Room Code."); return; }
@@ -378,7 +439,7 @@
                         c.send({ type: 'REJECT', reason: 'Room is full.' });
                         return;
                     }
-                    let newPlayer = { id: c.peer, name: data.name, isHost: false, scores: 0, hand: [], eliminated: false };
+                    let newPlayer = { id: c.peer, name: data.name, isHost: false, scores: 0, hand: [], eliminated: false, isBot: false };
                     players.push(newPlayer);
                     broadcastPlayerList();
                     updateWaitingRoomUI();
@@ -555,6 +616,72 @@
             }
         }
 
+        // --- COMPUTER BOT LOGIC ---
+        function checkBotTurn() {
+            if(!isSoloMode || !roundActive) return;
+            let currentP = players[currentTurnIndex];
+            if(currentP && currentP.isBot && !currentP.eliminated) {
+                setTimeout(() => {
+                    executeBotTurn(currentP);
+                }, 1200);
+            }
+        }
+
+        function executeBotTurn(bot) {
+            if(!roundActive || currentTurnIndex !== players.findIndex(p => p.id === bot.id)) return;
+
+            let botSum = calculateHandSum(bot.hand);
+            // Bot calls show if sum <= 5 and random chance or low enough points
+            if(botSum <= 5 && Math.random() < 0.7) {
+                logTicker(`${bot.name} called Show!`);
+                executeShowRound(bot.id);
+                return;
+            }
+
+            // Bot drop logic: find highest point card or duplicate card to drop
+            let topCard = discardPile[discardPile.length - 1];
+            
+            // Check if bot has card matching discard pile
+            let matchCard = bot.hand.find(c => topCard && c.val === topCard.val);
+            let dropGroup = [];
+
+            if(matchCard) {
+                dropGroup = bot.hand.filter(c => c.val === matchCard.val);
+            } else {
+                // Drop highest point card
+                bot.hand.sort((a,b) => b.points - a.points);
+                let highestVal = bot.hand[0].val;
+                dropGroup = bot.hand.filter(c => c.val === highestVal);
+            }
+
+            bot.hand = bot.hand.filter(c => !dropGroup.includes(c));
+            dropGroup.forEach(c => discardPile.push(c));
+
+            let matchesBoard = topCard && (dropGroup[0].val === topCard.val);
+
+            if(matchesBoard) {
+                advanceTurn();
+                let msg = `${bot.name} dropped ${dropGroup.map(c=>c.val+c.suit).join(', ')} matching board! No card drawn.`;
+                syncActionComplete(msg);
+                checkBotTurn();
+            } else {
+                // Draw card from deck
+                if(deck.length === 0 && discardPile.length > 1) {
+                    let top = discardPile.pop();
+                    deck = discardPile;
+                    discardPile = [top];
+                }
+                if(deck.length > 0) {
+                    let drawn = deck.pop();
+                    bot.hand.push(drawn);
+                }
+                advanceTurn();
+                let msg = `${bot.name} played their turn and drew a card.`;
+                syncActionComplete(msg);
+                checkBotTurn();
+            }
+        }
+
         // --- ACTIONS ---
         function handleCardClick(cardUid) {
             if(!roundActive) return;
@@ -581,6 +708,7 @@
                     advanceTurn();
                     let msg = `${me.name} dropped ${droppedCards.map(c=>c.val+c.suit).join(', ')} matching board! No card drawn.`;
                     syncActionComplete(msg);
+                    checkBotTurn();
                 } else {
                     turnPhase = 'draw';
                     renderGameBoard();
@@ -621,6 +749,7 @@
             advanceTurn();
             let msg = `${me.name} drew a card. Turn ended.`;
             syncActionComplete(msg);
+            checkBotTurn();
         }
 
         function advanceTurn() {
@@ -633,7 +762,7 @@
 
         function syncActionComplete(msg) {
             if(isHost) {
-                broadcastGameState(msg);
+                if(!isSoloMode) broadcastGameState(msg);
                 renderGameBoard();
                 logTicker(msg);
             } else {
@@ -670,7 +799,7 @@
             let sum = calculateHandSum(me.hand);
             if(sum > 5) { alert("Your total hand sum must be 5 or less to call Show!"); return; }
 
-            if(isHost) {
+            if(isHost || isSoloMode) {
                 executeShowRound(myId);
             } else {
                 conn.send({ type: 'CALL_SHOW', peerId: myId });
@@ -706,7 +835,7 @@
             
             if(othersEqualOrLower) {
                 resultsText += `<span class="text-rose-400 font-bold">BAD SHOW!</span> Another player has equal/lower sum.<br>`;
-                caller.scores += 40;
+                caller.scores += 25;
                 lowestPlayer.scores += 0;
                 summaries.forEach(item => {
                     if(item.player.id !== caller.id && item.player.id !== lowestPlayer.id) {
@@ -749,7 +878,7 @@
             showRoundOverModal(resultsText, caller.name);
             renderGameBoard();
 
-            if(isHost) {
+            if(isHost && !isSoloMode) {
                 for(let pId in connections) {
                     connections[pId].send(payload);
                 }
@@ -761,7 +890,7 @@
             document.getElementById('round-over-content').innerHTML = htmlContent;
             document.getElementById('round-over-modal').classList.remove('hidden');
 
-            if(isHost) {
+            if(isHost || isSoloMode) {
                 document.getElementById('host-next-round-container').classList.remove('hidden');
                 document.getElementById('waiting-next-round-msg').classList.add('hidden');
             } else {
@@ -801,11 +930,14 @@
 
             document.getElementById('round-over-modal').classList.add('hidden');
 
-            for(let pId in connections) {
-                connections[pId].send(startPayload);
+            if(!isSoloMode) {
+                for(let pId in connections) {
+                    connections[pId].send(startPayload);
+                }
             }
             renderGameBoard();
             logTicker("New round started!");
+            checkBotTurn();
         }
 
         // --- RENDERING ---
