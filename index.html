@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Least Count Online</title>
+    <!-- Include PeerJS for direct P2P connection -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --felt-green: #1b4d3e;
+            --card-bg: #ffffff;
+            --card-border: #ccc;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--felt-green);
+            color: white;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        h1 { margin-bottom: 5px; }
+        .hidden { display: none !important; }
+        
+        /* Lobby Styles */
+        #lobby {
+            background: rgba(0,0,0,0.3);
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+        }
+        input, button {
+            padding: 10px 15px;
+            font-size: 16px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border: none;
+            width: 80%;
+        }
+        button {
+            background-color: #ffcc00;
+            color: #333;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #e6b800; }
+
+        /* Game Board Styles */
+        #game-board {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .player-info {
+            background: rgba(0,0,0,0.2);
+            padding: 10px 15px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .table-area {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            padding: 20px;
+            background: rgba(0,0,0,0.15);
+            border-radius: 12px;
+            align-items: center;
+            min-height: 150px;
+        }
+        .deck-pile, .discard-pile {
+            text-align: center;
+        }
+        
+        /* Card Styles */
+        .card {
+            width: 60px;
+            height: 90px;
+            background: var(--card-bg);
+            color: #333;
+            border-radius: 6px;
+            border: 1px solid var(--card-border);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            user-select: none;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: transform 0.2s, background-color 0.2s;
+            position: relative;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .card.red { color: #d32f2f; }
+        .card.selected {
+            border: 3px solid #ffcc00;
+            transform: translateY(-10px);
+        }
+        .card.back {
+            background: linear-gradient(135deg, #b71c1c, #d32f2f);
+            border: 2px solid white;
+        }
+        
+        .hand-container {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            min-height: 100px;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+        }
+
+        #log {
+            background: rgba(0,0,0,0.4);
+            padding: 10px;
+            border-radius: 6px;
+            height: 80px;
+            overflow-y: auto;
+            font-size: 14px;
+        }
+
+        .controls {
+            text-align: center;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Least Count Online</h1>
+    
+    <!-- LOBBY SCREEN -->
+    <div id="lobby">
+        <h3>Join or Create a Room</h3>
+        <input type="text" id="username" placeholder="Your Nickname" maxlength="15"><br>
+        <button id="create-btn">Create Room</button>
+        <p>- or -</p>
+        <input type="text" id="room-id-input" placeholder="Enter Room ID"><br>
+        <button id="join-btn">Join Room</button>
+        <p id="status-msg" style="font-size: 14px; margin-top: 10px;"></p>
+    </div>
+
+    <!-- GAME BOARD -->
+    <div id="game-board" class="hidden">
+        <div class="player-info">
+            <span id="opponent-status">Opponent: Waiting...</span>
+            <span id="score-display">Scores - You: 0 | Opponent: 0</span>
+        </div>
+
+        <div id="log">Game initialized. Waiting for actions...</div>
+
+        <!-- Opponent Hand -->
+        <div>
+            <p>Opponent's Hand (<span id="opponent-name">Opponent</span>)</p>
+            <div id="opponent-hand" class="hand-container"></div>
+        </div>
+
+        <!-- Table Center -->
+        <div class="table-area">
+            <div class="deck-pile">
+                <p>Deck</p>
+                <div id="deck-card" class="card back" onclick="drawFromDeck()"></div>
+            </div>
+            <div class="discard-pile">
+                <p>Discard Pile</p>
+                <div id="discard-card" class="card" onclick="drawFromDiscard()"></div>
+            </div>
+        </div>
+
+        <!-- Your Hand -->
+        <div>
+            <p>Your Hand (<span id="my-name">You</span>) <span id="my-sum" style="float: right;">Sum: ?</span></p>
+            <div id="my-hand" class="hand-container"></div>
+        </div>
+
+        <div class="controls">
+            <button id="show-btn" onclick="callShow()" style="background-color: #d32f2f; color: white;" disabled>Call Show!</button>
+        </div>
+    </div>
+
+    <script>
+        let peer, conn;
+        let isHost = false;
+        let myName = "";
+        let opponentName = "Opponent";
+        
+        // Game State
+        let deck = [];
+        let discardPile = [];
+        let myHand = [];
+        let opponentHandSize = 0;
+        let turn = ""; // 'me' or 'opponent'
+        let drawnCard = null;
+        let hasDrawnThisTurn = false;
+        let myScores = 0;
+        let opponentScores = 0;
+
+        const suits = ['♠', '♣', '♥', '♦'];
+        const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
+        document.getElementById('create-btn').addEventListener('click', createRoom);
+        document.getElementById('join-btn').addEventListener('click', joinRoom);
+
+        function log(msg) {
+            const logBox = document.getElementById('log');
+            logBox.innerHTML += `<div>> ${msg}</div>`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function createRoom() {
+            myName = document.getElementById('username').value.trim();
+            if (!myName) { alert("Please enter a nickname"); return; }
+            
+            isHost = true;
+            peer = new Peer(); // Auto generates a random ID
+            
+            peer.on('open', (id) => {
+                document.getElementById('status-msg').innerHTML = `Room created! Send this ID to your friend: <br><b>${id}</b>`;
+                log("Waiting for opponent to connect...");
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+            });
+        }
+
+        function joinRoom() {
+            myName = document.getElementById('username').value.trim();
+            const roomId = document.getElementById('room-id-input').value.trim();
+            if (!myName || !roomId) { alert("Enter nickname and Room ID"); return; }
+
+            isHost = false;
+            peer = new Peer();
+
+            peer.on('open', () => {
+                conn = peer.connect(roomId);
+                setupConnection();
+            });
+        }
+
+        function setupConnection() {
+            conn.on('open', () => {
+                log("Connected to peer!");
+                document.getElementById('lobby').classList.add('hidden');
+                document.getElementById('game-board').classList.remove('hidden');
+                
+                document.getElementById('my-name').innerText = myName;
+
+                // Send my name to peer
+                conn.send({ type: 'INIT', name: myName });
+
+                if (isHost) {
+                    initGame();
+                }
+            });
+
+            conn.on('data', (data) => {
+                handleServerData(data);
+            });
+        }
+
+        function handleServerData(data) {
+            switch(data.type) {
+                case 'INIT':
+                    opponentName = data.name;
+                    document.getElementById('opponent-name').innerText = opponentName;
+                    document.getElementById('opponent-status').innerText = `Opponent: ${opponentName}`;
+                    break;
+                case 'START_GAME':
+                    deck = data.deck;
+                    discardPile = data.discardPile;
+                    myHand = data.myHand;
+                    opponentHandSize = data.opponentHandSize;
+                    turn = data.turn;
+                    hasDrawnThisTurn = false;
+                    drawnCard = null;
+                    renderGame();
+                    log(`Game started! It's ${turn === 'me' ? 'your' : opponentName + "'s"} turn.`);
+                    break;
+                case 'ACTION_UPDATE':
+                    deck = data.deck;
+                    discardPile = data.discardPile;
+                    myHand = data.myHand;
+                    opponentHandSize = data.opponentHandSize;
+                    turn = data.turn;
+                    hasDrawnThisTurn = false;
+                    drawnCard = null;
+                    renderGame();
+                    log(data.message);
+                    break;
+                case 'CALL_SHOW':
+                    revealHandsAndScore(data.hostHand, data.joinerHand, data.caller);
+                    break;
+            }
+        }
+
+        // --- GAME LOGIC (Host handles state distribution) ---
+        function createDeck() {
+            let d = [];
+            for (let s of suits) {
+                for (let v of values) {
+                    let points = 10;
+                    if (v === 'A') points = 1;
+                    else if (!isNaN(v)) points = parseInt(v);
+                    d.push({ suit: s, val: v, points: points, id: Math.random() });
+                }
+            }
+            // Shuffle
+            for (let i = d.length - 1; i > 0; i--) {
+                let j = Math.floor(Math.random() * (i + 1));
+                [d[i], d[j]] = [d[j], d[i]];
+            }
+            return d;
+        }
+
+        function initGame() {
+            let fullDeck = createDeck();
+            let hostHand = fullDeck.splice(0, 5);
+            let joinerHand = fullDeck.splice(0, 5);
+            let discard = [fullDeck.pop()];
+
+            deck = fullDeck;
+            discardPile = discard;
+            myHand = hostHand;
+            opponentHandSize = 5;
+            turn = 'me'; // Host starts
+
+            // Send initial state to joiner (inverted hands)
+            conn.send({
+                type: 'START_GAME',
+                deck: deck,
+                discardPile: discardPile,
+                myHand: joinerHand,
+                opponentHandSize: 5,
+                turn: 'opponent' // Joiner sees opponent's turn as 'opponent' (which is host)
+            });
+
+            renderGame();
+            log("Game started! Your turn.");
+        }
+
+        function getCardPoints(card) {
+            return card.points;
+        }
+
+        function calculateHandSum(hand) {
+            return hand.reduce((sum, card) => sum + getCardPoints(card), 0);
+        }
+
+        function renderGame() {
+            // Render My Hand
+            const myHandEl = document.getElementById('my-hand');
+            myHandEl.innerHTML = '';
+            myHand.forEach((card, index) => {
+                myHandEl.appendChild(createCardElement(card, index, false));
+            });
+
+            // Render Opponent Hand (Face down)
+            const oppHandEl = document.getElementById('opponent-hand');
+            oppHandEl.innerHTML = '';
+            for (let i = 0; i < opponentHandSize; i++) {
+                let cardBack = document.createElement('div');
+                cardBack.className = 'card back';
+                oppHandEl.appendChild(cardBack);
+            }
+
+            // Render Discard Pile Top Card
+            const discardEl = document.getElementById('discard-card');
+            if (discardPile.length > 0) {
+                let topCard = discardPile[discardPile.length - 1];
+                discardEl.className = `card ${['♥', '♦'].includes(topCard.suit) ? 'red' : ''}`;
+                discardEl.innerHTML = `<div>${topCard.val} ${topCard.suit}</div><div style="text-align:right;">${topCard.val}</div>`;
+            }
+
+            document.getElementById('my-sum5').innerText = `Sum: ${calculateHandSum(myHand)}`;
+            document.getElementById('score-display').innerText = `Scores - You: ${myScores} | Opponent: ${opponentScores}`;
+            
+            // Enable/Disable Show button (Can only show if sum is <= 5)
+            document.getElementById('show-btn').disabled = !(turn === 'me' && !hasDrawnThisTurn && calculateHandSum(myHand) <= 5);
+        }
+
+        function createCardElement(card, index, isOpponent) {
+            let el = document.createElement('div');
+            el.className = `card ${['♥', '♦'].includes(card.suit) ? 'red' : ''}`;
+            el.innerHTML = `<div>${card.val} ${card.suit}</div><div style="text-align:right;">${card.val}</div>`;
+            
+            el.onclick = () => {
+                if (turn !== 'me') {
+                    alert("Not your turn!");
+                    return;
+                }
+                if (!hasDrawnThisTurn) {
+                    alert("Draw a card first!");
+                    return;
+                }
+                // Discard selected card from hand
+                playCardFromHand(index);
+            };
+            return el;
+        }
+
+        function drawFromDeck() {
+            if (turn !== 'me') { alert("Not your turn!"); return; }
+            if (hasDrawnThisTurn) { alert("You already drew a card this turn! Click a card in your hand to discard."); return; }
+            if (deck.length === 0) { reshuffleDeck(); }
+
+            drawnCard = deck.pop();
+            myHand.push(drawnCard);
+            hasDrawnThisTurn = true;
+            renderGame();
+            log("You drew a card from the deck. Now discard one card from your hand.");
+        }
+
+        function drawFromDiscard() {
+            if (turn !== 'me') { alert("Not your turn!"); return; }
+            if (hasDrawnThisTurn) { alert("You already drew a card this turn!"); return; }
+            if (discardPile.length === 0) return;
+
+            drawnCard = discardPile.pop();
+            myHand.push(drawnCard);
+            hasDrawnThisTurn = true;
+            renderGame();
+            log("You picked up a card from the discard pile. Now discard one card from your hand.");
+        }
+
+        function playCardFromHand(index) {
+            let discarded = myHand.splice(index, 1)[0];
+            discardPile.push(discarded);
+            hasDrawnThisTurn = false;
+            turn = 'opponent'; // switch turn
+
+            // Sync state with peer
+            syncState(`You discarded ${discarded.val}${discarded.suit}. Opponent's turn.`);
+            renderGame();
+        }
+
+        function reshuffleDeck() {
+            if (discardPile.length <= 1) return;
+            let top = discardPile.pop();
+            deck = discardPile;
+            discardPile = [top];
+            // shuffle deck
+            for (let i = deck.length - 1; i > 0; i--) {
+                let j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
+            }
+        }
+
+        function syncState(msg) {
+            // Pack data for opponent view (Swap myHand and opponentHandSize roles)
+            let payload = {
+                type: 'ACTION_UPDATE',
+                deck: deck,
+                discardPile: discardPile,
+                myHand: myHand, // Will become opponent's hand on their end
+                opponentHandSize: myHand.length,
+                turn: 'me', // Will become 'me' on their end
+                message: `${myName} action: ${msg}`
+            };
+            conn.send(payload);
+            log(msg);
+        }
+
+        function callShow() {
+            if (calculateHandSum(myHand) > 5) {
+                alert("Your total count must be 5 or less to call Show!");
+                return;
+            }
+
+            // Send show request
+            let payload = {
+                type: 'CALL_SHOW',
+                hostHand: isHost ? myHand : null, // Hand data handled conditionally
+                joinerHand: !isHost ? myHand : null,
+                caller: myName
+            };
+            
+            // If host has missing info, fill it locally first before sending or vice versa
+            // For simplicity, let's execute reveal directly via messaging
+            conn.send({
+                type: 'CALL_SHOW_REQUEST',
+                callerHand: myHand,
+                callerName: myName
+            });
+        }
+        
+        // Handle incoming show request
+        // (Extend data handler)
+        const oldHandler = handleServerData;
+        handleServerData = function(data) {
+            if (data.type === 'CALL_SHOW_REQUEST') {
+                let opponentHand = data.callerHand;
+                let mySum = calculateHandSum(myHand);
+                let oppSum = calculateHandSum(opponentHand);
+                
+                let resultText = `${data.callerName} called SHOW!\n${data.callerName}'s sum: ${oppSum}\nYour sum (${myName}): ${mySum}`;
+                log(resultText);
+                alert(resultText);
+                
+                // Score logic: If caller has lower or equal, caller wins. If not, caller gets penalized.
+                // Reset game logic can follow here.
+            } else {
+                oldHandler(data);
+            }
+        };
+
+    </script>
+</body>
+</html>
