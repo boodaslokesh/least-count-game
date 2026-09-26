@@ -40,18 +40,17 @@
             <span id="room-badge" class="text-[10px] sm:text-xs bg-emerald-900/80 px-2 py-0.5 rounded text-emerald-300 hidden">Room: <span id="current-room-id" class="font-mono font-bold uppercase"></span></span>
         </div>
 
-        <!-- TOP LIVE SCORES TABLE BAR -->
-        <div id="top-scores-bar" class="hidden flex items-center space-x-2 bg-black/40 px-2 py-1 rounded-lg border border-emerald-700/40 overflow-x-auto max-w-[50vw]">
-            <span class="text-[9px] uppercase font-bold text-emerald-400 tracking-wider hidden sm:inline">Scores:</span>
-            <div id="top-scores-container" class="flex items-center space-x-2 text-[11px]">
-                <!-- Dynamic top scores list -->
-            </div>
-        </div>
-
         <div id="game-status-banner" class="text-[11px] font-semibold bg-emerald-800/40 px-2.5 py-0.5 rounded-full border border-emerald-600/30 hidden">
             Waiting...
         </div>
     </header>
+
+    <!-- STICKY PLAYER SCORES ROW CONTAINER (Below Header, non-scrolling, up to two rows) -->
+    <div id="sticky-scores-wrapper" class="hidden w-full bg-black/50 backdrop-blur-md border-b border-emerald-800/50 px-2 py-1.5 shrink-0">
+        <div id="top-scores-container" class="flex flex-wrap justify-center items-center gap-1.5 max-w-5xl mx-auto">
+            <!-- Dynamic sticky player scores rows -->
+        </div>
+    </div>
 
     <!-- MAIN CONTAINER -->
     <main class="flex-grow flex flex-col items-center justify-center p-2 sm:p-4 max-w-5xl mx-auto w-full overflow-hidden">
@@ -453,7 +452,7 @@
                     document.getElementById('round-over-modal').classList.add('hidden');
                     document.getElementById('game-board-screen').classList.remove('hidden');
                     document.getElementById('room-badge').classList.remove('hidden');
-                    document.getElementById('top-scores-bar').classList.remove('hidden');
+                    document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
                     
@@ -531,7 +530,7 @@
             document.getElementById('round-over-modal').classList.add('hidden');
             document.getElementById('game-board-screen').classList.remove('hidden');
             document.getElementById('room-badge').classList.remove('hidden');
-            document.getElementById('top-scores-bar').classList.remove('hidden');
+            document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('current-room-id').innerText = roomCode;
             document.getElementById('game-status-banner').classList.remove('hidden');
 
@@ -813,8 +812,8 @@
             topScoresContainer.innerHTML = '';
             players.forEach(p => {
                 let badge = document.createElement('div');
-                badge.className = `flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-950/60 border ${p.eliminated ? 'border-rose-900/60 opacity-50' : 'border-emerald-800/60'}`;
-                badge.innerHTML = `<span class="font-bold text-emerald-200">${p.name}:</span> <span class="font-mono ${p.scores >= targetEliminationPoints ? 'text-rose-400 font-black' : 'text-amber-300'}">${p.scores}</span>`;
+                badge.className = `flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/80 border ${p.eliminated ? 'border-rose-900/60 opacity-50' : 'border-emerald-700/60'} shadow-sm text-xs`;
+                badge.innerHTML = `<span class="font-bold text-emerald-200">${p.name}:</span> <span class="font-mono ${p.scores >= targetEliminationPoints ? 'text-rose-400 font-black' : 'text-amber-300 font-bold'}">${p.scores} pts</span>`;
                 topScoresContainer.appendChild(badge);
             });
 
