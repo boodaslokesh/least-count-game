@@ -45,10 +45,15 @@
         </div>
     </header>
 
-    <!-- STICKY PLAYER SCORES ROW CONTAINER (Below Header, non-scrolling, up to two rows) -->
-    <div id="sticky-scores-wrapper" class="hidden w-full bg-black/50 backdrop-blur-md border-b border-emerald-800/50 px-2 py-1.5 shrink-0">
+    <!-- STICKY PLAYER SCORES ROW CONTAINER & CARD COUNT DIVISIONS (Below Header) -->
+    <div id="sticky-scores-wrapper" class="hidden w-full bg-black/60 backdrop-blur-md border-b border-emerald-800/50 px-2 py-1.5 shrink-0 space-y-1">
+        <!-- Player Scores Row -->
         <div id="top-scores-container" class="flex flex-wrap justify-center items-center gap-1.5 max-w-5xl mx-auto">
             <!-- Dynamic sticky player scores rows -->
+        </div>
+        <!-- Card Count Small Divisions Row -->
+        <div id="sticky-card-counts-container" class="flex flex-wrap justify-center items-center gap-1.5 max-w-5xl mx-auto border-t border-emerald-900/60 pt-1">
+            <!-- Dynamic card count divisions for all players -->
         </div>
     </div>
 
@@ -808,13 +813,24 @@
 
         // --- RENDERING ---
         function renderGameBoard() {
+            // Render sticky player scores
             const topScoresContainer = document.getElementById('top-scores-container');
             topScoresContainer.innerHTML = '';
             players.forEach(p => {
                 let badge = document.createElement('div');
-                badge.className = `flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/80 border ${p.eliminated ? 'border-rose-900/60 opacity-50' : 'border-emerald-700/60'} shadow-sm text-xs`;
-                badge.innerHTML = `<span class="font-bold text-emerald-200">${p.name}:</span> <span class="font-mono ${p.scores >= targetEliminationPoints ? 'text-rose-400 font-black' : 'text-amber-300 font-bold'}">${p.scores} pts</span>`;
+                badge.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-950/80 border ${p.eliminated ? 'border-rose-900/60 opacity-50' : 'border-emerald-700/60'} shadow-sm text-[11px]`;
+                badge.innerHTML = `<span class="font-bold text-emerald-200">${p.name}:</span> <span class="font-mono ${p.scores >= targetEliminationPoints ? 'text-rose-400 font-black' : 'text-amber-300 font-bold'}">${p.scores}pts</span>`;
                 topScoresContainer.appendChild(badge);
+            });
+
+            // Render sticky card counts divisions for all players below scores
+            const stickyCardCountsContainer = document.getElementById('sticky-card-counts-container');
+            stickyCardCountsContainer.innerHTML = '';
+            players.forEach(p => {
+                let countDiv = document.createElement('div');
+                countDiv.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-black/50 border ${p.eliminated ? 'border-red-950/60 text-red-400' : 'border-emerald-800/40 text-emerald-300'} text-[10px]`;
+                countDiv.innerHTML = `<span class="truncate max-w-[70px] font-medium">${p.name}:</span> <span class="font-mono font-bold text-amber-400">🎴 ${p.eliminated ? 'OUT' : p.hand.length}</span>`;
+                stickyCardCountsContainer.appendChild(countDiv);
             });
 
             const hudContainer = document.getElementById('opponents-hud');
