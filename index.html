@@ -21,12 +21,21 @@
 <body class="felt-bg min-h-screen text-white font-sans flex flex-col justify-between select-none">
 
     <!-- TOP BAR / HEADER -->
-    <header class="p-4 bg-black/30 backdrop-blur-md flex justify-between items-center border-b border-emerald-800/50">
+    <header class="p-3 bg-black/30 backdrop-blur-md flex flex-col sm:flex-row justify-between items-center border-b border-emerald-800/50 gap-2">
         <div class="flex items-center space-x-2">
             <span class="text-xl font-black tracking-wider text-emerald-400">LEAST COUNT</span>
             <span id="room-badge" class="text-xs bg-emerald-900/80 px-2 py-1 rounded text-emerald-300 hidden">Room Code: <span id="current-room-id" class="font-mono font-bold uppercase"></span></span>
         </div>
-        <div id="game-status-banner" class="text-sm font-semibold bg-emerald-800/40 px-3 py-1 rounded-full border border-emerald-600/30 hidden">
+
+        <!-- TOP LIVE SCORES TABLE BAR -->
+        <div id="top-scores-bar" class="hidden flex items-center space-x-2 bg-black/40 px-3 py-1.5 rounded-xl border border-emerald-700/40 overflow-x-auto max-w-full">
+            <span class="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Scores:</span>
+            <div id="top-scores-container" class="flex items-center space-x-3 text-xs">
+                <!-- Dynamic top scores list -->
+            </div>
+        </div>
+
+        <div id="game-status-banner" class="text-xs font-semibold bg-emerald-800/40 px-3 py-1 rounded-full border border-emerald-600/30 hidden">
             Waiting to start...
         </div>
     </header>
@@ -184,17 +193,20 @@
         </div>
     </div>
 
-    <!-- ROUND OVER MODAL -->
+    <!-- ROUND OVER MODAL (WITH CANCEL/CLOSE BUTTON) -->
     <div id="round-over-modal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-slate-900 border border-emerald-500/60 w-full max-w-lg rounded-2xl p-6 shadow-2xl space-y-5 text-center">
-            <h2 id="round-over-title" class="text-2xl font-black text-amber-400">SHOW CALLED!</h2>
+        <div class="bg-slate-900 border border-emerald-500/60 w-full max-w-lg rounded-2xl p-6 shadow-2xl space-y-5 relative">
+            <!-- Close / Cancel Button -->
+            <button onclick="closeRoundOverModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-xl px-2 py-1">&times;</button>
+            
+            <h2 id="round-over-title" class="text-2xl font-black text-amber-400 text-center">SHOW CALLED!</h2>
             <div id="round-over-content" class="text-sm text-slate-300 space-y-2 max-h-60 overflow-y-auto p-2 bg-slate-950/60 rounded-xl border border-slate-800"></div>
             <div id="host-next-round-container" class="hidden pt-2">
                 <button onclick="startNextRound()" class="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl shadow-lg transition">
                     Start Next Round
                 </button>
             </div>
-            <p id="waiting-next-round-msg" class="text-xs text-emerald-400 animate-pulse">Waiting for host to start next round...</p>
+            <p id="waiting-next-round-msg" class="text-xs text-emerald-400 text-center animate-pulse">Waiting for host to start next round...</p>
         </div>
     </div>
 
@@ -229,6 +241,10 @@
             if(show) updateScoreboardTable();
         }
 
+        function closeRoundOverModal() {
+            document.getElementById('round-over-modal').classList.add('hidden');
+        }
+
         function generateShortCode() {
             const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
             let code = '';
@@ -247,7 +263,6 @@
             isHost = true;
             roomCode = generateShortCode();
             
-            // Explicitly pass short roomCode as Peer ID so joining users can find it directly
             peer = new Peer(roomCode);
 
             peer.on('open', (id) => {
@@ -276,7 +291,6 @@
             });
 
             peer.on('error', (err) => {
-                // If room code collision happens, retry
                 if(err.type === 'unavailable-id') {
                     createRoom();
                 } else {
@@ -292,7 +306,7 @@
 
             isHost = false;
             roomCode = codeInput;
-            peer = new Peer(); // Random ID for client guest
+            peer = new Peer();
 
             peer.on('open', (id) => {
                 myId = id;
@@ -399,6 +413,7 @@
                     document.getElementById('waiting-screen').classList.add('hidden');
                     document.getElementById('game-board-screen').classList.remove('hidden');
                     document.getElementById('room-badge').classList.remove('hidden');
+                    document.getElementById('top-scores-bar').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
                     
@@ -474,6 +489,7 @@
             document.getElementById('waiting-screen').classList.add('hidden');
             document.getElementById('game-board-screen').classList.remove('hidden');
             document.getElementById('room-badge').classList.remove('hidden');
+            document.getElementById('top-scores-bar').classList.remove('hidden');
             document.getElementById('current-room-id').innerText = roomCode;
             document.getElementById('game-status-banner').classList.remove('hidden');
 
@@ -509,14 +525,12 @@
                 if(cardIndex === -1) return;
                 let selectedCard = me.hand[cardIndex];
 
-                // Drop all matching rank cards in hand together if multiple exist
                 let droppedCards = me.hand.filter(c => c.val === selectedCard.val);
                 me.hand = me.hand.filter(c => c.val !== selectedCard.val);
                 
                 let previousTopCard = discardPile[discardPile.length - 1];
                 droppedCards.forEach(c => discardPile.push(c));
 
-                // MATCH RULE: If dropped card rank matches open board card rank, player skips drawing!
                 let matchesBoard = previousTopCard && (selectedCard.val === previousTopCard.val);
 
                 if(matchesBoard) {
@@ -690,6 +704,7 @@
             };
 
             showRoundOverModal(resultsText, caller.name);
+            renderGameBoard();
 
             if(isHost) {
                 for(let pId in connections) {
@@ -751,6 +766,16 @@
 
         // --- RENDERING ---
         function renderGameBoard() {
+            // Render Top Scores Bar
+            const topScoresContainer = document.getElementById('top-scores-container');
+            topScoresContainer.innerHTML = '';
+            players.forEach(p => {
+                let badge = document.createElement('div');
+                badge.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-950/60 border ${p.eliminated ? 'border-rose-900/60 opacity-50' : 'border-emerald-800/60'}`;
+                badge.innerHTML = `<span class="font-bold text-emerald-200">${p.name}:</span> <span class="font-mono ${p.scores >= 100 ? 'text-rose-400 font-black' : 'text-amber-300'}">${p.scores}</span>`;
+                topScoresContainer.appendChild(badge);
+            });
+
             const hudContainer = document.getElementById('opponents-hud');
             hudContainer.innerHTML = '';
             
