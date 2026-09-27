@@ -19,7 +19,7 @@
             overflow: hidden;
             margin: 0;
             padding: 0;
-            overscroll-behavior-y: contain; /* Enables mobile pull-to-refresh safely */
+            overscroll-behavior-y: auto; /* Enabled pull-to-refresh behavior */
         }
         .card-shadow {
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15);
@@ -277,6 +277,28 @@
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
+        // --- MOBILE PULL-TO-REFRESH IMPLEMENTATION ---
+        let touchStartY = 0;
+        window.addEventListener('touchstart', e => {
+            if (window.scrollY === 0) {
+                touchStartY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        window.addEventListener('touchmove', e => {
+            if (window.scrollY === 0 && touchStartY > 0) {
+                let currentY = e.touches[0].clientY;
+                if (currentY - touchStartY > 110) { // Threshold for pull-down refresh
+                    touchStartY = 0;
+                    window.location.reload();
+                }
+            }
+        }, { passive: true });
+
+        window.addEventListener('touchend', () => {
+            touchStartY = 0;
+        }, { passive: true });
+
         function logTicker(msg) {
             document.getElementById('activity-log-ticker').innerText = msg;
         }
@@ -303,11 +325,6 @@
         }
 
         // --- CONNECTION KEEP-ALIVE / RECOVERY ---
-        // A minimized/suspended browser can throttle JavaScript timers, so a
-        // normal setInterval heartbeat is not enough to keep PeerJS alive.
-        // We also reconnect the PeerJS signaling connection when the page is
-        // restored or the network comes back. The original roomCode is kept.
-
         function startHeartbeat() {
             if(heartbeatInterval) clearInterval(heartbeatInterval);
 
@@ -360,9 +377,7 @@
 
             try {
                 if(peer.disconnected) peer.reconnect();
-            } catch(e) {
-                // The watchdog/visibility handler will retry after wake-up.
-            }
+            } catch(e) {}
         }
 
         function scheduleGuestReconnect() {
@@ -416,8 +431,6 @@
             }
         }
 
-        // Browser lifecycle recovery. Minimized/background tabs can suspend
-        // timers, so we explicitly reconnect after returning to the page.
         document.addEventListener('visibilitychange', () => {
             if(document.visibilityState === 'hidden') {
                 lastHiddenAt = Date.now();
@@ -526,9 +539,6 @@
             peer.on('open', (id) => {
                 myId = id;
 
-                // IMPORTANT: peer.reconnect() also fires/open-completes the
-                // signaling connection. Do NOT reset players or start a new
-                // room when that happens. Preserve the original room state.
                 if(!hostPeerInitialized) {
                     hostPeerInitialized = true;
                     players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
@@ -545,7 +555,6 @@
                     updateWaitingRoomUI();
                     logTicker(`Room active! Code: ${roomCode}`);
                 } else {
-                    // We came back from a background/network interruption.
                     logTicker(`Room ${roomCode} reconnected. The same code is still active.`);
                     broadcastPlayerList();
                     if(roundActive) broadcastGameState('Host connection restored.');
@@ -556,10 +565,6 @@
             });
 
             peer.on('connection', (c) => {
-                // Do not reject immediately. A returning guest may have a new
-                // PeerJS connection ID after background suspension. We first
-                // inspect its persistent clientToken in JOIN_REQUEST and can
-                // restore the existing player even when the game is running.
                 connections[c.peer] = c;
                 setupHostConnectionListeners(c);
             });
@@ -574,10 +579,6 @@
             peer.on('close', () => {
                 if(intentionalDisconnect) return;
 
-                // If PeerJS closes completely (not merely disconnected), create
-                // another Peer object with THE SAME ROOM CODE. This is what
-                // prevents the copied room code from becoming permanently dead
-                // after a long browser sleep/background period.
                 logTicker(`Restoring room ${roomCode}...`);
                 setTimeout(() => {
                     if(!intentionalDisconnect && isHost && !isSoloMode) {
@@ -590,9 +591,6 @@
                 if(intentionalDisconnect) return;
 
                 if(err.type === 'unavailable-id') {
-                    // Only generate a new room code if the ORIGINAL room was
-                    // never successfully created. During recovery, keep the
-                    // user's copied code and retry it instead.
                     if(!hostPeerInitialized) {
                         roomCode = generateShortCode();
                         createHostPeer();
@@ -689,7 +687,6 @@
                     logTicker(`Peer connection closed. Reconnecting to ${roomCode}...`);
                     setTimeout(() => {
                         if(!intentionalDisconnect && !isHost && !isSoloMode) {
-                            // Recreate the guest Peer object. The room code stays unchanged.
                             try { peer.destroy(); } catch(e) {}
                             peer = new Peer({
                                 debug: 1,
@@ -719,8 +716,6 @@
             });
         }
 
-        // Kept separate so a guest Peer object can be recreated after a
-        // complete PeerJS close while retaining the same roomCode.
         function attachGuestPeerEvents() {
             if(!peer) return;
 
@@ -782,9 +777,6 @@
                 if(data.type === 'JOIN_REQUEST') {
                     const clientToken = data.clientToken || '';
 
-                    // A guest returning after browser suspension can have a
-                    // different PeerJS ID. Match it using the persistent token
-                    // instead of treating it as a brand-new player.
                     let existingPlayer = clientToken
                         ? players.find(p => p.clientToken === clientToken)
                         : null;
@@ -852,17 +844,13 @@
                 }
             });
 
-            c.on('error', () => {
-                // The close handler performs cleanup/recovery.
-            });
+            c.on('error', () => {});
 
             c.on('close', () => {
                 delete connections[c.peer];
 
                 const disconnectedPlayer = players.find(p => p.id === c.peer);
                 if(disconnectedPlayer && !disconnectedPlayer.isHost) {
-                    // Keep the logical player in the room so a returning tab can
-                    // reclaim the same seat using clientToken.
                     disconnectedPlayer.connected = false;
                     broadcastPlayerList();
                     updateWaitingRoomUI();
