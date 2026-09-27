@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Least Count</title>
+    <title>Least Count Online - Multiplayer & Solo</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
@@ -313,7 +313,7 @@
 
         window.addEventListener('touchstart', (e) => {
             let lobbyScreen = document.getElementById('lobby-screen');
-            if (lobbyScreen && !lobbyScreen.classList.contains('hidden') && lobbyScreen.scrollTop === 0) {
+            if (lobbyScreen && !lobbyScreen.classList.contains('hidden') && lobbyScreen.scrollTop <= 5) {
                 touchStartY = e.touches[0].clientY;
                 isPulling = true;
             }
@@ -325,7 +325,7 @@
             let diff = touchY - touchStartY;
             if (diff > 0 && diff < 160) {
                 ptrIndicator.style.transform = `translateY(${diff - 48}px)`;
-                if (diff > 80) {
+                if (diff > 75) {
                     ptrText.innerText = "Release to refresh!";
                 } else {
                     ptrText.innerText = "Pull down to refresh...";
@@ -339,7 +339,7 @@
             let touchY = e.changedTouches[0].clientY;
             let diff = touchY - touchStartY;
             ptrIndicator.style.transform = `translateY(-100%)`;
-            if (diff > 80) {
+            if (diff > 75) {
                 ptrText.innerText = "Refreshing...";
                 intentionalDisconnect = true;
                 setTimeout(() => location.reload(), 200);
@@ -355,15 +355,12 @@
             });
 
             return hand.sort((a, b) => {
-                // 1. Sort by frequency count descending (highest count first)
                 let countDiff = (counts[b.val] || 0) - (counts[a.val] || 0);
                 if (countDiff !== 0) return countDiff;
 
-                // 2. If counts are equal, sort by value weight ascending
                 let valDiff = (cardValueWeight[a.val] || 0) - (cardValueWeight[b.val] || 0);
                 if (valDiff !== 0) return valDiff;
 
-                // 3. If values are equal, sort by suit
                 return a.suit.localeCompare(b.suit);
             });
         }
@@ -383,7 +380,7 @@
                 if(stored) {
                     const parsed = JSON.parse(stored);
                     const now = Date.now();
-                    publicRooms = parsed.filter(r => (now - r.timestamp) < 30000);
+                    publicRooms = parsed.filter(r => (now - r.timestamp) < 25000);
                 }
             } catch(e) {}
 
@@ -417,7 +414,7 @@
                 let publicRooms = [];
                 const stored = localStorage.getItem('leastCountPublicRooms');
                 if(stored) {
-                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode && (Date.now() - r.timestamp) < 30000);
+                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode && (Date.now() - r.timestamp) < 25000);
                 }
                 publicRooms.push({
                     code: roomCode,
@@ -434,11 +431,11 @@
             if(isHost && !isSoloMode && roomCode && !document.getElementById('waiting-screen').classList.contains('hidden')) {
                 registerPublicRoom();
             }
-        }, 10000);
+        }, 5000);
 
         window.addEventListener('load', () => {
             refreshPublicRoomsList();
-            setInterval(refreshPublicRoomsList, 5000);
+            setInterval(refreshPublicRoomsList, 3000);
         });
 
         function confirmExitGame() {
@@ -542,7 +539,6 @@
 
         function safePeerReconnect() {
             if(intentionalDisconnect || !peer || peer.destroyed) return;
-
             try {
                 if(peer.disconnected) peer.reconnect();
             } catch(e) {}
@@ -584,7 +580,6 @@
                 });
 
                 newConn.on('data', (data) => handleGuestData(data));
-
                 newConn.on('error', () => scheduleGuestReconnect());
 
                 newConn.on('close', () => {
@@ -630,12 +625,6 @@
                 safePeerReconnect();
                 if(!isHost) scheduleGuestReconnect();
             }, 300);
-        });
-
-        window.addEventListener('offline', () => {
-            if(!intentionalDisconnect && !isSoloMode) {
-                logTicker('Internet connection lost. The room will recover automatically when you are online.');
-            }
         });
 
         // --- SOLO / COMPUTER MODE ---
@@ -742,15 +731,12 @@
 
             peer.on('disconnected', () => {
                 if(!intentionalDisconnect) {
-                    logTicker(`Room ${roomCode} temporarily lost its signaling connection. Reconnecting...`);
                     setTimeout(safePeerReconnect, 250);
                 }
             });
 
             peer.on('close', () => {
                 if(intentionalDisconnect) return;
-
-                logTicker(`Restoring room ${roomCode}...`);
                 setTimeout(() => {
                     if(!intentionalDisconnect && isHost && !isSoloMode) {
                         createHostPeer();
@@ -765,15 +751,7 @@
                     if(!hostPeerInitialized) {
                         roomCode = generateShortCode();
                         createHostPeer();
-                    } else {
-                        setTimeout(() => {
-                            if(!intentionalDisconnect && isHost && !isSoloMode && (!peer || peer.destroyed)) {
-                                createHostPeer();
-                            }
-                        }, 1500);
                     }
-                } else {
-                    logTicker(`Room connection issue (${err.type || 'network'}). Retrying automatically...`);
                 }
             });
         }
@@ -848,63 +826,12 @@
             });
 
             peer.on('disconnected', () => {
-                if(!intentionalDisconnect) {
-                    logTicker(`Disconnected from signaling server. Reconnecting to ${roomCode}...`);
-                    setTimeout(safePeerReconnect, 250);
-                }
-            });
-
-            peer.on('close', () => {
-                if(!intentionalDisconnect) {
-                    logTicker(`Peer connection closed. Reconnecting to ${roomCode}...`);
-                    setTimeout(() => {
-                        if(!intentionalDisconnect && !isHost && !isSoloMode) {
-                            try { peer.destroy(); } catch(e) {}
-                            peer = new Peer({
-                                debug: 1,
-                                config: {
-                                    iceServers: [
-                                        { urls: 'stun:stun.l.google.com:19302' },
-                                        { urls: 'stun:global.stun.twilio.com:3478' }
-                                    ]
-                                }
-                            });
-                            attachGuestPeerEvents();
-                        }
-                    }, 1000);
-                }
-            });
-
-            peer.on('error', (err) => {
-                if(intentionalDisconnect) return;
-
-                if(err.type === 'peer-unavailable' || err.type === 'network') {
-                    logTicker(`Room ${roomCode} is temporarily unavailable. Retrying...`);
-                    scheduleGuestReconnect();
-                } else {
-                    showLobbyError("Room code not found or host is currently offline. Retrying...");
-                    scheduleGuestReconnect();
-                }
-            });
-        }
-
-        function attachGuestPeerEvents() {
-            if(!peer) return;
-
-            peer.on('open', (id) => {
-                myId = id;
-                startHeartbeat();
-                startConnectionWatchdog();
-                connectGuestToHost();
-            });
-
-            peer.on('disconnected', () => {
                 if(!intentionalDisconnect) setTimeout(safePeerReconnect, 250);
             });
 
-            peer.on('error', (err) => {
+            peer.on('error', () => {
                 if(!intentionalDisconnect) {
-                    logTicker(`Room ${roomCode} connection issue (${err.type || 'network'}). Retrying...`);
+                    showLobbyError("Room code not found or host is offline. Retrying...");
                     scheduleGuestReconnect();
                 }
             });
@@ -980,7 +907,7 @@
                     }
 
                     if(roundActive) {
-                        c.send({ type: 'REJECT', reason: 'This game has already started. Only existing players can reconnect.' });
+                        c.send({ type: 'REJECT', reason: 'This game has already started.' });
                         setTimeout(() => { try { c.close(); } catch(e) {} }, 500);
                         return;
                     }
@@ -1018,19 +945,14 @@
                 }
             });
 
-            c.on('error', () => {});
-
             c.on('close', () => {
                 delete connections[c.peer];
-
                 const disconnectedPlayer = players.find(p => p.id === c.peer);
                 if(disconnectedPlayer && !disconnectedPlayer.isHost) {
                     disconnectedPlayer.connected = false;
                     broadcastPlayerList();
                     updateWaitingRoomUI();
                 }
-
-                logTicker('A player connection was interrupted. Waiting for automatic reconnect...');
             });
         }
 
@@ -1070,9 +992,6 @@
             switch(data.type) {
                 case 'REJECT':
                     showLobbyError("Connection rejected: " + data.reason);
-                    if(data.reason && data.reason.includes('already started')) {
-                        scheduleGuestReconnect();
-                    }
                     break;
                 case 'KICKED':
                     alert("You have been removed from the game by the host.");
