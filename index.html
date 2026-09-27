@@ -56,9 +56,9 @@
     <main class="flex-grow flex flex-col items-center justify-center p-2 sm:p-4 max-w-5xl mx-auto w-full overflow-hidden">
 
         <!-- LOBBY SCREEN -->
-        <div id="lobby-screen" class="bg-black p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-zinc-800 text-center space-y-4 overflow-y-auto max-h-[85vh]">
+        <div id="lobby-screen" class="bg-black p-5 sm:p-6 rounded-2xl shadow-2xl max-w-md w-full border border-zinc-800 text-center space-y-3 overflow-y-auto max-h-[90vh]">
             <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">Multiplayer & Solo Lobby</h2>
-            <div class="space-y-3 text-left">
+            <div class="space-y-2.5 text-left">
                 <div>
                     <label class="block text-[11px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Your Nickname</label>
                     <input type="text" id="nickname-input" placeholder="Enter your name" maxlength="12" autocapitalize="words" autocorrect="off" spellcheck="false" autocomplete="off" class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 font-medium text-sm">
@@ -94,12 +94,12 @@
                 </div>
             </div>
 
-            <div class="space-y-3 pt-1">
-                <button onclick="startSoloGame()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm">
+            <div class="space-y-2.5 pt-1">
+                <button onclick="startSoloGame()" class="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm">
                     🤖 Play vs Computer (Solo)
                 </button>
 
-                <button onclick="createRoom()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm">
+                <button onclick="createRoom()" class="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm">
                     Create Room (Host)
                 </button>
                 <div class="relative flex py-0.5 items-center">
@@ -108,12 +108,24 @@
                     <div class="flex-grow border-t border-zinc-800"></div>
                 </div>
                 <div class="flex space-x-2">
-                    <input type="text" id="join-room-input" placeholder="Room Code" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 font-medium uppercase text-sm">
-                    <button onclick="joinRoom()" class="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm whitespace-nowrap">
-                        Join
+                    <input type="text" id="join-room-input" placeholder="Room Code" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 font-medium uppercase text-sm">
+                    <button onclick="joinRoom()" class="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm whitespace-nowrap">
+                        Join Code
                     </button>
                 </div>
             </div>
+
+            <!-- PUBLIC ROOMS DIRECTORY LIST -->
+            <div class="pt-2 text-left space-y-1.5 border-t border-zinc-900">
+                <div class="flex justify-between items-center">
+                    <span class="text-[11px] uppercase tracking-wider text-zinc-400 font-semibold">Available Public Rooms</span>
+                    <button onclick="refreshPublicRoomsList()" class="text-[10px] text-emerald-400 hover:underline">Refresh</button>
+                </div>
+                <div id="public-rooms-container" class="space-y-1.5 max-h-28 overflow-y-auto">
+                    <p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found. Create one above!</p>
+                </div>
+            </div>
+
             <p id="lobby-error" class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
@@ -313,6 +325,77 @@
         function logTicker(msg) {
             document.getElementById('activity-log-ticker').innerText = msg;
         }
+
+        // --- PUBLIC ROOMS DIRECTORY MANAGEMENT ---
+        function refreshPublicRoomsList() {
+            const container = document.getElementById('public-rooms-container');
+            if(!container) return;
+            
+            let publicRooms = [];
+            try {
+                const stored = localStorage.getItem('leastCountPublicRooms');
+                if(stored) {
+                    const parsed = JSON.parse(stored);
+                    const now = Date.now();
+                    // Keep rooms updated within last 30 seconds
+                    publicRooms = parsed.filter(r => (now - r.timestamp) < 30000);
+                }
+            } catch(e) {}
+
+            if(publicRooms.length === 0) {
+                container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found. Create one above!</p>`;
+                return;
+            }
+
+            container.innerHTML = '';
+            publicRooms.forEach(room => {
+                let div = document.createElement('div');
+                div.className = 'bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 p-2 rounded-xl flex justify-between items-center transition cursor-pointer';
+                div.onclick = () => {
+                    document.getElementById('join-room-input').value = room.code;
+                    joinRoom();
+                };
+                div.innerHTML = `
+                    <div>
+                        <div class="text-xs font-bold text-emerald-300">Room: ${room.code} <span class="text-[10px] text-zinc-400 font-normal">(${room.hostName}'s Room)</span></div>
+                        <div class="text-[10px] text-zinc-400">Max: ${room.maxPlayers} players • Cards: ${room.cardsCount}</div>
+                    </div>
+                    <span class="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] rounded-lg">Join</span>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function registerPublicRoom() {
+            if(!isHost || isSoloMode || !roomCode) return;
+            try {
+                let publicRooms = [];
+                const stored = localStorage.getItem('leastCountPublicRooms');
+                if(stored) {
+                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode && (Date.now() - r.timestamp) < 30000);
+                }
+                publicRooms.push({
+                    code: roomCode,
+                    hostName: myName || 'Host',
+                    maxPlayers: maxPlayersLimit,
+                    cardsCount: cardsPerPlayer,
+                    timestamp: Date.now()
+                });
+                localStorage.setItem('leastCountPublicRooms', JSON.stringify(publicRooms));
+            } catch(e) {}
+        }
+
+        // Keep updating room presence timestamp if hosting
+        setInterval(() => {
+            if(isHost && !isSoloMode && roomCode && !document.getElementById('waiting-screen').classList.contains('hidden')) {
+                registerPublicRoom();
+            }
+        }, 10000);
+
+        window.addEventListener('load', () => {
+            refreshPublicRoomsList();
+            setInterval(refreshPublicRoomsList, 5000);
+        });
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
@@ -596,6 +679,7 @@
                     document.getElementById('waiting-msg').classList.add('hidden');
 
                     updateWaitingRoomUI();
+                    registerPublicRoom();
                     logTicker(`Room active! Code: ${roomCode}`);
                 } else {
                     logTicker(`Room ${roomCode} reconnected. The same code is still active.`);
@@ -1027,6 +1111,16 @@
         function startHostGame() {
             if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 connected players to start!"); return; }
             
+            // Remove room from public list once game starts so others don't try to join mid-game
+            try {
+                let publicRooms = [];
+                const stored = localStorage.getItem('leastCountPublicRooms');
+                if(stored) {
+                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode);
+                    localStorage.setItem('leastCountPublicRooms', JSON.stringify(publicRooms));
+                }
+            } catch(e) {}
+
             let fullDeck = createDeck();
             players.forEach(p => {
                 p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
