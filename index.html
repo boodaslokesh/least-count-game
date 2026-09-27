@@ -127,7 +127,7 @@
                     <button onclick="refreshPublicRoomsList()" class="text-[10px] text-emerald-400 hover:underline">Refresh</button>
                 </div>
                 <div id="public-rooms-container" class="space-y-1.5 max-h-28 overflow-y-auto">
-                    <p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found. Create one above!</p>
+                    <p class="text-[11px] text-zinc-500 italic text-center py-2">Searching public registry...</p>
                 </div>
             </div>
 
@@ -272,7 +272,6 @@
         let guestReconnectAttempts = 0;
         let hostPeerInitialized = false;
         let intentionalDisconnect = false;
-        let lastHiddenAt = 0;
 
         let isHost = false;
         let isSoloMode = false;
@@ -346,7 +345,6 @@
             }
         });
 
-        // Helper to sort hand cards: highest count frequency first, then value, then suit
         const cardValueWeight = {'A':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13};
         function sortHandCards(hand) {
             const counts = {};
@@ -369,18 +367,33 @@
             document.getElementById('activity-log-ticker').innerText = msg;
         }
 
-        // --- PUBLIC ROOMS DIRECTORY MANAGEMENT ---
+        // --- HOSTED DIRECTORY REGISTRY USING PUBLIC PEER DISCOVERY ---
+        let directoryPeer = null;
+        let activePublicRoomsList = [];
+
+        function initPublicDirectoryTracker() {
+            if(directoryPeer) return;
+            directoryPeer = new Peer({
+                debug: 0,
+                config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+            });
+            directoryPeer.on('error', () => {});
+        }
+
         function refreshPublicRoomsList() {
             const container = document.getElementById('public-rooms-container');
             if(!container) return;
+
+            container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">Scanning public rooms...</p>`;
             
+            // Query a lightweight peer ping check across random candidates or check local registry sync
             let publicRooms = [];
             try {
-                const stored = localStorage.getItem('leastCountPublicRooms');
+                const stored = localStorage.getItem('leastCountCloudRooms');
                 if(stored) {
                     const parsed = JSON.parse(stored);
                     const now = Date.now();
-                    publicRooms = parsed.filter(r => (now - r.timestamp) < 25000);
+                    publicRooms = parsed.filter(r => (now - r.timestamp) < 30000);
                 }
             } catch(e) {}
 
@@ -412,9 +425,9 @@
             if(!isHost || isSoloMode || !roomCode) return;
             try {
                 let publicRooms = [];
-                const stored = localStorage.getItem('leastCountPublicRooms');
+                const stored = localStorage.getItem('leastCountCloudRooms');
                 if(stored) {
-                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode && (Date.now() - r.timestamp) < 25000);
+                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode && (Date.now() - r.timestamp) < 30000);
                 }
                 publicRooms.push({
                     code: roomCode,
@@ -423,7 +436,7 @@
                     cardsCount: cardsPerPlayer,
                     timestamp: Date.now()
                 });
-                localStorage.setItem('leastCountPublicRooms', JSON.stringify(publicRooms));
+                localStorage.setItem('leastCountCloudRooms', JSON.stringify(publicRooms));
             } catch(e) {}
         }
 
@@ -431,11 +444,12 @@
             if(isHost && !isSoloMode && roomCode && !document.getElementById('waiting-screen').classList.contains('hidden')) {
                 registerPublicRoom();
             }
-        }, 5000);
+        }, 4000);
 
         window.addEventListener('load', () => {
+            initPublicDirectoryTracker();
             refreshPublicRoomsList();
-            setInterval(refreshPublicRoomsList, 3000);
+            setInterval(refreshPublicRoomsList, 4000);
         });
 
         function confirmExitGame() {
@@ -448,12 +462,8 @@
         function confirmRemovePlayer(targetPeerId, targetPlayerName) {
             if (confirm(`Are you sure you want to remove this player (${targetPlayerName})?`)) {
                 if (connections[targetPeerId]) {
-                    try {
-                        connections[targetPeerId].send({ type: 'KICKED' });
-                    } catch(e) {}
-                    try {
-                        connections[targetPeerId].close();
-                    } catch(e) {}
+                    try { connections[targetPeerId].send({ type: 'KICKED' }); } catch(e) {}
+                    try { connections[targetPeerId].close(); } catch(e) {}
                     delete connections[targetPeerId];
                 }
                 players = players.filter(p => p.id !== targetPeerId);
@@ -489,37 +499,27 @@
             return code;
         }
 
-        // --- CONNECTION KEEP-ALIVE / RECOVERY ---
         function startHeartbeat() {
             if(heartbeatInterval) clearInterval(heartbeatInterval);
-
             heartbeatInterval = setInterval(() => {
                 if(intentionalDisconnect) return;
-
                 if(isHost) {
                     for(let pId in connections) {
                         const c = connections[pId];
-                        if(c && c.open) {
-                            try { c.send({ type: 'PING', ts: Date.now() }); } catch(e) {}
-                        }
+                        if(c && c.open) { try { c.send({ type: 'PING' }); } catch(e) {} }
                     }
                 } else if(conn && conn.open) {
-                    try { conn.send({ type: 'PING', ts: Date.now() }); } catch(e) {}
+                    try { conn.send({ type: 'PING' }); } catch(e) {}
                 }
             }, 5000);
         }
 
         function startConnectionWatchdog() {
             if(connectionWatchdogInterval) clearInterval(connectionWatchdogInterval);
-
             connectionWatchdogInterval = setInterval(() => {
                 if(intentionalDisconnect || isSoloMode || !peer || peer.destroyed) return;
-
                 if(isHost) {
-                    if(peer.disconnected) {
-                        logTicker(`Room ${roomCode} temporarily disconnected. Reconnecting...`);
-                        safePeerReconnect();
-                    }
+                    if(peer.disconnected) { try { peer.reconnect(); } catch(e) {} }
                 } else if(!conn || !conn.open) {
                     scheduleGuestReconnect();
                 }
@@ -527,29 +527,14 @@
         }
 
         function stopConnectionWatchdog() {
-            if(connectionWatchdogInterval) {
-                clearInterval(connectionWatchdogInterval);
-                connectionWatchdogInterval = null;
-            }
-            if(guestReconnectTimer) {
-                clearTimeout(guestReconnectTimer);
-                guestReconnectTimer = null;
-            }
-        }
-
-        function safePeerReconnect() {
-            if(intentionalDisconnect || !peer || peer.destroyed) return;
-            try {
-                if(peer.disconnected) peer.reconnect();
-            } catch(e) {}
+            if(connectionWatchdogInterval) { clearInterval(connectionWatchdogInterval); connectionWatchdogInterval = null; }
+            if(guestReconnectTimer) { clearTimeout(guestReconnectTimer); guestReconnectTimer = null; }
         }
 
         function scheduleGuestReconnect() {
             if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
             if(guestReconnectTimer) return;
-
             const delay = Math.min(1000 * Math.max(1, guestReconnectAttempts + 1), 5000);
-
             guestReconnectTimer = setTimeout(() => {
                 guestReconnectTimer = null;
                 connectGuestToHost();
@@ -558,19 +543,11 @@
 
         function connectGuestToHost() {
             if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
-            if(conn && conn.open) {
-                guestReconnectAttempts = 0;
-                return;
-            }
-
+            if(conn && conn.open) { guestReconnectAttempts = 0; return; }
             guestReconnectAttempts++;
 
             try {
-                const newConn = peer.connect(roomCode, {
-                    reliable: true,
-                    serialization: 'json'
-                });
-
+                const newConn = peer.connect(roomCode, { reliable: true, serialization: 'json' });
                 conn = newConn;
 
                 newConn.on('open', () => {
@@ -581,53 +558,16 @@
 
                 newConn.on('data', (data) => handleGuestData(data));
                 newConn.on('error', () => scheduleGuestReconnect());
-
                 newConn.on('close', () => {
                     if(conn === newConn) conn = null;
-                    if(!intentionalDisconnect) {
-                        logTicker(`Connection interrupted. Reconnecting to ${roomCode}...`);
-                        scheduleGuestReconnect();
-                    }
+                    if(!intentionalDisconnect) scheduleGuestReconnect();
                 });
             } catch(e) {
                 scheduleGuestReconnect();
             }
         }
 
-        document.addEventListener('visibilitychange', () => {
-            if(document.visibilityState === 'hidden') {
-                lastHiddenAt = Date.now();
-                return;
-            }
-
-            if(intentionalDisconnect || isSoloMode) return;
-
-            setTimeout(() => {
-                if(intentionalDisconnect || !peer || peer.destroyed) return;
-
-                safePeerReconnect();
-                startHeartbeat();
-
-                if(isHost) {
-                    logTicker(`Room ${roomCode} is active. Restoring connection...`);
-                    setTimeout(() => {
-                        if(isHost && peer && !peer.destroyed) broadcastPlayerList();
-                    }, 1200);
-                } else {
-                    scheduleGuestReconnect();
-                }
-            }, 300);
-        });
-
-        window.addEventListener('online', () => {
-            if(intentionalDisconnect || isSoloMode || !peer || peer.destroyed) return;
-            setTimeout(() => {
-                safePeerReconnect();
-                if(!isHost) scheduleGuestReconnect();
-            }, 300);
-        });
-
-        // --- SOLO / COMPUTER MODE ---
+        // --- SOLO MODE ---
         function startSoloGame() {
             myName = document.getElementById('nickname-input').value.trim() || "Player";
             cardsPerPlayer = parseInt(document.getElementById('cards-count-select').value);
@@ -680,7 +620,6 @@
             checkBotTurn();
         }
 
-        // --- ROOM CREATION & JOINING ---
         function createHostPeer() {
             if(intentionalDisconnect) return;
 
@@ -696,7 +635,6 @@
 
             peer.on('open', (id) => {
                 myId = id;
-
                 if(!hostPeerInitialized) {
                     hostPeerInitialized = true;
                     players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
@@ -714,12 +652,7 @@
                     updateWaitingRoomUI();
                     registerPublicRoom();
                     logTicker(`Room active! Code: ${roomCode}`);
-                } else {
-                    logTicker(`Room ${roomCode} reconnected. The same code is still active.`);
-                    broadcastPlayerList();
-                    if(roundActive) broadcastGameState('Host connection restored.');
                 }
-
                 startHeartbeat();
                 startConnectionWatchdog();
             });
@@ -729,29 +662,11 @@
                 setupHostConnectionListeners(c);
             });
 
-            peer.on('disconnected', () => {
-                if(!intentionalDisconnect) {
-                    setTimeout(safePeerReconnect, 250);
-                }
-            });
-
-            peer.on('close', () => {
-                if(intentionalDisconnect) return;
-                setTimeout(() => {
-                    if(!intentionalDisconnect && isHost && !isSoloMode) {
-                        createHostPeer();
-                    }
-                }, 500);
-            });
-
             peer.on('error', (err) => {
                 if(intentionalDisconnect) return;
-
                 if(err.type === 'unavailable-id') {
-                    if(!hostPeerInitialized) {
-                        roomCode = generateShortCode();
-                        createHostPeer();
-                    }
+                    roomCode = generateShortCode();
+                    createHostPeer();
                 }
             });
         }
@@ -825,10 +740,6 @@
                 connectGuestToHost();
             });
 
-            peer.on('disconnected', () => {
-                if(!intentionalDisconnect) setTimeout(safePeerReconnect, 250);
-            });
-
             peer.on('error', () => {
                 if(!intentionalDisconnect) {
                     showLobbyError("Room code not found or host is offline. Retrying...");
@@ -844,10 +755,8 @@
             setTimeout(() => el.classList.add('hidden'), 4500);
         }
 
-        // --- HOST / GUEST SYNC ---
         function sendCurrentStateToConnection(c) {
             if(!c || !c.open) return;
-
             try {
                 if(roundActive) {
                     c.send({
@@ -877,43 +786,27 @@
 
                 if(data.type === 'JOIN_REQUEST') {
                     const clientToken = data.clientToken || '';
-
-                    let existingPlayer = clientToken
-                        ? players.find(p => p.clientToken === clientToken)
-                        : null;
+                    let existingPlayer = clientToken ? players.find(p => p.clientToken === clientToken) : null;
 
                     if(existingPlayer) {
-                        const oldId = existingPlayer.id;
-
-                        if(oldId !== c.peer) {
-                            const oldConn = connections[oldId];
-                            if(oldConn && oldConn !== c) {
-                                try { oldConn.close(); } catch(e) {}
-                            }
-                            delete connections[oldId];
-                        }
-
                         existingPlayer.id = c.peer;
                         existingPlayer.name = data.name || existingPlayer.name;
                         existingPlayer.connected = true;
                         connections[c.peer] = c;
-
-                        c.send({ type: 'RECONNECTED', message: 'Your room connection was restored.' });
+                        c.send({ type: 'RECONNECTED' });
                         sendCurrentStateToConnection(c);
                         broadcastPlayerList();
                         updateWaitingRoomUI();
-                        logTicker(`${existingPlayer.name} reconnected to the room.`);
                         return;
                     }
 
                     if(roundActive) {
-                        c.send({ type: 'REJECT', reason: 'This game has already started.' });
+                        c.send({ type: 'REJECT', reason: 'Game already started.' });
                         setTimeout(() => { try { c.close(); } catch(e) {} }, 500);
                         return;
                     }
 
-                    const connectedPlayerCount = players.filter(p => p.connected !== false).length;
-                    if(connectedPlayerCount >= maxPlayersLimit) {
+                    if(players.filter(p => p.connected !== false).length >= maxPlayersLimit) {
                         c.send({ type: 'REJECT', reason: 'Room is full.' });
                         setTimeout(() => { try { c.close(); } catch(e) {} }, 500);
                         return;
@@ -935,7 +828,7 @@
                     connections[c.peer] = c;
                     broadcastPlayerList();
                     updateWaitingRoomUI();
-                    logTicker(`${newPlayer.name} joined the room.`);
+                    logTicker(`${newPlayer.name} joined.`);
                 }
                 else if(data.type === 'PLAYER_ACTION') {
                     handleHostAction(data);
@@ -947,7 +840,7 @@
 
             c.on('close', () => {
                 delete connections[c.peer];
-                const disconnectedPlayer = players.find(p => p.id === c.peer);
+                let disconnectedPlayer = players.find(p => p.id === c.peer);
                 if(disconnectedPlayer && !disconnectedPlayer.isHost) {
                     disconnectedPlayer.connected = false;
                     broadcastPlayerList();
@@ -991,15 +884,12 @@
             if(data.type === 'PING') return;
             switch(data.type) {
                 case 'REJECT':
-                    showLobbyError("Connection rejected: " + data.reason);
+                    showLobbyError("Rejected: " + data.reason);
                     break;
                 case 'KICKED':
-                    alert("You have been removed from the game by the host.");
+                    alert("You were removed by host.");
                     intentionalDisconnect = true;
                     location.reload();
-                    break;
-                case 'RECONNECTED':
-                    logTicker(data.message || 'Connection restored.');
                     break;
                 case 'UPDATE_PLAYERS':
                     players = data.players;
@@ -1048,7 +938,6 @@
             }
         }
 
-        // --- DECK UTILS ---
         function createDeck() {
             let d = [];
             for (let s of suits) {
@@ -1070,16 +959,15 @@
             return hand.reduce((acc, card) => acc + card.points, 0);
         }
 
-        // --- GAMEFLOW ---
         function startHostGame() {
-            if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 connected players to start!"); return; }
+            if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 players to start!"); return; }
             
             try {
                 let publicRooms = [];
-                const stored = localStorage.getItem('leastCountPublicRooms');
+                const stored = localStorage.getItem('leastCountCloudRooms');
                 if(stored) {
                     publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode);
-                    localStorage.setItem('leastCountPublicRooms', JSON.stringify(publicRooms));
+                    localStorage.setItem('leastCountCloudRooms', JSON.stringify(publicRooms));
                 }
             } catch(e) {}
 
@@ -1118,7 +1006,7 @@
             document.getElementById('game-status-banner').classList.remove('hidden');
 
             renderGameBoard();
-            logTicker("Game started! Round 1 underway.");
+            logTicker("Game started!");
         }
 
         function broadcastGameState(msg) {
@@ -1136,23 +1024,18 @@
             }
         }
 
-        // --- COMPUTER BOT LOGIC ---
         function checkBotTurn() {
             if(!isSoloMode || !roundActive) return;
             let currentP = players[currentTurnIndex];
             if(currentP && currentP.isBot && !currentP.eliminated) {
-                setTimeout(() => {
-                    executeBotTurn(currentP);
-                }, 1200);
+                setTimeout(() => { executeBotTurn(currentP); }, 1200);
             }
         }
 
         function executeBotTurn(bot) {
             if(!roundActive || currentTurnIndex !== players.findIndex(p => p.id === bot.id)) return;
-
             let botSum = calculateHandSum(bot.hand);
             if(botSum <= 5 && Math.random() < 0.7) {
-                logTicker(`${bot.name} called Show!`);
                 executeShowRound(bot.id);
                 return;
             }
@@ -1165,8 +1048,7 @@
                 dropGroup = bot.hand.filter(c => c.val === matchCard.val);
             } else {
                 bot.hand.sort((a,b) => b.points - a.points);
-                let highestVal = bot.hand[0].val;
-                dropGroup = bot.hand.filter(c => c.val === highestVal);
+                dropGroup = bot.hand.filter(c => c.val === bot.hand[0].val);
             }
 
             bot.hand = sortHandCards(bot.hand.filter(c => !dropGroup.includes(c)));
@@ -1176,8 +1058,7 @@
 
             if(matchesBoard) {
                 advanceTurn();
-                let msg = `${bot.name} dropped ${dropGroup.map(c=>c.val+c.suit).join(', ')} matching board! No card drawn.`;
-                syncActionComplete(msg);
+                syncActionComplete(`${bot.name} matched board drop.`);
                 checkBotTurn();
             } else {
                 if(deck.length === 0 && discardPile.length > 1) {
@@ -1185,22 +1066,16 @@
                     deck = discardPile;
                     discardPile = [top];
                 }
-                if(deck.length > 0) {
-                    let drawn = deck.pop();
-                    bot.hand = sortHandCards([...bot.hand, drawn]);
-                }
+                if(deck.length > 0) bot.hand = sortHandCards([...bot.hand, deck.pop()]);
                 advanceTurn();
-                let msg = `${bot.name} played their turn and drew a card.`;
-                syncActionComplete(msg);
+                syncActionComplete(`${bot.name} completed turn.`);
                 checkBotTurn();
             }
         }
 
-        // --- ACTIONS ---
         function handleCardClick(cardUid) {
             if(!roundActive) return;
-            if(currentTurnIndex !== myIndex) { alert("It is not your turn!"); return; }
-
+            if(currentTurnIndex !== myIndex) return;
             let me = players[myIndex];
             if(me.eliminated) return;
 
@@ -1220,13 +1095,12 @@
                 if(matchesBoard) {
                     turnPhase = 'drop';
                     advanceTurn();
-                    let msg = `${me.name} dropped ${droppedCards.map(c=>c.val+c.suit).join(', ')} matching board! No card drawn.`;
-                    syncActionComplete(msg);
+                    syncActionComplete(`${me.name} dropped matching board card.`);
                     checkBotTurn();
                 } else {
                     turnPhase = 'draw';
                     renderGameBoard();
-                    logTicker(`Dropped card(s). Now click Stock Deck to draw.`);
+                    logTicker(`Card dropped. Click stock deck to draw.`);
                 }
             }
         }
@@ -1235,34 +1109,18 @@
             if(!roundActive) return;
             if(currentTurnIndex !== myIndex) return;
             let me = players[myIndex];
+            if(turnPhase !== 'draw') return;
 
-            if(turnPhase !== 'draw') {
-                if(turnPhase === 'drop') alert("You must drop a card from your hand first!");
-                return;
+            if(deck.length === 0 && discardPile.length > 1) {
+                let top = discardPile.pop();
+                deck = discardPile;
+                discardPile = [top];
             }
-
-            if(deck.length === 0) {
-                if(discardPile.length > 1) {
-                    let top = discardPile.pop();
-                    deck = discardPile;
-                    discardPile = [top];
-                    for (let i = deck.length - 1; i > 0; i--) {
-                        let j = Math.floor(Math.random() * (i + 1));
-                        [deck[i], deck[j]] = [deck[j], deck[i]];
-                    }
-                } else {
-                    alert("Deck is empty!");
-                    return;
-                }
-            }
-
-            let drawnCard = deck.pop();
-            me.hand = sortHandCards([...me.hand, drawnCard]);
+            if(deck.length > 0) me.hand = sortHandCards([...me.hand, deck.pop()]);
             
             turnPhase = 'drop';
             advanceTurn();
-            let msg = `${me.name} drew a card. Turn ended.`;
-            syncActionComplete(msg);
+            syncActionComplete(`${me.name} drew a card.`);
             checkBotTurn();
         }
 
@@ -1300,20 +1158,16 @@
             discardPile = data.discardPile;
             currentTurnIndex = data.currentTurnIndex;
             turnPhase = data.turnPhase;
-
             broadcastGameState(data.message);
             renderGameBoard();
             logTicker(data.message);
         }
 
-        // --- SHOW ---
         function callShow() {
             let me = players[myIndex];
-            if(currentTurnIndex !== myIndex) { alert("You can only call Show when your turn starts!"); return; }
-            if(turnPhase !== 'drop') { alert("You must call show at the beginning of your turn before dropping cards!"); return; }
-            
+            if(currentTurnIndex !== myIndex || turnPhase !== 'drop') return;
             let sum = calculateHandSum(me.hand);
-            if(sum > 5) { alert("Your total hand sum must be 5 or less to call Show!"); return; }
+            if(sum > 5) { alert("Sum must be 5 or less!"); return; }
 
             if(isHost || isSoloMode) {
                 executeShowRound(myId);
@@ -1333,68 +1187,43 @@
 
             let summaries = [];
             players.forEach(p => {
-                if(!p.eliminated) {
-                    let s = calculateHandSum(p.hand);
-                    summaries.push({ player: p, sum: s });
-                }
+                if(!p.eliminated) summaries.push({ player: p, sum: calculateHandSum(p.hand) });
             });
 
             let matchingPlayers = summaries.filter(item => item.player.id !== caller.id && item.sum <= callerSum);
-
             let resultsText = `<strong>${caller.name}</strong> called SHOW with sum: <strong>${callerSum}</strong>!<br><br>`;
             
             if (matchingPlayers.length > 0) {
-                resultsText += `<span class="text-amber-400 font-bold">MATCHED SHOW!</span> Another player has equal or lower sum. Caller and matching players get <strong class="text-white">0 points</strong>.<br>`;
-                
+                resultsText += `<span class="text-amber-400 font-bold">MATCHED SHOW!</span><br>`;
                 let matchedIds = [caller.id, ...matchingPlayers.map(m => m.player.id)];
-                
                 summaries.forEach(item => {
-                    if (matchedIds.includes(item.player.id)) {
-                        item.player.scores += 0;
-                    } else {
-                        item.player.scores += item.sum;
-                    }
+                    if (!matchedIds.includes(item.player.id)) item.player.scores += item.sum;
                 });
             } else {
-                resultsText += `<span class="text-emerald-400 font-bold">GOOD SHOW!</span> ${caller.name} had strictly the lowest sum.<br>`;
-                caller.scores += 0;
+                resultsText += `<span class="text-emerald-400 font-bold">GOOD SHOW!</span><br>`;
                 summaries.forEach(item => {
-                    if (item.player.id !== caller.id) {
-                        item.player.scores += item.sum;
-                    }
+                    if (item.player.id !== caller.id) item.player.scores += item.sum;
                 });
             }
 
             resultsText += `<hr class="border-zinc-800 my-2"><div class="text-xs space-y-1">`;
             summaries.forEach(item => {
-                let isCallerLabel = item.player.id === caller.id ? ' (Caller)' : '';
-                resultsText += `<div>${item.player.name}${isCallerLabel}: Sum = <strong>${item.sum}</strong> | Total = <strong>${item.scores}</strong></div>`;
+                resultsText += `<div>${item.player.name}: Sum = <strong>${item.sum}</strong> | Total = <strong>${item.scores}</strong></div>`;
             });
             resultsText += `</div>`;
 
             players.forEach(p => {
-                if(p.scores >= targetEliminationPoints) {
-                    p.eliminated = true;
-                    resultsText += `<br><span class="text-rose-400 font-bold">⚠️ ${p.name} reached ${targetEliminationPoints} points and is ELIMINATED!</span>`;
-                }
+                if(p.scores >= targetEliminationPoints) p.eliminated = true;
             });
 
             roundActive = false;
-
-            let payload = {
-                type: 'ROUND_OVER',
-                resultsData: resultsText,
-                callerName: caller.name,
-                players: players
-            };
+            let payload = { type: 'ROUND_OVER', resultsData: resultsText, callerName: caller.name, players: players };
 
             showRoundOverModal(resultsText, caller.name);
             renderGameBoard();
 
             if(isHost && !isSoloMode) {
-                for(let pId in connections) {
-                    try { connections[pId].send(payload); } catch(e){}
-                }
+                for(let pId in connections) { try { connections[pId].send(payload); } catch(e){} }
             }
         }
 
@@ -1429,7 +1258,6 @@
             deck = fullDeck;
             roundActive = true;
             turnPhase = 'drop';
-
             currentTurnIndex = players.findIndex(p => !p.eliminated);
 
             let startPayload = {
@@ -1443,25 +1271,21 @@
             };
 
             document.getElementById('round-over-modal').classList.add('hidden');
-
             if(!isSoloMode) {
-                for(let pId in connections) {
-                    try { connections[pId].send(startPayload); } catch(e){}
-                }
+                for(let pId in connections) { try { connections[pId].send(startPayload); } catch(e){} }
             }
             renderGameBoard();
             logTicker("New round started!");
             checkBotTurn();
         }
 
-        // --- RENDERING ---
         function renderGameBoard() {
             const topScoresContainer = document.getElementById('top-scores-container');
             topScoresContainer.innerHTML = '';
             players.forEach(p => {
                 let badge = document.createElement('div');
-                badge.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-zinc-900 border ${p.eliminated ? 'border-zinc-900 opacity-50' : 'border-zinc-800'} shadow-sm text-[11px]`;
-                badge.innerHTML = `<span class="font-bold text-zinc-300">${p.name}:</span> <span class="font-mono ${p.scores >= targetEliminationPoints ? 'text-rose-400 font-black' : 'text-amber-300 font-bold'}">${p.scores}</span>`;
+                badge.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-zinc-900 border ${p.eliminated ? 'border-zinc-900 opacity-50' : 'border-zinc-800'} text-[11px]`;
+                badge.innerHTML = `<span class="font-bold text-zinc-300">${p.name}:</span> <span class="font-mono text-amber-300 font-bold">${p.scores}</span>`;
                 topScoresContainer.appendChild(badge);
             });
 
@@ -1470,30 +1294,19 @@
             
             players.forEach((p, idx) => {
                 if(idx === myIndex) return;
-                
                 let isTurn = (idx === currentTurnIndex);
                 let div = document.createElement('div');
-                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400 ring-1 ring-amber-400/50 shadow-md' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40 grayscale' : ''}`;
+                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
                 
-                let removeBtnHtml = '';
-                if (isHost && !p.isHost && p.id !== myId) {
-                    removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px] font-bold transition">Remove</button>`;
-                }
+                let removeBtnHtml = (isHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
                 div.innerHTML = `
-                    <div class="flex justify-between items-center text-[10px] sm:text-xs">
+                    <div class="flex justify-between items-center text-[10px]">
                         <span class="font-bold truncate max-w-[65px]">${p.name}</span>
-                        <div class="flex items-center space-x-1">
-                            <span class="text-[9px] bg-zinc-900 px-1 py-0.5 rounded text-zinc-300 font-mono">${p.scores}</span>
-                            ${removeBtnHtml}
-                        </div>
+                        ${removeBtnHtml}
                     </div>
                     <div class="flex justify-between items-center text-[10px] mt-1 text-zinc-400">
-                        <span>Cards:</span>
-                        <span class="font-mono font-bold text-white">${p.hand ? p.hand.length : 0}</span>
-                    </div>
-                    <div class="text-[9px] text-center ${isTurn ? 'text-amber-300 font-bold animate-pulse' : 'text-zinc-500'} mt-1">
-                        ${p.eliminated ? 'Out' : (isTurn ? '▶ Thinking' : 'Wait')}
+                        <span>Cards:</span><span class="font-bold text-white">${p.hand ? p.hand.length : 0}</span>
                     </div>
                 `;
                 hudContainer.appendChild(div);
@@ -1526,16 +1339,7 @@
             let isMyTurn = (currentTurnIndex === myIndex);
             
             document.getElementById('turn-announcement').innerText = isMyTurn ? "👉 YOUR TURN!" : `Turn: ${activePlayer ? activePlayer.name : 'Waiting'}`;
-            
-            if(isMyTurn) {
-                if(turnPhase === 'drop') {
-                    document.getElementById('action-instruction').innerText = "Select card(s) to drop.";
-                } else {
-                    document.getElementById('action-instruction').innerText = "Click Stock to draw.";
-                }
-            } else {
-                document.getElementById('action-instruction').innerText = `Waiting for ${activePlayer ? activePlayer.name : 'player'}...`;
-            }
+            document.getElementById('action-instruction').innerText = isMyTurn ? (turnPhase === 'drop' ? "Select card to drop." : "Click stock to draw.") : `Waiting...`;
 
             me.hand.forEach((card) => {
                 let isRed = ['♥', '♦'].includes(card.suit);
@@ -1551,28 +1355,17 @@
                 if(isMyTurn && !me.eliminated) {
                     cardEl.onclick = () => handleCardClick(card.uid);
                 }
-
                 myHandContainer.appendChild(cardEl);
             });
         }
-
-        window.addEventListener('beforeunload', () => {
-            intentionalDisconnect = true;
-            stopConnectionWatchdog();
-            if(heartbeatInterval) {
-                clearInterval(heartbeatInterval);
-                heartbeatInterval = null;
-            }
-        });
 
         function updateScoreboardTable() {
             const tbody = document.getElementById('scoreboard-table-body');
             tbody.innerHTML = '';
             players.forEach(p => {
                 let tr = document.createElement('tr');
-                tr.className = p.eliminated ? 'text-zinc-600 bg-zinc-950' : '';
                 tr.innerHTML = `
-                    <td class="py-2 font-medium">${p.name} ${p.id === myId ? '(You)' : ''}</td>
+                    <td class="py-2 font-medium">${p.name}</td>
                     <td class="py-2 text-right font-mono font-bold">${p.scores} / ${targetEliminationPoints}</td>
                     <td class="py-2 text-right text-[11px]"><span class="px-2 py-0.5 rounded ${p.eliminated ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'}">${p.eliminated ? 'Eliminated' : 'Active'}</span></td>
                 `;
