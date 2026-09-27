@@ -19,7 +19,6 @@
             overflow: hidden;
             margin: 0;
             padding: 0;
-            overscroll-behavior-y: auto; /* Enabled pull-to-refresh behavior */
         }
         .card-shadow {
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15);
@@ -29,7 +28,7 @@
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
     </style>
 </head>
-<body class="bg-black h-[100dvh] w-screen text-white font-sans flex flex-col justify-between overflow-y-auto">
+<body class="bg-black h-[100dvh] w-screen text-white font-sans flex flex-col justify-between">
 
     <!-- TOP BAR / HEADER -->
     <header class="p-2 sm:p-3 bg-black flex flex-row justify-between items-center border-b border-zinc-800 gap-2 shrink-0">
@@ -38,15 +37,19 @@
             <span id="room-badge" class="text-[10px] sm:text-xs bg-zinc-900 px-2 py-0.5 rounded text-emerald-300 hidden">Room: <span id="current-room-id" class="font-mono font-bold uppercase"></span></span>
         </div>
 
-        <div id="game-status-banner" class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden">
-            Waiting...
+        <div class="flex items-center space-x-2">
+            <div id="game-status-banner" class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden">
+                Waiting...
+            </div>
+            <button onclick="confirmExitGame()" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-rose-700/50">
+                Exit Game
+            </button>
         </div>
     </header>
 
-    <!-- STICKY PLAYER SCORES ROW CONTAINER & CARD COUNT DIVISIONS -->
+    <!-- STICKY PLAYER SCORES ROW CONTAINER -->
     <div id="sticky-scores-wrapper" class="hidden w-full bg-black border-b border-zinc-800 px-2 py-1.5 shrink-0 space-y-1">
         <div id="top-scores-container" class="flex flex-wrap justify-center items-center gap-1.5 max-w-5xl mx-auto"></div>
-        <div id="sticky-card-counts-container" class="flex flex-wrap justify-center items-center gap-1.5 max-w-5xl mx-auto border-t border-zinc-900 pt-1"></div>
     </div>
 
     <!-- MAIN CONTAINER -->
@@ -60,10 +63,10 @@
                     <label class="block text-[11px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Your Nickname</label>
                     <input type="text" id="nickname-input" placeholder="Enter your name" maxlength="12" autocapitalize="words" autocorrect="off" spellcheck="false" autocomplete="off" class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 font-medium text-sm">
                 </div>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-3 gap-2">
                     <div>
-                        <label class="block text-[11px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Max Players</label>
-                        <select id="max-players-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-sm">
+                        <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Max Players</label>
+                        <select id="max-players-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
                             <option value="2">2 Players</option>
                             <option value="3">3 Players</option>
                             <option value="4" selected>4 Players</option>
@@ -72,13 +75,20 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-[11px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Eliminate Pts</label>
-                        <select id="target-points-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-sm">
-                            <option value="50">50 Points</option>
-                            <option value="75">75 Points</option>
-                            <option value="100" selected>100 Points</option>
-                            <option value="150">150 Points</option>
-                            <option value="200">200 Points</option>
+                        <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Cards / Player</label>
+                        <select id="cards-count-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
+                            <option value="5">5 Cards</option>
+                            <option value="7" selected>7 Cards</option>
+                            <option value="9">9 Cards</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Eliminate Pts</label>
+                        <select id="target-points-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
+                            <option value="50">50 Pts</option>
+                            <option value="75">75 Pts</option>
+                            <option value="100" selected>100 Pts</option>
+                            <option value="150">150 Pts</option>
                         </select>
                     </div>
                 </div>
@@ -115,7 +125,7 @@
                 <p id="display-room-code" class="text-2xl sm:text-3xl font-mono font-black text-amber-400 tracking-widest select-all"></p>
             </div>
             <div>
-                <h3 class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Connected (<span id="connected-count">1</span>/<span id="max-count">4</span>) • Target: <span id="display-target-pts">100</span> pts</h3>
+                <h3 class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Connected (<span id="connected-count">1</span>/<span id="max-count">4</span>) • Cards: <span id="display-cards-count">7</span> • Target: <span id="display-target-pts">100</span> pts</h3>
                 <ul id="player-list-ul" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
             </div>
             <div id="host-controls" class="hidden pt-2">
@@ -262,6 +272,7 @@
             myClientToken = 'client-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
         }
         let maxPlayersLimit = 4;
+        let cardsPerPlayer = 7;
         let targetEliminationPoints = 100;
         let roomCode = '';
 
@@ -277,30 +288,60 @@
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
-        // --- MOBILE PULL-TO-REFRESH IMPLEMENTATION ---
-        let touchStartY = 0;
-        window.addEventListener('touchstart', e => {
-            if (window.scrollY === 0) {
-                touchStartY = e.touches[0].clientY;
-            }
-        }, { passive: true });
+        // Helper to sort hand cards: highest count frequency first, then value, then suit
+        const cardValueWeight = {'A':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13};
+        function sortHandCards(hand) {
+            const counts = {};
+            hand.forEach(c => {
+                counts[c.val] = (counts[c.val] || 0) + 1;
+            });
 
-        window.addEventListener('touchmove', e => {
-            if (window.scrollY === 0 && touchStartY > 0) {
-                let currentY = e.touches[0].clientY;
-                if (currentY - touchStartY > 110) { // Threshold for pull-down refresh
-                    touchStartY = 0;
-                    window.location.reload();
-                }
-            }
-        }, { passive: true });
+            return hand.sort((a, b) => {
+                // 1. Sort by frequency count descending (highest count first)
+                let countDiff = (counts[b.val] || 0) - (counts[a.val] || 0);
+                if (countDiff !== 0) return countDiff;
 
-        window.addEventListener('touchend', () => {
-            touchStartY = 0;
-        }, { passive: true });
+                // 2. If counts are equal, sort by value weight ascending
+                let valDiff = (cardValueWeight[a.val] || 0) - (cardValueWeight[b.val] || 0);
+                if (valDiff !== 0) return valDiff;
+
+                // 3. If values are equal, sort by suit
+                return a.suit.localeCompare(b.suit);
+            });
+        }
 
         function logTicker(msg) {
             document.getElementById('activity-log-ticker').innerText = msg;
+        }
+
+        function confirmExitGame() {
+            if (confirm("Are you sure you want to exit?")) {
+                intentionalDisconnect = true;
+                location.reload();
+            }
+        }
+
+        function confirmRemovePlayer(targetPeerId, targetPlayerName) {
+            if (confirm(`Are you sure you want to remove this player (${targetPlayerName})?`)) {
+                if (connections[targetPeerId]) {
+                    try {
+                        connections[targetPeerId].send({ type: 'KICKED' });
+                    } catch(e) {}
+                    try {
+                        connections[targetPeerId].close();
+                    } catch(e) {}
+                    delete connections[targetPeerId];
+                }
+                players = players.filter(p => p.id !== targetPeerId);
+                broadcastPlayerList();
+                if(roundActive) {
+                    if(currentTurnIndex >= players.length) currentTurnIndex = 0;
+                    broadcastGameState("Player removed by host.");
+                }
+                updateWaitingRoomUI();
+                renderGameBoard();
+                logTicker(`Removed ${targetPlayerName} from the game.`);
+            }
         }
 
         function toggleScoreboardModal(show) {
@@ -473,6 +514,7 @@
         // --- SOLO / COMPUTER MODE ---
         function startSoloGame() {
             myName = document.getElementById('nickname-input').value.trim() || "Player";
+            cardsPerPlayer = parseInt(document.getElementById('cards-count-select').value);
             targetEliminationPoints = parseInt(document.getElementById('target-points-select').value);
             maxPlayersLimit = parseInt(document.getElementById('max-players-select').value);
             
@@ -500,7 +542,7 @@
             myIndex = 0;
             let fullDeck = createDeck();
             players.forEach(p => {
-                p.hand = fullDeck.splice(0, 7);
+                p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
                 p.eliminated = false;
             });
             
@@ -548,6 +590,7 @@
                     document.getElementById('waiting-screen').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
                     document.getElementById('max-count').innerText = maxPlayersLimit;
+                    document.getElementById('display-cards-count').innerText = cardsPerPlayer;
                     document.getElementById('display-target-pts').innerText = targetEliminationPoints;
                     document.getElementById('host-controls').classList.remove('hidden');
                     document.getElementById('waiting-msg').classList.add('hidden');
@@ -615,6 +658,7 @@
             myName = document.getElementById('nickname-input').value.trim();
             if(!myName) { showLobbyError("Please enter your nickname."); return; }
             maxPlayersLimit = parseInt(document.getElementById('max-players-select').value);
+            cardsPerPlayer = parseInt(document.getElementById('cards-count-select').value);
             targetEliminationPoints = parseInt(document.getElementById('target-points-select').value);
 
             isHost = true;
@@ -757,13 +801,15 @@
                         deck: deck,
                         discardPile: discardPile,
                         currentTurnIndex: currentTurnIndex,
-                        targetPoints: targetEliminationPoints
+                        targetPoints: targetEliminationPoints,
+                        cardsPerPlayer: cardsPerPlayer
                     });
                 } else {
                     c.send({
                         type: 'UPDATE_PLAYERS',
                         players: players,
                         maxPlayers: maxPlayersLimit,
+                        cardsPerPlayer: cardsPerPlayer,
                         targetPoints: targetEliminationPoints
                     });
                 }
@@ -865,6 +911,7 @@
                 type: 'UPDATE_PLAYERS', 
                 players: players, 
                 maxPlayers: maxPlayersLimit, 
+                cardsPerPlayer: cardsPerPlayer,
                 targetPoints: targetEliminationPoints 
             };
             for(let pId in connections) {
@@ -874,13 +921,18 @@
 
         function updateWaitingRoomUI() {
             document.getElementById('connected-count').innerText = players.filter(p => p.connected !== false).length;
+            document.getElementById('display-cards-count').innerText = cardsPerPlayer;
             document.getElementById('display-target-pts').innerText = targetEliminationPoints;
             const ul = document.getElementById('player-list-ul');
             ul.innerHTML = '';
             players.forEach(p => {
                 let li = document.createElement('li');
                 li.className = 'bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm flex justify-between items-center';
-                li.innerHTML = `<span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}`;
+                let removeBtnHtml = '';
+                if (isHost && !p.isHost && p.id !== myId) {
+                    removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
+                }
+                li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
                 ul.appendChild(li);
             });
         }
@@ -894,12 +946,18 @@
                         scheduleGuestReconnect();
                     }
                     break;
+                case 'KICKED':
+                    alert("You have been removed from the game by the host.");
+                    intentionalDisconnect = true;
+                    location.reload();
+                    break;
                 case 'RECONNECTED':
                     logTicker(data.message || 'Connection restored.');
                     break;
                 case 'UPDATE_PLAYERS':
                     players = data.players;
                     maxPlayersLimit = data.maxPlayers;
+                    cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints;
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.remove('hidden');
@@ -912,6 +970,7 @@
                     deck = data.deck;
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
+                    cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints || targetEliminationPoints;
                     roundActive = true;
                     
@@ -970,7 +1029,7 @@
             
             let fullDeck = createDeck();
             players.forEach(p => {
-                p.hand = fullDeck.splice(0, 7);
+                p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
                 p.eliminated = false;
             });
             
@@ -986,7 +1045,8 @@
                 deck: deck,
                 discardPile: discardPile,
                 currentTurnIndex: currentTurnIndex,
-                targetPoints: targetEliminationPoints
+                targetPoints: targetEliminationPoints,
+                cardsPerPlayer: cardsPerPlayer
             };
 
             for(let pId in connections) {
@@ -1053,7 +1113,7 @@
                 dropGroup = bot.hand.filter(c => c.val === highestVal);
             }
 
-            bot.hand = bot.hand.filter(c => !dropGroup.includes(c));
+            bot.hand = sortHandCards(bot.hand.filter(c => !dropGroup.includes(c)));
             dropGroup.forEach(c => discardPile.push(c));
 
             let matchesBoard = topCard && (dropGroup[0].val === topCard.val);
@@ -1071,7 +1131,7 @@
                 }
                 if(deck.length > 0) {
                     let drawn = deck.pop();
-                    bot.hand.push(drawn);
+                    bot.hand = sortHandCards([...bot.hand, drawn]);
                 }
                 advanceTurn();
                 let msg = `${bot.name} played their turn and drew a card.`;
@@ -1094,7 +1154,7 @@
                 let selectedCard = me.hand[cardIndex];
 
                 let droppedCards = me.hand.filter(c => c.val === selectedCard.val);
-                me.hand = me.hand.filter(c => c.val !== selectedCard.val);
+                me.hand = sortHandCards(me.hand.filter(c => c.val !== selectedCard.val));
                 
                 let previousTopCard = discardPile[discardPile.length - 1];
                 droppedCards.forEach(c => discardPile.push(c));
@@ -1141,7 +1201,7 @@
             }
 
             let drawnCard = deck.pop();
-            me.hand.push(drawnCard);
+            me.hand = sortHandCards([...me.hand, drawnCard]);
             
             turnPhase = 'drop';
             advanceTurn();
@@ -1216,38 +1276,34 @@
             let callerSum = calculateHandSum(caller.hand);
 
             let summaries = [];
-            let minSum = 999;
-            let lowestPlayer = null;
-
             players.forEach(p => {
                 if(!p.eliminated) {
                     let s = calculateHandSum(p.hand);
                     summaries.push({ player: p, sum: s });
-                    if(s < minSum) {
-                        minSum = s;
-                        lowestPlayer = p;
-                    }
                 }
             });
 
-            let othersEqualOrLower = summaries.some(item => item.player.id !== caller.id && item.sum <= callerSum);
+            let matchingPlayers = summaries.filter(item => item.player.id !== caller.id && item.sum <= callerSum);
 
             let resultsText = `<strong>${caller.name}</strong> called SHOW with sum: <strong>${callerSum}</strong>!<br><br>`;
             
-            if(othersEqualOrLower) {
-                resultsText += `<span class="text-rose-400 font-bold">BAD SHOW!</span> Another player has equal/lower sum.<br>`;
-                caller.scores += 25;
-                if(lowestPlayer) lowestPlayer.scores += 0;
+            if (matchingPlayers.length > 0) {
+                resultsText += `<span class="text-amber-400 font-bold">MATCHED SHOW!</span> Another player has equal or lower sum. Caller and matching players get <strong class="text-white">0 points</strong>.<br>`;
+                
+                let matchedIds = [caller.id, ...matchingPlayers.map(m => m.player.id)];
+                
                 summaries.forEach(item => {
-                    if(item.player.id !== caller.id && item.player.id !== (lowestPlayer ? lowestPlayer.id : '')) {
+                    if (matchedIds.includes(item.player.id)) {
+                        item.player.scores += 0;
+                    } else {
                         item.player.scores += item.sum;
                     }
                 });
             } else {
-                resultsText += `<span class="text-emerald-400 font-bold">GOOD SHOW!</span> ${caller.name} had lowest sum.<br>`;
+                resultsText += `<span class="text-emerald-400 font-bold">GOOD SHOW!</span> ${caller.name} had strictly the lowest sum.<br>`;
                 caller.scores += 0;
                 summaries.forEach(item => {
-                    if(item.player.id !== caller.id) {
+                    if (item.player.id !== caller.id) {
                         item.player.scores += item.sum;
                     }
                 });
@@ -1263,7 +1319,7 @@
             players.forEach(p => {
                 if(p.scores >= targetEliminationPoints) {
                     p.eliminated = true;
-                    resultsText += `<br><span class="text-amber-400 font-bold">⚠️ ${p.name} reached ${targetEliminationPoints} points and is ELIMINATED!</span>`;
+                    resultsText += `<br><span class="text-rose-400 font-bold">⚠️ ${p.name} reached ${targetEliminationPoints} points and is ELIMINATED!</span>`;
                 }
             });
 
@@ -1310,7 +1366,7 @@
 
             let fullDeck = createDeck();
             players.forEach(p => {
-                if(!p.eliminated) p.hand = fullDeck.splice(0, 7);
+                if(!p.eliminated) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
                 else p.hand = [];
             });
             discardPile = [fullDeck.pop()];
@@ -1326,7 +1382,8 @@
                 deck: deck,
                 discardPile: discardPile,
                 currentTurnIndex: currentTurnIndex,
-                targetPoints: targetEliminationPoints
+                targetPoints: targetEliminationPoints,
+                cardsPerPlayer: cardsPerPlayer
             };
 
             document.getElementById('round-over-modal').classList.add('hidden');
@@ -1348,18 +1405,8 @@
             players.forEach(p => {
                 let badge = document.createElement('div');
                 badge.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-zinc-900 border ${p.eliminated ? 'border-zinc-900 opacity-50' : 'border-zinc-800'} shadow-sm text-[11px]`;
-                badge.innerHTML = `<span class="font-bold text-zinc-300">${p.name}:</span> <span class="font-mono ${p.scores >= targetEliminationPoints ? 'text-rose-400 font-black' : 'text-amber-300 font-bold'}">${p.scores}pts</span>`;
+                badge.innerHTML = `<span class="font-bold text-zinc-300">${p.name}:</span> <span class="font-mono ${p.scores >= targetEliminationPoints ? 'text-rose-400 font-black' : 'text-amber-300 font-bold'}">${p.scores}</span>`;
                 topScoresContainer.appendChild(badge);
-            });
-
-            const stickyCardCountsContainer = document.getElementById('sticky-card-counts-container');
-            stickyCardCountsContainer.innerHTML = '';
-            players.forEach((p, idx) => {
-                if (idx === myIndex) return;
-                let countDiv = document.createElement('div');
-                countDiv.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-black border ${p.eliminated ? 'border-zinc-900 text-zinc-600' : 'border-zinc-800 text-zinc-300'} text-[10px]`;
-                countDiv.innerHTML = `<span class="truncate max-w-[70px] font-medium">${p.name}:</span> <span class="font-mono font-bold text-amber-400">🎴 ${p.eliminated ? 'OUT' : p.hand.length}</span>`;
-                stickyCardCountsContainer.appendChild(countDiv);
             });
 
             const hudContainer = document.getElementById('opponents-hud');
@@ -1372,17 +1419,24 @@
                 let div = document.createElement('div');
                 div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400 ring-1 ring-amber-400/50 shadow-md' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40 grayscale' : ''}`;
                 
+                let removeBtnHtml = '';
+                if (isHost && !p.isHost && p.id !== myId) {
+                    removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px] font-bold transition">Remove</button>`;
+                }
+
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px] sm:text-xs">
                         <span class="font-bold truncate max-w-[65px]">${p.name}</span>
-                        <span class="text-[9px] bg-zinc-900 px-1 py-0.5 rounded text-zinc-300 font-mono">${p.scores}</span>
-                    </div>
-                    <div class="flex items-center justify-center my-1">
-                        <div class="text-[10px] bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded font-mono font-bold text-zinc-300">
-                            🎴 ${p.eliminated ? 'OUT' : p.hand.length}
+                        <div class="flex items-center space-x-1">
+                            <span class="text-[9px] bg-zinc-900 px-1 py-0.5 rounded text-zinc-300 font-mono">${p.scores}</span>
+                            ${removeBtnHtml}
                         </div>
                     </div>
-                    <div class="text-[9px] text-center ${isTurn ? 'text-amber-300 font-bold animate-pulse' : 'text-zinc-500'}">
+                    <div class="flex justify-between items-center text-[10px] mt-1 text-zinc-400">
+                        <span>Cards:</span>
+                        <span class="font-mono font-bold text-white">${p.hand ? p.hand.length : 0}</span>
+                    </div>
+                    <div class="text-[9px] text-center ${isTurn ? 'text-amber-300 font-bold animate-pulse' : 'text-zinc-500'} mt-1">
                         ${p.eliminated ? 'Out' : (isTurn ? '▶ Thinking' : 'Wait')}
                     </div>
                 `;
