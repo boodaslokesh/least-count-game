@@ -1,3 +1,68 @@
+least-count-game.html
+File
+ see in this code, suppose if a person created a room and copied code and then tab minimised then came back, so at this moment code is not active if other enters code wrong saying, this is the issue that if i created a room and minimised and cam back that code not working 
+
+ so solve this issue and send me correct full html code 
+
+Yes. I found the issue in your original HTML: the room is hosted by the host browser itself using PeerJS, so when the host tab is minimized/suspended, the existing heartbeat can also be suspended. The original heartbeat was only a 10-second data ping.
+
+I created a complete corrected HTML file with these changes:
+
+    ✅ Room code remains the same after minimize/restore.
+
+    ✅ Automatically detects when the browser comes back from background.
+
+    ✅ Automatically reconnects the host's PeerJS signaling connection.
+
+    ✅ Does not generate a new room code during normal reconnection.
+
+    ✅ Guest automatically retries connecting instead of immediately saying the room doesn't exist.
+
+    ✅ Added online/offline recovery.
+
+    ✅ Added a persistent client token so a player can reconnect with the same identity even if PeerJS gives them a new connection ID.
+
+    ✅ Existing players can reconnect after temporary connection loss.
+
+    ✅ The old location.reload() behavior on guest disconnect has been removed.
+
+    ✅ JavaScript syntax was validated successfully.
+
+Download the corrected full HTML
+
+Download least-count-game-fixed.html
+The important behavior now
+
+Example:
+
+Host:
+
+    Creates room ABCD12
+
+    Copies ABCD12
+
+    Minimizes browser/tab
+
+    Browser suspends the PeerJS connection
+
+    Host returns to the tab
+
+    Code ABCD12 is automatically reconnected
+
+    The code remains ABCD12
+
+Guest:
+
+    Enters ABCD12
+
+    If host is temporarily reconnecting, guest does not immediately get "room not found"
+
+    Guest keeps retrying
+
+    Once the host connection is restored → guest connects automatically.
+
+One important limitation remains: because this is a pure HTML + PeerJS browser-hosted room, the host's browser is still the actual room server. A browser can completely suspend/terminate a background tab, and no JavaScript code can guarantee a connection remains alive while the browser has fully killed the page. The new code handles the normal minimize/background/recovery case much more reliably.
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -239,10 +304,27 @@
         let conn = null;
         let connections = {};
         let heartbeatInterval = null;
+        let connectionWatchdogInterval = null;
+        let guestReconnectTimer = null;
+        let guestReconnectAttempts = 0;
+        let hostPeerInitialized = false;
+        let intentionalDisconnect = false;
+        let lastHiddenAt = 0;
+
         let isHost = false;
         let isSoloMode = false;
         let myId = '';
         let myName = '';
+        let myClientToken = '';
+        try {
+            myClientToken = sessionStorage.getItem('leastCountClientToken') || '';
+            if(!myClientToken) {
+                myClientToken = 'client-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+                sessionStorage.setItem('leastCountClientToken', myClientToken);
+            }
+        } catch(e) {
+            myClientToken = 'client-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        }
         let maxPlayersLimit = 4;
         let targetEliminationPoints = 100;
         let roomCode = '';
@@ -284,31 +366,158 @@
             return code;
         }
 
-        // --- HEARTBEAT PING TO PREVENT IOS TIMEOUTS ---
+        // --- CONNECTION KEEP-ALIVE / RECOVERY ---
+        // A minimized/suspended browser can throttle JavaScript timers, so a
+        // normal setInterval heartbeat is not enough to keep PeerJS alive.
+        // We also reconnect the PeerJS signaling connection when the page is
+        // restored or the network comes back. The original roomCode is kept.
+
         function startHeartbeat() {
             if(heartbeatInterval) clearInterval(heartbeatInterval);
+
             heartbeatInterval = setInterval(() => {
+                if(intentionalDisconnect) return;
+
                 if(isHost) {
                     for(let pId in connections) {
-                        try { connections[pId].send({ type: 'PING' }); } catch(e){}
+                        const c = connections[pId];
+                        if(c && c.open) {
+                            try { c.send({ type: 'PING', ts: Date.now() }); } catch(e) {}
+                        }
                     }
                 } else if(conn && conn.open) {
-                    try { conn.send({ type: 'PING' }); } catch(e){}
+                    try { conn.send({ type: 'PING', ts: Date.now() }); } catch(e) {}
                 }
-            }, 10000); // Ping every 10 seconds to keep iPhone socket alive
+            }, 5000);
         }
 
-        // --- TAB MINIMIZE / VISIBILITY RECONNECTION HANDLER ---
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                if (isHost && roomCode && !isSoloMode) {
-                    if (!peer || peer.disconnected || peer.destroyed) {
-                        logTicker("Resuming room connection...");
-                        initHostPeer();
-                    } else if (peer.disconnected) {
-                        peer.reconnect();
+        function startConnectionWatchdog() {
+            if(connectionWatchdogInterval) clearInterval(connectionWatchdogInterval);
+
+            connectionWatchdogInterval = setInterval(() => {
+                if(intentionalDisconnect || isSoloMode || !peer || peer.destroyed) return;
+
+                if(isHost) {
+                    if(peer.disconnected) {
+                        logTicker(`Room ${roomCode} temporarily disconnected. Reconnecting...`);
+                        safePeerReconnect();
                     }
+                } else if(!conn || !conn.open) {
+                    scheduleGuestReconnect();
                 }
+            }, 5000);
+        }
+
+        function stopConnectionWatchdog() {
+            if(connectionWatchdogInterval) {
+                clearInterval(connectionWatchdogInterval);
+                connectionWatchdogInterval = null;
+            }
+            if(guestReconnectTimer) {
+                clearTimeout(guestReconnectTimer);
+                guestReconnectTimer = null;
+            }
+        }
+
+        function safePeerReconnect() {
+            if(intentionalDisconnect || !peer || peer.destroyed) return;
+
+            try {
+                if(peer.disconnected) peer.reconnect();
+            } catch(e) {
+                // The watchdog/visibility handler will retry after wake-up.
+            }
+        }
+
+        function scheduleGuestReconnect() {
+            if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
+            if(guestReconnectTimer) return;
+
+            const delay = Math.min(1000 * Math.max(1, guestReconnectAttempts + 1), 5000);
+
+            guestReconnectTimer = setTimeout(() => {
+                guestReconnectTimer = null;
+                connectGuestToHost();
+            }, delay);
+        }
+
+        function connectGuestToHost() {
+            if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
+            if(conn && conn.open) {
+                guestReconnectAttempts = 0;
+                return;
+            }
+
+            guestReconnectAttempts++;
+
+            try {
+                const newConn = peer.connect(roomCode, {
+                    reliable: true,
+                    serialization: 'json'
+                });
+
+                conn = newConn;
+
+                newConn.on('open', () => {
+                    guestReconnectAttempts = 0;
+                    newConn.send({ type: 'JOIN_REQUEST', name: myName, clientToken: myClientToken });
+                    logTicker(`Connected to room ${roomCode}.`);
+                });
+
+                newConn.on('data', (data) => handleGuestData(data));
+
+                newConn.on('error', () => scheduleGuestReconnect());
+
+                newConn.on('close', () => {
+                    if(conn === newConn) conn = null;
+                    if(!intentionalDisconnect) {
+                        logTicker(`Connection interrupted. Reconnecting to ${roomCode}...`);
+                        scheduleGuestReconnect();
+                    }
+                });
+            } catch(e) {
+                scheduleGuestReconnect();
+            }
+        }
+
+        // Browser lifecycle recovery. Minimized/background tabs can suspend
+        // timers, so we explicitly reconnect after returning to the page.
+        document.addEventListener('visibilitychange', () => {
+            if(document.visibilityState === 'hidden') {
+                lastHiddenAt = Date.now();
+                return;
+            }
+
+            if(intentionalDisconnect || isSoloMode) return;
+
+            setTimeout(() => {
+                if(intentionalDisconnect || !peer || peer.destroyed) return;
+
+                safePeerReconnect();
+                startHeartbeat();
+
+                if(isHost) {
+                    logTicker(`Room ${roomCode} is active. Restoring connection...`);
+                    setTimeout(() => {
+                        if(isHost && peer && !peer.destroyed) broadcastPlayerList();
+                    }, 1200);
+                } else {
+                    scheduleGuestReconnect();
+                }
+            }, 300);
+        });
+
+        window.addEventListener('online', () => {
+            if(intentionalDisconnect || isSoloMode || !peer || peer.destroyed) return;
+            setTimeout(() => {
+                safePeerReconnect();
+                if(!isHost) scheduleGuestReconnect();
+            }, 300);
+        });
+
+        window.addEventListener('offline', () => {
+            if(!intentionalDisconnect && !isSoloMode) {
+                logTicker('Internet connection lost. The room will recover automatically when you are online.');
             }
         });
 
@@ -365,23 +574,9 @@
         }
 
         // --- ROOM CREATION & JOINING ---
-        function createRoom() {
-            isSoloMode = false;
-            myName = document.getElementById('nickname-input').value.trim();
-            if(!myName) { showLobbyError("Please enter your nickname."); return; }
-            maxPlayersLimit = parseInt(document.getElementById('max-players-select').value);
-            targetEliminationPoints = parseInt(document.getElementById('target-points-select').value);
-            
-            isHost = true;
-            roomCode = generateShortCode();
-            
-            initHostPeer();
-        }
+        function createHostPeer() {
+            if(intentionalDisconnect) return;
 
-        function initHostPeer() {
-            if(peer) { try { peer.destroy(); } catch(e){} }
-
-            // Configured with reliable cloud settings to prevent session timeouts
             peer = new Peer(roomCode, {
                 debug: 1,
                 config: {
@@ -394,63 +589,140 @@
 
             peer.on('open', (id) => {
                 myId = id;
-                if(!players || players.length === 0 || !players.some(p => p.isHost)) {
-                    players = [{ id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
+
+                // IMPORTANT: peer.reconnect() also fires/open-completes the
+                // signaling connection. Do NOT reset players or start a new
+                // room when that happens. Preserve the original room state.
+                if(!hostPeerInitialized) {
+                    hostPeerInitialized = true;
+                    players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
                     myIndex = 0;
+
+                    document.getElementById('lobby-screen').classList.add('hidden');
+                    document.getElementById('waiting-screen').classList.remove('hidden');
+                    document.getElementById('display-room-code').innerText = roomCode;
+                    document.getElementById('max-count').innerText = maxPlayersLimit;
+                    document.getElementById('display-target-pts').innerText = targetEliminationPoints;
+                    document.getElementById('host-controls').classList.remove('hidden');
+                    document.getElementById('waiting-msg').classList.add('hidden');
+
+                    updateWaitingRoomUI();
+                    logTicker(`Room active! Code: ${roomCode}`);
+                } else {
+                    // We came back from a background/network interruption.
+                    logTicker(`Room ${roomCode} reconnected. The same code is still active.`);
+                    broadcastPlayerList();
+                    if(roundActive) broadcastGameState('Host connection restored.');
                 }
 
-                document.getElementById('lobby-screen').classList.add('hidden');
-                document.getElementById('waiting-screen').classList.remove('hidden');
-                document.getElementById('display-room-code').innerText = roomCode;
-                document.getElementById('max-count').innerText = maxPlayersLimit;
-                document.getElementById('display-target-pts').innerText = targetEliminationPoints;
-                document.getElementById('host-controls').classList.remove('hidden');
-                document.getElementById('waiting-msg').classList.add('hidden');
-                
-                updateWaitingRoomUI();
                 startHeartbeat();
-                logTicker(`Room active! Code: ${roomCode}`);
+                startConnectionWatchdog();
             });
 
             peer.on('connection', (c) => {
-                if(players.length >= maxPlayersLimit || roundActive) {
-                    c.on('open', () => { c.send({ type: 'REJECT', reason: 'Room is full or game has already started.' }); setTimeout(()=>c.close(), 500); });
-                    return;
-                }
+                // Do not reject immediately. A returning guest may have a new
+                // PeerJS connection ID after background suspension. We first
+                // inspect its persistent clientToken in JOIN_REQUEST and can
+                // restore the existing player even when the game is running.
                 connections[c.peer] = c;
                 setupHostConnectionListeners(c);
             });
 
             peer.on('disconnected', () => {
-                if(isHost && roomCode) {
-                    peer.reconnect();
+                if(!intentionalDisconnect) {
+                    logTicker(`Room ${roomCode} temporarily lost its signaling connection. Reconnecting...`);
+                    setTimeout(safePeerReconnect, 250);
                 }
             });
 
+            peer.on('close', () => {
+                if(intentionalDisconnect) return;
+
+                // If PeerJS closes completely (not merely disconnected), create
+                // another Peer object with THE SAME ROOM CODE. This is what
+                // prevents the copied room code from becoming permanently dead
+                // after a long browser sleep/background period.
+                logTicker(`Restoring room ${roomCode}...`);
+                setTimeout(() => {
+                    if(!intentionalDisconnect && isHost && !isSoloMode) {
+                        createHostPeer();
+                    }
+                }, 500);
+            });
+
             peer.on('error', (err) => {
+                if(intentionalDisconnect) return;
+
                 if(err.type === 'unavailable-id') {
-                    roomCode = generateShortCode();
-                    initHostPeer();
+                    // Only generate a new room code if the ORIGINAL room was
+                    // never successfully created. During recovery, keep the
+                    // user's copied code and retry it instead.
+                    if(!hostPeerInitialized) {
+                        roomCode = generateShortCode();
+                        createHostPeer();
+                    } else {
+                        setTimeout(() => {
+                            if(!intentionalDisconnect && isHost && !isSoloMode && (!peer || peer.destroyed)) {
+                                createHostPeer();
+                            }
+                        }, 1500);
+                    }
                 } else {
-                    showLobbyError("Host connection error. Please try again.");
+                    logTicker(`Room connection issue (${err.type || 'network'}). Retrying automatically...`);
                 }
             });
         }
 
+        function createRoom() {
+            isSoloMode = false;
+            intentionalDisconnect = false;
+            hostPeerInitialized = false;
+            guestReconnectAttempts = 0;
+            myName = document.getElementById('nickname-input').value.trim();
+            if(!myName) { showLobbyError("Please enter your nickname."); return; }
+            maxPlayersLimit = parseInt(document.getElementById('max-players-select').value);
+            targetEliminationPoints = parseInt(document.getElementById('target-points-select').value);
+
+            isHost = true;
+            roomCode = generateShortCode();
+            roundActive = false;
+            connections = {};
+            players = [];
+
+            stopConnectionWatchdog();
+            if(peer) {
+                intentionalDisconnect = true;
+                try { peer.destroy(); } catch(e) {}
+                peer = null;
+                intentionalDisconnect = false;
+            }
+
+            createHostPeer();
+        }
+
         function joinRoom() {
             isSoloMode = false;
+            intentionalDisconnect = false;
             myName = document.getElementById('nickname-input').value.trim();
             let codeInput = document.getElementById('join-room-input').value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-            
-            if(!myName || !codeInput) { 
-                showLobbyError("Enter your nickname and Room Code."); 
-                return; 
+
+            if(!myName || !codeInput) {
+                showLobbyError("Enter your nickname and Room Code.");
+                return;
             }
 
             isHost = false;
             roomCode = codeInput;
+            guestReconnectAttempts = 0;
 
-            if(peer) { try { peer.destroy(); } catch(e){} }
+            stopConnectionWatchdog();
+            if(peer) {
+                intentionalDisconnect = true;
+                try { peer.destroy(); } catch(e) {}
+                peer = null;
+                intentionalDisconnect = false;
+            }
+            conn = null;
 
             peer = new Peer({
                 debug: 1,
@@ -464,26 +736,74 @@
 
             peer.on('open', (id) => {
                 myId = id;
-                conn = peer.connect(roomCode, { reliable: true });
-
-                conn.on('open', () => {
-                    conn.send({ type: 'JOIN_REQUEST', name: myName });
-                    startHeartbeat();
-                    logTicker("Connected to room waiting area!");
-                });
-
-                conn.on('data', (data) => {
-                    handleGuestData(data);
-                });
-
-                conn.on('close', () => {
-                    alert("Disconnected from host room.");
-                    location.reload();
-                });
+                startHeartbeat();
+                startConnectionWatchdog();
+                connectGuestToHost();
             });
 
-            peer.on('error', (err) => { 
-                showLobbyError("Room code not found or host has not started room yet!"); 
+            peer.on('disconnected', () => {
+                if(!intentionalDisconnect) {
+                    logTicker(`Disconnected from signaling server. Reconnecting to ${roomCode}...`);
+                    setTimeout(safePeerReconnect, 250);
+                }
+            });
+
+            peer.on('close', () => {
+                if(!intentionalDisconnect) {
+                    logTicker(`Peer connection closed. Reconnecting to ${roomCode}...`);
+                    setTimeout(() => {
+                        if(!intentionalDisconnect && !isHost && !isSoloMode) {
+                            // Recreate the guest Peer object. The room code stays unchanged.
+                            try { peer.destroy(); } catch(e) {}
+                            peer = new Peer({
+                                debug: 1,
+                                config: {
+                                    iceServers: [
+                                        { urls: 'stun:stun.l.google.com:19302' },
+                                        { urls: 'stun:global.stun.twilio.com:3478' }
+                                    ]
+                                }
+                            });
+                            attachGuestPeerEvents();
+                        }
+                    }, 1000);
+                }
+            });
+
+            peer.on('error', (err) => {
+                if(intentionalDisconnect) return;
+
+                if(err.type === 'peer-unavailable' || err.type === 'network') {
+                    logTicker(`Room ${roomCode} is temporarily unavailable. Retrying...`);
+                    scheduleGuestReconnect();
+                } else {
+                    showLobbyError("Room code not found or host is currently offline. Retrying...");
+                    scheduleGuestReconnect();
+                }
+            });
+        }
+
+        // Kept separate so a guest Peer object can be recreated after a
+        // complete PeerJS close while retaining the same roomCode.
+        function attachGuestPeerEvents() {
+            if(!peer) return;
+
+            peer.on('open', (id) => {
+                myId = id;
+                startHeartbeat();
+                startConnectionWatchdog();
+                connectGuestToHost();
+            });
+
+            peer.on('disconnected', () => {
+                if(!intentionalDisconnect) setTimeout(safePeerReconnect, 250);
+            });
+
+            peer.on('error', (err) => {
+                if(!intentionalDisconnect) {
+                    logTicker(`Room ${roomCode} connection issue (${err.type || 'network'}). Retrying...`);
+                    scheduleGuestReconnect();
+                }
             });
         }
 
@@ -495,20 +815,98 @@
         }
 
         // --- HOST / GUEST SYNC ---
+        function sendCurrentStateToConnection(c) {
+            if(!c || !c.open) return;
+
+            try {
+                if(roundActive) {
+                    c.send({
+                        type: 'START_GAME',
+                        players: players,
+                        deck: deck,
+                        discardPile: discardPile,
+                        currentTurnIndex: currentTurnIndex,
+                        targetPoints: targetEliminationPoints
+                    });
+                } else {
+                    c.send({
+                        type: 'UPDATE_PLAYERS',
+                        players: players,
+                        maxPlayers: maxPlayersLimit,
+                        targetPoints: targetEliminationPoints
+                    });
+                }
+            } catch(e) {}
+        }
+
         function setupHostConnectionListeners(c) {
             c.on('data', (data) => {
-                if(data.type === 'PING') return; // Ignore heartbeat pings
-                
+                if(data.type === 'PING') return;
+
                 if(data.type === 'JOIN_REQUEST') {
-                    if(players.length >= maxPlayersLimit) {
-                        c.send({ type: 'REJECT', reason: 'Room is full.' });
+                    const clientToken = data.clientToken || '';
+
+                    // A guest returning after browser suspension can have a
+                    // different PeerJS ID. Match it using the persistent token
+                    // instead of treating it as a brand-new player.
+                    let existingPlayer = clientToken
+                        ? players.find(p => p.clientToken === clientToken)
+                        : null;
+
+                    if(existingPlayer) {
+                        const oldId = existingPlayer.id;
+
+                        if(oldId !== c.peer) {
+                            const oldConn = connections[oldId];
+                            if(oldConn && oldConn !== c) {
+                                try { oldConn.close(); } catch(e) {}
+                            }
+                            delete connections[oldId];
+                        }
+
+                        existingPlayer.id = c.peer;
+                        existingPlayer.name = data.name || existingPlayer.name;
+                        existingPlayer.connected = true;
+                        connections[c.peer] = c;
+
+                        c.send({ type: 'RECONNECTED', message: 'Your room connection was restored.' });
+                        sendCurrentStateToConnection(c);
+                        broadcastPlayerList();
+                        updateWaitingRoomUI();
+                        logTicker(`${existingPlayer.name} reconnected to the room.`);
                         return;
                     }
-                    let newPlayer = { id: c.peer, name: data.name, isHost: false, scores: 0, hand: [], eliminated: false, isBot: false };
+
+                    if(roundActive) {
+                        c.send({ type: 'REJECT', reason: 'This game has already started. Only existing players can reconnect.' });
+                        setTimeout(() => { try { c.close(); } catch(e) {} }, 500);
+                        return;
+                    }
+
+                    const connectedPlayerCount = players.filter(p => p.connected !== false).length;
+                    if(connectedPlayerCount >= maxPlayersLimit) {
+                        c.send({ type: 'REJECT', reason: 'Room is full.' });
+                        setTimeout(() => { try { c.close(); } catch(e) {} }, 500);
+                        return;
+                    }
+
+                    let newPlayer = {
+                        id: c.peer,
+                        name: data.name || 'Player',
+                        clientToken: clientToken || ('guest-' + c.peer),
+                        connected: true,
+                        isHost: false,
+                        scores: 0,
+                        hand: [],
+                        eliminated: false,
+                        isBot: false
+                    };
+
                     players.push(newPlayer);
+                    connections[c.peer] = c;
                     broadcastPlayerList();
                     updateWaitingRoomUI();
-                    logTicker(`${data.name} joined the room.`);
+                    logTicker(`${newPlayer.name} joined the room.`);
                 }
                 else if(data.type === 'PLAYER_ACTION') {
                     handleHostAction(data);
@@ -518,12 +916,23 @@
                 }
             });
 
+            c.on('error', () => {
+                // The close handler performs cleanup/recovery.
+            });
+
             c.on('close', () => {
                 delete connections[c.peer];
-                players = players.filter(p => p.id !== c.peer);
-                broadcastPlayerList();
-                updateWaitingRoomUI();
-                logTicker("A player disconnected.");
+
+                const disconnectedPlayer = players.find(p => p.id === c.peer);
+                if(disconnectedPlayer && !disconnectedPlayer.isHost) {
+                    // Keep the logical player in the room so a returning tab can
+                    // reclaim the same seat using clientToken.
+                    disconnectedPlayer.connected = false;
+                    broadcastPlayerList();
+                    updateWaitingRoomUI();
+                }
+
+                logTicker('A player connection was interrupted. Waiting for automatic reconnect...');
             });
         }
 
@@ -540,14 +949,14 @@
         }
 
         function updateWaitingRoomUI() {
-            document.getElementById('connected-count').innerText = players.length;
+            document.getElementById('connected-count').innerText = players.filter(p => p.connected !== false).length;
             document.getElementById('display-target-pts').innerText = targetEliminationPoints;
             const ul = document.getElementById('player-list-ul');
             ul.innerHTML = '';
             players.forEach(p => {
                 let li = document.createElement('li');
                 li.className = 'bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm flex justify-between items-center';
-                li.innerHTML = `<span>👤 ${p.name}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}`;
+                li.innerHTML = `<span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}`;
                 ul.appendChild(li);
             });
         }
@@ -556,8 +965,13 @@
             if(data.type === 'PING') return;
             switch(data.type) {
                 case 'REJECT':
-                    alert("Connection rejected: " + data.reason);
-                    location.reload();
+                    showLobbyError("Connection rejected: " + data.reason);
+                    if(data.reason && data.reason.includes('already started')) {
+                        scheduleGuestReconnect();
+                    }
+                    break;
+                case 'RECONNECTED':
+                    logTicker(data.message || 'Connection restored.');
                     break;
                 case 'UPDATE_PLAYERS':
                     players = data.players;
@@ -628,7 +1042,7 @@
 
         // --- GAMEFLOW ---
         function startHostGame() {
-            if(players.length < 2) { alert("Need at least 2 players to start!"); return; }
+            if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 connected players to start!"); return; }
             
             let fullDeck = createDeck();
             players.forEach(p => {
@@ -958,7 +1372,7 @@
                 document.getElementById('waiting-next-round-msg').classList.add('hidden');
             } else {
                 document.getElementById('host-next-round-container').classList.add('hidden');
-                document.getElementById('waiting-next-round-msg').classList.add('hidden');
+                document.getElementById('waiting-next-round-msg').classList.remove('hidden');
             }
         }
 
@@ -1108,6 +1522,15 @@
             });
         }
 
+        window.addEventListener('beforeunload', () => {
+            intentionalDisconnect = true;
+            stopConnectionWatchdog();
+            if(heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+        });
+
         function updateScoreboardTable() {
             const tbody = document.getElementById('scoreboard-table-body');
             tbody.innerHTML = '';
@@ -1125,3 +1548,7 @@
     </script>
 </body>
 </html>
+
+least-count-game-fixed.htmlHTML
+
+
