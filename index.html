@@ -298,6 +298,20 @@
             }, 10000); // Ping every 10 seconds to keep iPhone socket alive
         }
 
+        // --- TAB MINIMIZE / VISIBILITY RECONNECTION HANDLER ---
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                if (isHost && roomCode && !isSoloMode) {
+                    if (!peer || peer.disconnected || peer.destroyed) {
+                        logTicker("Resuming room connection...");
+                        initHostPeer();
+                    } else if (peer.disconnected) {
+                        peer.reconnect();
+                    }
+                }
+            }
+        });
+
         // --- SOLO / COMPUTER MODE ---
         function startSoloGame() {
             myName = document.getElementById('nickname-input').value.trim() || "Player";
@@ -361,6 +375,10 @@
             isHost = true;
             roomCode = generateShortCode();
             
+            initHostPeer();
+        }
+
+        function initHostPeer() {
             if(peer) { try { peer.destroy(); } catch(e){} }
 
             // Configured with reliable cloud settings to prevent session timeouts
@@ -376,8 +394,10 @@
 
             peer.on('open', (id) => {
                 myId = id;
-                players = [{ id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
-                myIndex = 0;
+                if(!players || players.length === 0 || !players.some(p => p.isHost)) {
+                    players = [{ id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
+                    myIndex = 0;
+                }
 
                 document.getElementById('lobby-screen').classList.add('hidden');
                 document.getElementById('waiting-screen').classList.remove('hidden');
@@ -401,10 +421,16 @@
                 setupHostConnectionListeners(c);
             });
 
+            peer.on('disconnected', () => {
+                if(isHost && roomCode) {
+                    peer.reconnect();
+                }
+            });
+
             peer.on('error', (err) => {
                 if(err.type === 'unavailable-id') {
                     roomCode = generateShortCode();
-                    createRoom();
+                    initHostPeer();
                 } else {
                     showLobbyError("Host connection error. Please try again.");
                 }
@@ -932,7 +958,7 @@
                 document.getElementById('waiting-next-round-msg').classList.add('hidden');
             } else {
                 document.getElementById('host-next-round-container').classList.add('hidden');
-                document.getElementById('waiting-next-round-msg').classList.remove('hidden');
+                document.getElementById('waiting-next-round-msg').classList.add('hidden');
             }
         }
 
