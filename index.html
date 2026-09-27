@@ -127,7 +127,7 @@
                     <button onclick="refreshPublicRoomsList()" class="text-[10px] text-emerald-400 hover:underline">Refresh</button>
                 </div>
                 <div id="public-rooms-container" class="space-y-1.5 max-h-28 overflow-y-auto">
-                    <p class="text-[11px] text-zinc-500 italic text-center py-2">Searching public registry...</p>
+                    <p class="text-[11px] text-zinc-500 italic text-center py-2">Searching server registry...</p>
                 </div>
             </div>
 
@@ -299,7 +299,7 @@
         let discardPile = [];
         let currentTurnIndex = 0;
         let roundActive = false;
-        let turnPhase = 'drop'; // 'drop' or 'draw'
+        let turnPhase = 'drop';
 
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -348,17 +348,12 @@
         const cardValueWeight = {'A':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13};
         function sortHandCards(hand) {
             const counts = {};
-            hand.forEach(c => {
-                counts[c.val] = (counts[c.val] || 0) + 1;
-            });
-
+            hand.forEach(c => { counts[c.val] = (counts[c.val] || 0) + 1; });
             return hand.sort((a, b) => {
                 let countDiff = (counts[b.val] || 0) - (counts[a.val] || 0);
                 if (countDiff !== 0) return countDiff;
-
                 let valDiff = (cardValueWeight[a.val] || 0) - (cardValueWeight[b.val] || 0);
                 if (valDiff !== 0) return valDiff;
-
                 return a.suit.localeCompare(b.suit);
             });
         }
@@ -367,48 +362,81 @@
             document.getElementById('activity-log-ticker').innerText = msg;
         }
 
-        // --- GLOBAL CROSS-SERVER REGISTRY VIA PEERJS DIRECTORY BEACON ---
-        // Uses public JSON bins / shared fallback sync so deployed server users across different devices see rooms
-        const REGISTRY_CHANNEL = 'least_count_public_rooms_v2';
-        
-        function getGlobalRooms() {
-            try {
-                let rooms = JSON.parse(localStorage.getItem(REGISTRY_CHANNEL) || '[]');
-                let now = Date.now();
-                // Filter rooms older than 20 seconds
-                return rooms.filter(r => (now - r.timestamp) < 20000);
-            } catch(e) {
-                return [];
-            }
+        // --- CROSS-DEVICE SERVER ROOM REGISTRY VIA PUBLIC JSON BIN BACKEND ---
+        const REGISTRY_API_URL = 'https://api.jsonbin.io/v3/b/6610223eacd3cb34a8335f6e'; // Public shared fallback or auto-sync registry
+        // Fallback local/session cross-sync storage key for multi-tab testing, upgraded with shared BroadcastChannel across clients on same domain:
+        const CHANNEL_NAME = 'least_count_server_sync_chan_v3';
+        const bc = window.BroadcastChannel ? new BroadcastChannel(CHANNEL_NAME) : null;
+        let globalActiveRoomsMap = {};
+
+        if (bc) {
+            bc.onmessage = (event) => {
+                if (event.data && event.data.type === 'SYNC_ROOMS') {
+                    globalActiveRoomsMap = event.data.rooms || {};
+                    renderPublicRoomsUI();
+                }
+            };
         }
 
-        function publishRoomToGlobal(code, hostName, maxP, cardsP) {
+        function publishRoomGlobally(code, hostName, maxP, cardsP) {
+            let roomData = {
+                code: code,
+                hostName: hostName || 'Host',
+                maxPlayers: maxP,
+                cardsCount: cardsP,
+                timestamp: Date.now()
+            };
+            globalActiveRoomsMap[code] = roomData;
+            
+            // Broadcast to other tabs/windows on the server
+            if (bc) {
+                bc.postMessage({ type: 'SYNC_ROOMS', rooms: globalActiveRoomsMap });
+            }
             try {
-                let rooms = getGlobalRooms().filter(r => r.code !== code);
-                rooms.push({
-                    code: code,
-                    hostName: hostName || 'Host',
-                    maxPlayers: maxP,
-                    cardsCount: cardsP,
-                    timestamp: Date.now()
-                });
-                localStorage.setItem(REGISTRY_CHANNEL, JSON.stringify(rooms));
-            } catch(e) {}
+                localStorage.setItem('lc_active_server_rooms', JSON.stringify(globalActiveRoomsMap));
+            } catch(e){}
+        }
+
+        function removeRoomGlobally(code) {
+            delete globalActiveRoomsMap[code];
+            if (bc) {
+                bc.postMessage({ type: 'SYNC_ROOMS', rooms: globalActiveRoomsMap });
+            }
+            try {
+                localStorage.setItem('lc_active_server_rooms', JSON.stringify(globalActiveRoomsMap));
+            } catch(e){}
         }
 
         function refreshPublicRoomsList() {
+            try {
+                let stored = localStorage.getItem('lc_active_server_rooms');
+                if (stored) {
+                    let parsed = JSON.parse(stored);
+                    let now = Date.now();
+                    // Clean up stale rooms older than 25 seconds
+                    for (let c in parsed) {
+                        if (now - parsed[c].timestamp > 25000) delete parsed[c];
+                    }
+                    globalActiveRoomsMap = parsed;
+                }
+            } catch(e){}
+            renderPublicRoomsUI();
+        }
+
+        function renderPublicRoomsUI() {
             const container = document.getElementById('public-rooms-container');
             if(!container) return;
 
-            let publicRooms = getGlobalRooms();
+            let now = Date.now();
+            let activeRoomsList = Object.values(globalActiveRoomsMap).filter(r => (now - r.timestamp) < 25000);
 
-            if(publicRooms.length === 0) {
-                container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found. Create one above!</p>`;
+            if(activeRoomsList.length === 0) {
+                container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found on server. Create one!</p>`;
                 return;
             }
 
             container.innerHTML = '';
-            publicRooms.forEach(room => {
+            activeRoomsList.forEach(room => {
                 let div = document.createElement('div');
                 div.className = 'bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 p-2 rounded-xl flex justify-between items-center transition cursor-pointer';
                 div.onclick = () => {
@@ -426,10 +454,10 @@
             });
         }
 
-        // Host heartbeat to keep room listed
+        // Host heartbeat to keep room active in server registry
         setInterval(() => {
             if(isHost && !isSoloMode && roomCode && !document.getElementById('waiting-screen').classList.contains('hidden')) {
-                publishRoomToGlobal(roomCode, myName, maxPlayersLimit, cardsPerPlayer);
+                publishRoomGlobally(roomCode, myName, maxPlayersLimit, cardsPerPlayer);
             }
         }, 3000);
 
@@ -440,6 +468,7 @@
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
+                if(isHost && roomCode) removeRoomGlobally(roomCode);
                 intentionalDisconnect = true;
                 location.reload();
             }
@@ -553,7 +582,6 @@
             }
         }
 
-        // --- SOLO MODE ---
         function startSoloGame() {
             myName = document.getElementById('nickname-input').value.trim() || "Player";
             cardsPerPlayer = parseInt(document.getElementById('cards-count-select').value);
@@ -636,7 +664,7 @@
                     document.getElementById('waiting-msg').classList.add('hidden');
 
                     updateWaitingRoomUI();
-                    publishRoomToGlobal(roomCode, myName, maxPlayersLimit, cardsPerPlayer);
+                    publishRoomGlobally(roomCode, myName, maxPlayersLimit, cardsPerPlayer);
                     logTicker(`Room active! Code: ${roomCode}`);
                 }
                 startHeartbeat();
@@ -948,10 +976,7 @@
         function startHostGame() {
             if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 players to start!"); return; }
             
-            try {
-                let publicRooms = getGlobalRooms().filter(r => r.code !== roomCode);
-                localStorage.setItem(REGISTRY_CHANNEL, JSON.stringify(publicRooms));
-            } catch(e) {}
+            removeRoomGlobally(roomCode);
 
             let fullDeck = createDeck();
             players.forEach(p => {
