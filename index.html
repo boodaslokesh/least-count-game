@@ -238,6 +238,7 @@
         let peer = null;
         let conn = null;
         let connections = {};
+        let heartbeatInterval = null;
         let isHost = false;
         let isSoloMode = false;
         let myId = '';
@@ -281,6 +282,20 @@
                 code += chars.charAt(Math.floor(Math.random() * chars.length));
             }
             return code;
+        }
+
+        // --- HEARTBEAT PING TO PREVENT IOS TIMEOUTS ---
+        function startHeartbeat() {
+            if(heartbeatInterval) clearInterval(heartbeatInterval);
+            heartbeatInterval = setInterval(() => {
+                if(isHost) {
+                    for(let pId in connections) {
+                        try { connections[pId].send({ type: 'PING' }); } catch(e){}
+                    }
+                } else if(conn && conn.open) {
+                    try { conn.send({ type: 'PING' }); } catch(e){}
+                }
+            }, 10000); // Ping every 10 seconds to keep iPhone socket alive
         }
 
         // --- SOLO / COMPUTER MODE ---
@@ -346,7 +361,18 @@
             isHost = true;
             roomCode = generateShortCode();
             
-            peer = new Peer(roomCode);
+            if(peer) { try { peer.destroy(); } catch(e){} }
+
+            // Configured with reliable cloud settings to prevent session timeouts
+            peer = new Peer(roomCode, {
+                debug: 1,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:global.stun.twilio.com:3478' }
+                    ]
+                }
+            });
 
             peer.on('open', (id) => {
                 myId = id;
@@ -362,12 +388,13 @@
                 document.getElementById('waiting-msg').classList.add('hidden');
                 
                 updateWaitingRoomUI();
-                logTicker(`Room created! Code: ${roomCode}`);
+                startHeartbeat();
+                logTicker(`Room active! Code: ${roomCode}`);
             });
 
             peer.on('connection', (c) => {
                 if(players.length >= maxPlayersLimit || roundActive) {
-                    c.on('open', () => { c.send({ type: 'REJECT', reason: 'Room full or game already started.' }); setTimeout(()=>c.close(), 500); });
+                    c.on('open', () => { c.send({ type: 'REJECT', reason: 'Room is full or game has already started.' }); setTimeout(()=>c.close(), 500); });
                     return;
                 }
                 connections[c.peer] = c;
@@ -376,9 +403,10 @@
 
             peer.on('error', (err) => {
                 if(err.type === 'unavailable-id') {
+                    roomCode = generateShortCode();
                     createRoom();
                 } else {
-                    showLobbyError("Connection error: " + err.type);
+                    showLobbyError("Host connection error. Please try again.");
                 }
             });
         }
@@ -386,7 +414,6 @@
         function joinRoom() {
             isSoloMode = false;
             myName = document.getElementById('nickname-input').value.trim();
-            // Clean input string completely to handle iOS spaces & casing
             let codeInput = document.getElementById('join-room-input').value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
             
             if(!myName || !codeInput) { 
@@ -396,7 +423,18 @@
 
             isHost = false;
             roomCode = codeInput;
-            peer = new Peer();
+
+            if(peer) { try { peer.destroy(); } catch(e){} }
+
+            peer = new Peer({
+                debug: 1,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:global.stun.twilio.com:3478' }
+                    ]
+                }
+            });
 
             peer.on('open', (id) => {
                 myId = id;
@@ -404,6 +442,8 @@
 
                 conn.on('open', () => {
                     conn.send({ type: 'JOIN_REQUEST', name: myName });
+                    startHeartbeat();
+                    logTicker("Connected to room waiting area!");
                 });
 
                 conn.on('data', (data) => {
@@ -411,13 +451,13 @@
                 });
 
                 conn.on('close', () => {
-                    alert("Disconnected from room.");
+                    alert("Disconnected from host room.");
                     location.reload();
                 });
             });
 
             peer.on('error', (err) => { 
-                showLobbyError("Could not connect. Please check the code or ensure the host's room is active."); 
+                showLobbyError("Room code not found or host has not started room yet!"); 
             });
         }
 
@@ -425,12 +465,14 @@
             const el = document.getElementById('lobby-error');
             el.innerText = msg;
             el.classList.remove('hidden');
-            setTimeout(() => el.classList.add('hidden'), 4000);
+            setTimeout(() => el.classList.add('hidden'), 4500);
         }
 
         // --- HOST / GUEST SYNC ---
         function setupHostConnectionListeners(c) {
             c.on('data', (data) => {
+                if(data.type === 'PING') return; // Ignore heartbeat pings
+                
                 if(data.type === 'JOIN_REQUEST') {
                     if(players.length >= maxPlayersLimit) {
                         c.send({ type: 'REJECT', reason: 'Room is full.' });
@@ -467,7 +509,7 @@
                 targetPoints: targetEliminationPoints 
             };
             for(let pId in connections) {
-                connections[pId].send(payload);
+                try { connections[pId].send(payload); } catch(e){}
             }
         }
 
@@ -485,6 +527,7 @@
         }
 
         function handleGuestData(data) {
+            if(data.type === 'PING') return;
             switch(data.type) {
                 case 'REJECT':
                     alert("Connection rejected: " + data.reason);
@@ -583,7 +626,7 @@
             };
 
             for(let pId in connections) {
-                connections[pId].send(startPayload);
+                try { connections[pId].send(startPayload); } catch(e){}
             }
 
             document.getElementById('waiting-screen').classList.add('hidden');
@@ -609,7 +652,7 @@
                 message: msg
             };
             for(let pId in connections) {
-                connections[pId].send(payload);
+                try { connections[pId].send(payload); } catch(e){}
             }
         }
 
@@ -757,15 +800,17 @@
                 renderGameBoard();
                 logTicker(msg);
             } else {
-                conn.send({
-                    type: 'PLAYER_ACTION',
-                    players: players,
-                    deck: deck,
-                    discardPile: discardPile,
-                    currentTurnIndex: currentTurnIndex,
-                    turnPhase: turnPhase,
-                    message: msg
-                });
+                try {
+                    conn.send({
+                        type: 'PLAYER_ACTION',
+                        players: players,
+                        deck: deck,
+                        discardPile: discardPile,
+                        currentTurnIndex: currentTurnIndex,
+                        turnPhase: turnPhase,
+                        message: msg
+                    });
+                } catch(e){}
             }
         }
 
@@ -793,7 +838,7 @@
             if(isHost || isSoloMode) {
                 executeShowRound(myId);
             } else {
-                conn.send({ type: 'CALL_SHOW', peerId: myId });
+                try { conn.send({ type: 'CALL_SHOW', peerId: myId }); } catch(e){}
             }
         }
 
@@ -803,6 +848,7 @@
 
         function executeShowRound(callerPeerId) {
             let caller = players.find(p => p.id === callerPeerId);
+            if(!caller) return;
             let callerSum = calculateHandSum(caller.hand);
 
             let summaries = [];
@@ -827,9 +873,9 @@
             if(othersEqualOrLower) {
                 resultsText += `<span class="text-rose-400 font-bold">BAD SHOW!</span> Another player has equal/lower sum.<br>`;
                 caller.scores += 25;
-                lowestPlayer.scores += 0;
+                if(lowestPlayer) lowestPlayer.scores += 0;
                 summaries.forEach(item => {
-                    if(item.player.id !== caller.id && item.player.id !== lowestPlayer.id) {
+                    if(item.player.id !== caller.id && item.player.id !== (lowestPlayer ? lowestPlayer.id : '')) {
                         item.player.scores += item.sum;
                     }
                 });
@@ -871,7 +917,7 @@
 
             if(isHost && !isSoloMode) {
                 for(let pId in connections) {
-                    connections[pId].send(payload);
+                    try { connections[pId].send(payload); } catch(e){}
                 }
             }
         }
@@ -923,7 +969,7 @@
 
             if(!isSoloMode) {
                 for(let pId in connections) {
-                    connections[pId].send(startPayload);
+                    try { connections[pId].send(startPayload); } catch(e){}
                 }
             }
             renderGameBoard();
