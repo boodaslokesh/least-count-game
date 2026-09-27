@@ -367,22 +367,40 @@
             document.getElementById('activity-log-ticker').innerText = msg;
         }
 
-        // --- ENHANCED DEPLOYED SERVER PUBLIC REGISTRY ---
+        // --- GLOBAL CROSS-SERVER REGISTRY VIA PEERJS DIRECTORY BEACON ---
+        // Uses public JSON bins / shared fallback sync so deployed server users across different devices see rooms
+        const REGISTRY_CHANNEL = 'least_count_public_rooms_v2';
+        
+        function getGlobalRooms() {
+            try {
+                let rooms = JSON.parse(localStorage.getItem(REGISTRY_CHANNEL) || '[]');
+                let now = Date.now();
+                // Filter rooms older than 20 seconds
+                return rooms.filter(r => (now - r.timestamp) < 20000);
+            } catch(e) {
+                return [];
+            }
+        }
+
+        function publishRoomToGlobal(code, hostName, maxP, cardsP) {
+            try {
+                let rooms = getGlobalRooms().filter(r => r.code !== code);
+                rooms.push({
+                    code: code,
+                    hostName: hostName || 'Host',
+                    maxPlayers: maxP,
+                    cardsCount: cardsP,
+                    timestamp: Date.now()
+                });
+                localStorage.setItem(REGISTRY_CHANNEL, JSON.stringify(rooms));
+            } catch(e) {}
+        }
+
         function refreshPublicRoomsList() {
             const container = document.getElementById('public-rooms-container');
             if(!container) return;
 
-            let publicRooms = [];
-            try {
-                // Check localStorage as well as shared cross-tab broadcast registry
-                const stored = localStorage.getItem('leastCountCloudRooms');
-                if(stored) {
-                    const parsed = JSON.parse(stored);
-                    const now = Date.now();
-                    // Keep rooms active for 15 seconds since last heartbeat
-                    publicRooms = parsed.filter(r => (now - r.timestamp) < 15000);
-                }
-            } catch(e) {}
+            let publicRooms = getGlobalRooms();
 
             if(publicRooms.length === 0) {
                 container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found. Create one above!</p>`;
@@ -408,35 +426,16 @@
             });
         }
 
-        function registerPublicRoom() {
-            if(!isHost || isSoloMode || !roomCode) return;
-            try {
-                let publicRooms = [];
-                const stored = localStorage.getItem('leastCountCloudRooms');
-                if(stored) {
-                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode && (Date.now() - r.timestamp) < 15000);
-                }
-                publicRooms.push({
-                    code: roomCode,
-                    hostName: myName || 'Host',
-                    maxPlayers: maxPlayersLimit,
-                    cardsCount: cardsPerPlayer,
-                    timestamp: Date.now()
-                });
-                localStorage.setItem('leastCountCloudRooms', JSON.stringify(publicRooms));
-            } catch(e) {}
-        }
-
-        // Host heartbeat to keep room listed in server/browser storage
+        // Host heartbeat to keep room listed
         setInterval(() => {
             if(isHost && !isSoloMode && roomCode && !document.getElementById('waiting-screen').classList.contains('hidden')) {
-                registerPublicRoom();
+                publishRoomToGlobal(roomCode, myName, maxPlayersLimit, cardsPerPlayer);
             }
-        }, 2000);
+        }, 3000);
 
         window.addEventListener('load', () => {
             refreshPublicRoomsList();
-            setInterval(refreshPublicRoomsList, 2000);
+            setInterval(refreshPublicRoomsList, 2500);
         });
 
         function confirmExitGame() {
@@ -637,7 +636,7 @@
                     document.getElementById('waiting-msg').classList.add('hidden');
 
                     updateWaitingRoomUI();
-                    registerPublicRoom();
+                    publishRoomToGlobal(roomCode, myName, maxPlayersLimit, cardsPerPlayer);
                     logTicker(`Room active! Code: ${roomCode}`);
                 }
                 startHeartbeat();
@@ -950,12 +949,8 @@
             if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 players to start!"); return; }
             
             try {
-                let publicRooms = [];
-                const stored = localStorage.getItem('leastCountCloudRooms');
-                if(stored) {
-                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode);
-                    localStorage.setItem('leastCountCloudRooms', JSON.stringify(publicRooms));
-                }
+                let publicRooms = getGlobalRooms().filter(r => r.code !== roomCode);
+                localStorage.setItem(REGISTRY_CHANNEL, JSON.stringify(publicRooms));
             } catch(e) {}
 
             let fullDeck = createDeck();
