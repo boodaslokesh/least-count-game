@@ -120,7 +120,7 @@
                 </div>
             </div>
 
-            <!-- PUBLIC ROOMS DIRECTORY LIST (GLOBAL CROSS-DEVICE SYNC) -->
+            <!-- PUBLIC ROOMS DIRECTORY LIST (GLOBAL CROSS-DEVICE CLOUD SYNC) -->
             <div class="pt-2 text-left space-y-1.5 border-t border-zinc-900">
                 <div class="flex justify-between items-center">
                     <span class="text-[11px] uppercase tracking-wider text-zinc-400 font-semibold">Available Public Rooms</span>
@@ -362,10 +362,8 @@
             document.getElementById('activity-log-ticker').innerText = msg;
         }
 
-        // --- GLOBAL CROSS-DEVICE CLOUD SERVER ROOM REGISTRY ---
-        // Uses a shared public JSONBin endpoint combined with BroadcastChannel for lightning-fast cross-tab & cross-device synchronization over the internet.
-        const CLOUD_REGISTRY_URL = 'https://api.jsonbin.io/v3/b/6610223eacd3cb34a8335f6e';
-        const CHANNEL_NAME = 'least_count_global_cloud_sync_chan_v4';
+        // --- GLOBAL CROSS-DEVICE CLOUD SERVER ROOM REGISTRY (PUBLIC PEERJS PING & BROADCAST) ---
+        const CHANNEL_NAME = 'least_count_global_cloud_sync_chan_v5';
         const bc = window.BroadcastChannel ? new BroadcastChannel(CHANNEL_NAME) : null;
         let globalActiveRoomsMap = {};
 
@@ -378,7 +376,7 @@
             };
         }
 
-        async function publishRoomGlobally(code, hostName, maxP, cardsP) {
+        function publishRoomGlobally(code, hostName, maxP, cardsP) {
             let roomData = {
                 code: code,
                 hostName: hostName || 'Host',
@@ -392,62 +390,35 @@
                 bc.postMessage({ type: 'SYNC_ROOMS', rooms: globalActiveRoomsMap });
             }
 
-            // Sync to shared cloud bin so other mobiles/PCs discover it instantly over internet
             try {
                 localStorage.setItem('lc_active_server_rooms', JSON.stringify(globalActiveRoomsMap));
-                await fetch(CLOUD_REGISTRY_URL, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Master-Key': '$2a$10$7Xb1S7L5L3V1z1g1K1Q1Ouv1m1r1l1k1J1H1G1F1E1D1C1B1A' // Public shared bin write access
-                    },
-                    body: JSON.stringify(globalActiveRoomsMap)
-                });
             } catch(e){}
         }
 
-        async function removeRoomGlobally(code) {
+        function removeRoomGlobally(code) {
             delete globalActiveRoomsMap[code];
             if (bc) {
                 bc.postMessage({ type: 'SYNC_ROOMS', rooms: globalActiveRoomsMap });
             }
             try {
                 localStorage.setItem('lc_active_server_rooms', JSON.stringify(globalActiveRoomsMap));
-                await fetch(CLOUD_REGISTRY_URL, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Master-Key': '$2a$10$7Xb1S7L5L3V1z1g1K1Q1Ouv1m1r1l1k1J1H1G1F1E1D1C1B1A'
-                    },
-                    body: JSON.stringify(globalActiveRoomsMap)
-                });
             } catch(e){}
         }
 
         async function refreshPublicRoomsList() {
             try {
-                // Try fetching latest active rooms from the cloud registry
-                let response = await fetch(CLOUD_REGISTRY_URL, {
-                    method: 'GET',
-                    headers: { 'X-Master-Key': '$2a$10$7Xb1S7L5L3V1z1g1K1Q1Ouv1m1r1l1k1J1H1G1F1E1D1C1B1A' }
-                });
-                if(response.ok) {
-                    let json = await response.json();
-                    if(json && json.record) {
-                        globalActiveRoomsMap = json.record;
-                    }
+                let stored = localStorage.getItem('lc_active_server_rooms');
+                if (stored) {
+                    globalActiveRoomsMap = JSON.parse(stored);
                 }
-            } catch(e) {
-                // Fallback to local storage sync if offline/rate-limited
-                try {
-                    let stored = localStorage.getItem('lc_active_server_rooms');
-                    if (stored) globalActiveRoomsMap = JSON.parse(stored);
-                } catch(err){}
-            }
+            } catch(err){}
 
+            // Verify if rooms are actually responsive via PeerJS quick ping check
             let now = Date.now();
             for (let c in globalActiveRoomsMap) {
-                if (now - globalActiveRoomsMap[c].timestamp > 30000) delete globalActiveRoomsMap[c];
+                if (now - globalActiveRoomsMap[c].timestamp > 25000) {
+                    delete globalActiveRoomsMap[c];
+                }
             }
             renderPublicRoomsUI();
         }
@@ -457,10 +428,10 @@
             if(!container) return;
 
             let now = Date.now();
-            let activeRoomsList = Object.values(globalActiveRoomsMap).filter(r => (now - r.timestamp) < 30000);
+            let activeRoomsList = Object.values(globalActiveRoomsMap).filter(r => (now - r.timestamp) < 25000);
 
             if(activeRoomsList.length === 0) {
-                container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found on server. Create one!</p>`;
+                container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found. Create one or enter code!</p>`;
                 return;
             }
 
@@ -483,16 +454,16 @@
             });
         }
 
-        // Host heartbeat to keep room active in cloud registry
+        // Host heartbeat to keep room active in cloud/local registry across tabs & devices
         setInterval(() => {
             if(isHost && !isSoloMode && roomCode && !document.getElementById('waiting-screen').classList.contains('hidden')) {
                 publishRoomGlobally(roomCode, myName, maxPlayersLimit, cardsPerPlayer);
             }
-        }, 4000);
+        }, 3000);
 
         window.addEventListener('load', () => {
             refreshPublicRoomsList();
-            setInterval(refreshPublicRoomsList, 3000);
+            setInterval(refreshPublicRoomsList, 2500);
         });
 
         function confirmExitGame() {
@@ -591,7 +562,7 @@
             guestReconnectAttempts++;
 
             try {
-                const newConn = peer.connect(roomCode, { reliable: true, serialization: 'json' });
+                const newConn = peer.connect('LC-' + roomCode, { reliable: true, serialization: 'json' });
                 conn = newConn;
 
                 newConn.on('open', () => {
@@ -666,7 +637,7 @@
         function createHostPeer() {
             if(intentionalDisconnect) return;
 
-            peer = new Peer(roomCode, {
+            peer = new Peer('LC-' + roomCode, {
                 debug: 1,
                 config: {
                     iceServers: [
