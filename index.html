@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Least Count Online - Multiplayer & Solo</title>
+    <title>Least Count</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
@@ -29,6 +29,11 @@
     </style>
 </head>
 <body class="bg-black h-[100dvh] w-screen text-white font-sans flex flex-col justify-between">
+
+    <!-- PULL TO REFRESH INDICATOR -->
+    <div id="ptr-indicator" class="absolute top-0 left-0 right-0 h-12 bg-zinc-900 border-b border-zinc-800 flex items-center justify-center text-xs text-emerald-400 font-semibold z-50 transform -translate-y-full transition-transform duration-200">
+        <span id="ptr-text">Pull down to refresh...</span>
+    </div>
 
     <!-- TOP BAR / HEADER -->
     <header class="p-2 sm:p-3 bg-black flex flex-row justify-between items-center border-b border-zinc-800 gap-2 shrink-0">
@@ -300,6 +305,47 @@
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
+        // --- PULL TO REFRESH GESTURE HANDLER ---
+        let touchStartY = 0;
+        let isPulling = false;
+        const ptrIndicator = document.getElementById('ptr-indicator');
+        const ptrText = document.getElementById('ptr-text');
+
+        window.addEventListener('touchstart', (e) => {
+            let lobbyScreen = document.getElementById('lobby-screen');
+            if (lobbyScreen && !lobbyScreen.classList.contains('hidden') && lobbyScreen.scrollTop === 0) {
+                touchStartY = e.touches[0].clientY;
+                isPulling = true;
+            }
+        }, {passive: true});
+
+        window.addEventListener('touchmove', (e) => {
+            if (!isPulling) return;
+            let touchY = e.touches[0].clientY;
+            let diff = touchY - touchStartY;
+            if (diff > 0 && diff < 160) {
+                ptrIndicator.style.transform = `translateY(${diff - 48}px)`;
+                if (diff > 80) {
+                    ptrText.innerText = "Release to refresh!";
+                } else {
+                    ptrText.innerText = "Pull down to refresh...";
+                }
+            }
+        }, {passive: true});
+
+        window.addEventListener('touchend', (e) => {
+            if (!isPulling) return;
+            isPulling = false;
+            let touchY = e.changedTouches[0].clientY;
+            let diff = touchY - touchStartY;
+            ptrIndicator.style.transform = `translateY(-100%)`;
+            if (diff > 80) {
+                ptrText.innerText = "Refreshing...";
+                intentionalDisconnect = true;
+                setTimeout(() => location.reload(), 200);
+            }
+        });
+
         // Helper to sort hand cards: highest count frequency first, then value, then suit
         const cardValueWeight = {'A':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13};
         function sortHandCards(hand) {
@@ -337,7 +383,6 @@
                 if(stored) {
                     const parsed = JSON.parse(stored);
                     const now = Date.now();
-                    // Keep rooms updated within last 30 seconds
                     publicRooms = parsed.filter(r => (now - r.timestamp) < 30000);
                 }
             } catch(e) {}
@@ -385,7 +430,6 @@
             } catch(e) {}
         }
 
-        // Keep updating room presence timestamp if hosting
         setInterval(() => {
             if(isHost && !isSoloMode && roomCode && !document.getElementById('waiting-screen').classList.contains('hidden')) {
                 registerPublicRoom();
@@ -1111,7 +1155,6 @@
         function startHostGame() {
             if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 connected players to start!"); return; }
             
-            // Remove room from public list once game starts so others don't try to join mid-game
             try {
                 let publicRooms = [];
                 const stored = localStorage.getItem('leastCountPublicRooms');
