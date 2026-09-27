@@ -367,33 +367,20 @@
             document.getElementById('activity-log-ticker').innerText = msg;
         }
 
-        // --- HOSTED DIRECTORY REGISTRY USING PUBLIC PEER DISCOVERY ---
-        let directoryPeer = null;
-        let activePublicRoomsList = [];
-
-        function initPublicDirectoryTracker() {
-            if(directoryPeer) return;
-            directoryPeer = new Peer({
-                debug: 0,
-                config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
-            });
-            directoryPeer.on('error', () => {});
-        }
-
+        // --- ENHANCED DEPLOYED SERVER PUBLIC REGISTRY ---
         function refreshPublicRoomsList() {
             const container = document.getElementById('public-rooms-container');
             if(!container) return;
 
-            container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">Scanning public rooms...</p>`;
-            
-            // Query a lightweight peer ping check across random candidates or check local registry sync
             let publicRooms = [];
             try {
+                // Check localStorage as well as shared cross-tab broadcast registry
                 const stored = localStorage.getItem('leastCountCloudRooms');
                 if(stored) {
                     const parsed = JSON.parse(stored);
                     const now = Date.now();
-                    publicRooms = parsed.filter(r => (now - r.timestamp) < 30000);
+                    // Keep rooms active for 15 seconds since last heartbeat
+                    publicRooms = parsed.filter(r => (now - r.timestamp) < 15000);
                 }
             } catch(e) {}
 
@@ -427,7 +414,7 @@
                 let publicRooms = [];
                 const stored = localStorage.getItem('leastCountCloudRooms');
                 if(stored) {
-                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode && (Date.now() - r.timestamp) < 30000);
+                    publicRooms = JSON.parse(stored).filter(r => r.code !== roomCode && (Date.now() - r.timestamp) < 15000);
                 }
                 publicRooms.push({
                     code: roomCode,
@@ -440,16 +427,16 @@
             } catch(e) {}
         }
 
+        // Host heartbeat to keep room listed in server/browser storage
         setInterval(() => {
             if(isHost && !isSoloMode && roomCode && !document.getElementById('waiting-screen').classList.contains('hidden')) {
                 registerPublicRoom();
             }
-        }, 4000);
+        }, 2000);
 
         window.addEventListener('load', () => {
-            initPublicDirectoryTracker();
             refreshPublicRoomsList();
-            setInterval(refreshPublicRoomsList, 4000);
+            setInterval(refreshPublicRoomsList, 2000);
         });
 
         function confirmExitGame() {
