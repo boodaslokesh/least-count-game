@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Least Count Online - Multiplayer & Solo</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         * {
@@ -13,12 +14,90 @@
             -webkit-user-select: none;
             user-select: none;
         }
+        html {
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
         body {
             position: fixed;
             inset: 0;
+            width: 100%;
+            height: 100%;
+            height: 100dvh;
+            min-height: 100svh;
             overflow: hidden;
             margin: 0;
             padding: 0;
+            overscroll-behavior: none;
+        }
+        button, input, select {
+            min-height: 44px;
+        }
+        input, select {
+            font-size: 16px !important;
+        }
+        .app-main {
+            min-height: 0;
+            overflow: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: max(8px, env(safe-area-inset-bottom));
+        }
+        .lobby-card, .waiting-card {
+            width: min(100%, 440px);
+        }
+        .game-card {
+            width: 100%;
+            min-height: 0;
+        }
+        @media (max-width: 640px) {
+            .lobby-card, .waiting-card {
+                border-radius: 16px;
+                padding: 16px !important;
+                max-height: none !important;
+            }
+            .lobby-card h2, .waiting-card h2 {
+                font-size: 20px;
+            }
+            .mobile-stack {
+                flex-direction: column !important;
+            }
+            .mobile-full {
+                width: 100% !important;
+            }
+            #game-board-screen {
+                gap: 6px;
+            }
+            #opponents-hud {
+                max-height: 104px;
+                overflow-y: auto;
+            }
+        }
+        @media (max-height: 700px) {
+            header {
+                padding-top: 6px !important;
+                padding-bottom: 6px !important;
+            }
+            .lobby-card, .waiting-card {
+                padding-top: 12px !important;
+                padding-bottom: 12px !important;
+            }
+        }
+        .connection-pill {
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .diagnostic-panel {
+            font-size: 11px;
+            line-height: 1.45;
+        }
+        @media (max-width: 420px) {
+            .lobby-card { padding: 14px !important; }
+            .lobby-card .grid { grid-template-columns: 1fr !important; }
+            #join-room-row { flex-direction: column !important; }
+            #join-room-row button { width: 100% !important; }
         }
         .card-shadow {
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15);
@@ -49,10 +128,10 @@
     </div>
 
     <!-- MAIN CONTAINER -->
-    <main class="flex-grow flex flex-col items-center justify-center p-2 sm:p-4 max-w-5xl mx-auto w-full overflow-hidden">
+    <main class="app-main flex-grow flex flex-col items-center justify-center p-2 sm:p-4 max-w-5xl mx-auto w-full">
 
         <!-- LOBBY SCREEN -->
-        <div id="lobby-screen" class="bg-black p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-zinc-800 text-center space-y-4 overflow-y-auto max-h-[85vh]">
+        <div id="lobby-screen" class="lobby-card bg-black p-6 sm:p-8 rounded-2xl shadow-2xl border border-zinc-800 text-center space-y-4">
             <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">Multiplayer & Solo Lobby</h2>
             <div class="space-y-3 text-left">
                 <div>
@@ -96,18 +175,28 @@
                     <span class="flex-shrink mx-3 text-zinc-500 text-[11px] uppercase">or join existing</span>
                     <div class="flex-grow border-t border-zinc-800"></div>
                 </div>
-                <div class="flex space-x-2">
+                <div id="join-room-row" class="flex space-x-2">
                     <input type="text" id="join-room-input" placeholder="Room Code" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 font-medium uppercase text-sm">
                     <button onclick="joinRoom()" class="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm whitespace-nowrap">
                         Join
                     </button>
                 </div>
             </div>
+            <div id="connection-status" class="connection-pill text-[11px] text-zinc-400 bg-zinc-950 border border-zinc-900 rounded-lg px-2.5 py-1.5">Checking browser/network…</div>
+            <button type="button" onclick="toggleDiagnostics()" class="text-[10px] text-zinc-500 hover:text-zinc-300 underline">Connection details</button>
+            <div id="diagnostic-panel" class="diagnostic-panel hidden text-left bg-zinc-950 border border-zinc-900 rounded-xl p-3 space-y-1 text-zinc-400">
+                <div><span class="text-zinc-600">Browser:</span> <span id="diag-browser">—</span></div>
+                <div><span class="text-zinc-600">WebRTC:</span> <span id="diag-webrtc">—</span></div>
+                <div><span class="text-zinc-600">DataChannel:</span> <span id="diag-datachannel">—</span></div>
+                <div><span class="text-zinc-600">Network:</span> <span id="diag-network">—</span></div>
+                <div><span class="text-zinc-600">Secure page:</span> <span id="diag-secure">—</span></div>
+                <div><span class="text-zinc-600">Last error:</span> <span id="diag-error">None</span></div>
+            </div>
             <p id="lobby-error" class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
         <!-- WAITING ROOM SCREEN -->
-        <div id="waiting-screen" class="hidden bg-black p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-zinc-800 text-center space-y-4">
+        <div id="waiting-screen" class="waiting-card hidden bg-black p-6 sm:p-8 rounded-2xl shadow-2xl border border-zinc-800 text-center space-y-4">
             <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">Waiting for Players</h2>
             <div class="bg-zinc-900 p-3 rounded-xl border border-zinc-800">
                 <p class="text-[11px] text-zinc-400 uppercase tracking-wider mb-1">Room Code</p>
@@ -126,7 +215,7 @@
         </div>
 
         <!-- GAME BOARD SCREEN -->
-        <div id="game-board-screen" class="hidden w-full h-full flex flex-col justify-between space-y-2 overflow-hidden">
+        <div id="game-board-screen" class="game-card hidden flex flex-col justify-between space-y-2 overflow-hidden">
             
             <!-- OPPONENTS HUD BAR -->
             <div id="opponents-hud" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 shrink-0"></div>
@@ -185,7 +274,7 @@
     </main>
 
     <!-- FOOTER -->
-    <footer class="p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
+    <footer id="app-footer" class="hidden p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
         <div class="text-zinc-400 truncate max-w-[50vw]" id="activity-log-ticker">Ready</div>
         <button onclick="toggleScoreboardModal(true)" class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
             Scores
@@ -245,6 +334,136 @@
         let hostPeerInitialized = false;
         let intentionalDisconnect = false;
         let lastHiddenAt = 0;
+        // ================================================================
+        // NETWORK / WEBRTC CONFIGURATION
+        // ================================================================
+        // IMPORTANT: TURN credentials are intentionally NOT hard-coded here.
+        // Put credentials from a TURN provider that you own/are authorized to
+        // use in this object. STUN alone cannot guarantee connectivity on every
+        // mobile carrier, VPN or restrictive NAT.
+        //
+        // Example:
+        // const TURN_SERVERS = [
+        //   { urls: 'turn:your-turn-server.example.com:3478?transport=udp',
+        //     username: 'YOUR_USERNAME', credential: 'YOUR_PASSWORD' },
+        //   { urls: 'turns:your-turn-server.example.com:5349?transport=tcp',
+        //     username: 'YOUR_USERNAME', credential: 'YOUR_PASSWORD' }
+        // ];
+        const TURN_SERVERS = [];
+
+        const STUN_SERVERS = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+        ];
+
+        function getIceServers() {
+            return STUN_SERVERS.concat(Array.isArray(TURN_SERVERS) ? TURN_SERVERS : []);
+        }
+
+        function getPeerOptions(id) {
+            const options = {
+                debug: 1,
+                config: {
+                    iceServers: getIceServers(),
+                    sdpSemantics: 'unified-plan',
+                    bundlePolicy: 'balanced'
+                }
+            };
+            if(id) options.id = id;
+            return options;
+        }
+
+        function getBrowserName() {
+            const ua = navigator.userAgent || '';
+            if(/Edg\//i.test(ua)) return 'Microsoft Edge';
+            if(/OPR\//i.test(ua)) return 'Opera';
+            if(/SamsungBrowser/i.test(ua)) return 'Samsung Internet';
+            if(/CriOS/i.test(ua)) return 'Chrome on iPhone/iPad';
+            if(/FxiOS/i.test(ua)) return 'Firefox on iPhone/iPad';
+            if(/Chrome/i.test(ua)) return 'Google Chrome';
+            if(/Firefox/i.test(ua)) return 'Mozilla Firefox';
+            if(/Safari/i.test(ua) && !/Chrome/i.test(ua)) return 'Apple Safari';
+            return 'Other / Unknown browser';
+        }
+
+        function browserDiagnostics() {
+            const hasPeerConnection = !!window.RTCPeerConnection;
+            const hasDataChannel = hasPeerConnection && ('createDataChannel' in RTCPeerConnection.prototype);
+            const secure = window.isSecureContext || location.protocol === 'file:' || location.hostname === 'localhost';
+            let peerData = hasDataChannel ? 'Supported' : 'Not supported';
+            try {
+                if(window.PeerJS && PeerJS.util && PeerJS.util.supports) {
+                    peerData = PeerJS.util.supports.data ? 'Supported by PeerJS' : 'Not supported by PeerJS';
+                } else if(window.peerjs && peerjs.util && peerjs.util.supports) {
+                    peerData = peerjs.util.supports.data ? 'Supported by PeerJS' : 'Not supported by PeerJS';
+                }
+            } catch(e) {}
+            return { browser: getBrowserName(), webRTC: hasPeerConnection, dataChannel: hasDataChannel, peerData, online: navigator.onLine, secure };
+        }
+
+        function updateConnectionStatus(text, tone) {
+            const el = document.getElementById('connection-status');
+            if(!el) return;
+            el.innerText = text;
+            el.className = 'connection-pill text-[11px] rounded-lg px-2.5 py-1.5 border ' +
+                (tone === 'ok' ? 'text-emerald-300 bg-emerald-950/30 border-emerald-900' :
+                 tone === 'warn' ? 'text-amber-300 bg-amber-950/30 border-amber-900' :
+                 tone === 'bad' ? 'text-rose-300 bg-rose-950/30 border-rose-900' :
+                 'text-zinc-400 bg-zinc-950 border-zinc-900');
+        }
+
+        function recordConnectionError(errType, extra) {
+            const message = [errType || 'unknown', extra || ''].filter(Boolean).join(': ');
+            const el = document.getElementById('diag-error');
+            if(el) el.innerText = message;
+            try { console.warn('[Least Count connection]', message); } catch(e) {}
+        }
+
+        function runBrowserDiagnostics() {
+            const d = browserDiagnostics();
+            const browser = document.getElementById('diag-browser');
+            const webrtc = document.getElementById('diag-webrtc');
+            const data = document.getElementById('diag-datachannel');
+            const network = document.getElementById('diag-network');
+            const secure = document.getElementById('diag-secure');
+            if(browser) browser.innerText = d.browser;
+            if(webrtc) webrtc.innerText = d.webRTC ? 'Supported' : 'NOT supported';
+            if(data) data.innerText = d.peerData;
+            if(network) network.innerText = d.online ? 'Online' : 'Offline';
+            if(secure) secure.innerText = d.secure ? 'Yes' : 'No';
+            if(!d.webRTC || !d.dataChannel) {
+                updateConnectionStatus('This browser does not support WebRTC data connections.', 'bad');
+            } else if(!d.online) {
+                updateConnectionStatus('Device is offline. Check Wi-Fi/mobile data.', 'bad');
+            } else if(TURN_SERVERS.length === 0) {
+                updateConnectionStatus('WebRTC ready • TURN not configured', 'warn');
+            } else {
+                updateConnectionStatus('WebRTC ready • TURN configured', 'ok');
+            }
+            return d;
+        }
+
+        function toggleDiagnostics() {
+            const el = document.getElementById('diagnostic-panel');
+            if(el) el.classList.toggle('hidden');
+        }
+
+        function connectionErrorText(err) {
+            const type = err && err.type ? err.type : 'unknown';
+            const messages = {
+                'browser-incompatible': 'This browser does not support the required WebRTC data connection. Try the latest Chrome, Safari, Edge or Firefox.',
+                'peer-unavailable': 'The room host is not reachable right now. The app will keep retrying.',
+                'network': 'The signaling connection failed. Check Wi-Fi/mobile data, VPN or firewall settings. Retrying…',
+                'server-error': 'The PeerJS signaling server could not be reached. Retrying…',
+                'socket-error': 'The signaling socket failed. Retrying…',
+                'socket-closed': 'The signaling connection closed unexpectedly. Retrying…',
+                'webrtc': 'WebRTC negotiation failed. This network may require TURN relay. Retrying…',
+                'unavailable-id': 'The room code is temporarily busy. Keeping the same code and retrying…',
+                'disconnected': 'The signaling connection was disconnected. Reconnecting…'
+            };
+            return messages[type] || 'Connection problem (' + type + '). Retrying automatically…';
+        }
+
 
         let isHost = false;
         let isSoloMode = false;
@@ -276,6 +495,13 @@
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
+        document.addEventListener('DOMContentLoaded', () => {
+            setGameChromeVisible(false);
+            runBrowserDiagnostics();
+            window.addEventListener('online', () => { runBrowserDiagnostics(); updateConnectionStatus('Network restored • ready to reconnect', 'ok'); if(peer && peer.disconnected) safePeerReconnect(); if(!isHost && !isSoloMode && roomCode) scheduleGuestReconnect(); });
+            window.addEventListener('offline', () => { runBrowserDiagnostics(); updateConnectionStatus('Device offline • waiting for network', 'bad'); });
+        });
+
         function logTicker(msg) {
             document.getElementById('activity-log-ticker').innerText = msg;
         }
@@ -286,6 +512,13 @@
                 document.getElementById('modal-standings-title').innerText = `Tournament Standings (Max ${targetEliminationPoints})`;
                 updateScoreboardTable();
             }
+        }
+
+        function setGameChromeVisible(show) {
+            const footer = document.getElementById('app-footer');
+            if(footer) footer.classList.toggle('hidden', !show);
+            const scores = document.getElementById('sticky-scores-wrapper');
+            if(!show && scores) scores.classList.add('hidden');
         }
 
         function closeRoundOverModal() {
@@ -378,6 +611,9 @@
 
         function connectGuestToHost() {
             if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
+            runBrowserDiagnostics();
+            updateConnectionStatus(`Connecting to room ${roomCode}…`, 'warn');
+            if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
             if(conn && conn.open) {
                 guestReconnectAttempts = 0;
                 return;
@@ -392,18 +628,36 @@
                 });
 
                 conn = newConn;
+                const connectionAttempt = newConn;
+                const connectionTimeout = setTimeout(() => {
+                    if(connectionAttempt === conn && !connectionAttempt.open) {
+                        recordConnectionError('timeout', 'Peer connection did not open within 12 seconds');
+                        updateConnectionStatus('Connection timed out • retrying…', 'warn');
+                        try { connectionAttempt.close(); } catch(e) {}
+                        if(conn === connectionAttempt) conn = null;
+                        scheduleGuestReconnect();
+                    }
+                }, 12000);
 
                 newConn.on('open', () => {
+                    clearTimeout(connectionTimeout);
                     guestReconnectAttempts = 0;
+                    updateConnectionStatus(`Connected to room ${roomCode}`, 'ok');
                     newConn.send({ type: 'JOIN_REQUEST', name: myName, clientToken: myClientToken });
                     logTicker(`Connected to room ${roomCode}.`);
                 });
 
                 newConn.on('data', (data) => handleGuestData(data));
 
-                newConn.on('error', () => scheduleGuestReconnect());
+                newConn.on('error', (err) => {
+                    clearTimeout(connectionTimeout);
+                    recordConnectionError('data-connection', err && err.message ? err.message : 'Data channel error');
+                    updateConnectionStatus('Peer connection failed • retrying…', 'warn');
+                    scheduleGuestReconnect();
+                });
 
                 newConn.on('close', () => {
+                    clearTimeout(connectionTimeout);
                     if(conn === newConn) conn = null;
                     if(!intentionalDisconnect) {
                         logTicker(`Connection interrupted. Reconnecting to ${roomCode}...`);
@@ -512,15 +766,7 @@
         function createHostPeer() {
             if(intentionalDisconnect) return;
 
-            peer = new Peer(roomCode, {
-                debug: 1,
-                config: {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:global.stun.twilio.com:3478' }
-                    ]
-                }
-            });
+            peer = new Peer(roomCode, getPeerOptions());
 
             peer.on('open', (id) => {
                 myId = id;
@@ -528,12 +774,15 @@
                 // IMPORTANT: peer.reconnect() also fires/open-completes the
                 // signaling connection. Do NOT reset players or start a new
                 // room when that happens. Preserve the original room state.
+                updateConnectionStatus(`Room ${roomCode} connected`, 'ok');
+
                 if(!hostPeerInitialized) {
                     hostPeerInitialized = true;
                     players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
                     myIndex = 0;
 
                     document.getElementById('lobby-screen').classList.add('hidden');
+                    setGameChromeVisible(false);
                     document.getElementById('waiting-screen').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
                     document.getElementById('max-count').innerText = maxPlayersLimit;
@@ -587,6 +836,8 @@
 
             peer.on('error', (err) => {
                 if(intentionalDisconnect) return;
+                recordConnectionError(err.type, err.message);
+                updateConnectionStatus(connectionErrorText(err), err.type === 'browser-incompatible' ? 'bad' : 'warn');
 
                 if(err.type === 'unavailable-id') {
                     // Only generate a new room code if the ORIGINAL room was
@@ -609,6 +860,9 @@
         }
 
         function createRoom() {
+            const diagnostics = runBrowserDiagnostics();
+            if(!diagnostics.webRTC || !diagnostics.dataChannel) { showLobbyError('This browser cannot use WebRTC data connections. Try the latest Chrome, Safari, Edge or Firefox.'); return; }
+            if(!diagnostics.online) { showLobbyError('Your device is offline. Connect to Wi-Fi or mobile data first.'); return; }
             isSoloMode = false;
             intentionalDisconnect = false;
             hostPeerInitialized = false;
@@ -636,6 +890,9 @@
         }
 
         function joinRoom() {
+            const diagnostics = runBrowserDiagnostics();
+            if(!diagnostics.webRTC || !diagnostics.dataChannel) { showLobbyError('This browser cannot use WebRTC data connections. Try the latest Chrome, Safari, Edge or Firefox.'); return; }
+            if(!diagnostics.online) { showLobbyError('Your device is offline. Connect to Wi-Fi or mobile data first.'); return; }
             isSoloMode = false;
             intentionalDisconnect = false;
             myName = document.getElementById('nickname-input').value.trim();
@@ -659,15 +916,7 @@
             }
             conn = null;
 
-            peer = new Peer({
-                debug: 1,
-                config: {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:global.stun.twilio.com:3478' }
-                    ]
-                }
-            });
+            peer = new Peer(getPeerOptions());
 
             peer.on('open', (id) => {
                 myId = id;
@@ -690,15 +939,7 @@
                         if(!intentionalDisconnect && !isHost && !isSoloMode) {
                             // Recreate the guest Peer object. The room code stays unchanged.
                             try { peer.destroy(); } catch(e) {}
-                            peer = new Peer({
-                                debug: 1,
-                                config: {
-                                    iceServers: [
-                                        { urls: 'stun:stun.l.google.com:19302' },
-                                        { urls: 'stun:global.stun.twilio.com:3478' }
-                                    ]
-                                }
-                            });
+                            peer = new Peer(getPeerOptions());
                             attachGuestPeerEvents();
                         }
                     }, 1000);
@@ -707,6 +948,8 @@
 
             peer.on('error', (err) => {
                 if(intentionalDisconnect) return;
+                recordConnectionError(err.type, err.message);
+                updateConnectionStatus(connectionErrorText(err), err.type === 'browser-incompatible' ? 'bad' : 'warn');
 
                 if(err.type === 'peer-unavailable' || err.type === 'network') {
                     logTicker(`Room ${roomCode} is temporarily unavailable. Retrying...`);
@@ -736,6 +979,8 @@
 
             peer.on('error', (err) => {
                 if(!intentionalDisconnect) {
+                    recordConnectionError(err.type, err.message);
+                    updateConnectionStatus(connectionErrorText(err), err.type === 'browser-incompatible' ? 'bad' : 'warn');
                     logTicker(`Room ${roomCode} connection issue (${err.type || 'network'}). Retrying...`);
                     scheduleGuestReconnect();
                 }
@@ -913,6 +1158,7 @@
                     maxPlayersLimit = data.maxPlayers;
                     targetEliminationPoints = data.targetPoints;
                     document.getElementById('lobby-screen').classList.add('hidden');
+                    setGameChromeVisible(false);
                     document.getElementById('waiting-screen').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
                     document.getElementById('max-count').innerText = maxPlayersLimit;
@@ -929,6 +1175,7 @@
                     document.getElementById('waiting-screen').classList.add('hidden');
                     document.getElementById('round-over-modal').classList.add('hidden');
                     document.getElementById('game-board-screen').classList.remove('hidden');
+                    setGameChromeVisible(true);
                     document.getElementById('room-badge').classList.remove('hidden');
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
@@ -1007,6 +1254,7 @@
             document.getElementById('waiting-screen').classList.add('hidden');
             document.getElementById('round-over-modal').classList.add('hidden');
             document.getElementById('game-board-screen').classList.remove('hidden');
+            setGameChromeVisible(true);
             document.getElementById('room-badge').classList.remove('hidden');
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('current-room-id').innerText = roomCode;
@@ -1483,7 +1731,3 @@
     </script>
 </body>
 </html>
-
-least-count-game-fixed.htmlHTML
-
-
