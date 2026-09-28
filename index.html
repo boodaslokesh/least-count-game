@@ -127,7 +127,7 @@
                     <button onclick="refreshPublicRoomsList()" class="text-[10px] text-emerald-400 hover:underline">Refresh</button>
                 </div>
                 <div id="public-rooms-container" class="space-y-1.5 max-h-28 overflow-y-auto">
-                    <p class="text-[11px] text-zinc-500 italic text-center py-2">Searching cloud server registry...</p>
+                    <p class="text-[11px] text-zinc-500 italic text-center py-2">Searching public registry...</p>
                 </div>
             </div>
 
@@ -299,10 +299,14 @@
         let discardPile = [];
         let currentTurnIndex = 0;
         let roundActive = false;
-        let turnPhase = 'drop';
+        let turnPhase = 'drop'; // 'drop' or 'draw'
 
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
+        // SUPABASE CONFIGURATION ENDPOINTS & HEADERS
+        const SUPABASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co/rest/v1/least-count';
+        const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
 
         // --- PULL TO REFRESH GESTURE HANDLER ---
         let touchStartY = 0;
@@ -348,12 +352,17 @@
         const cardValueWeight = {'A':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13};
         function sortHandCards(hand) {
             const counts = {};
-            hand.forEach(c => { counts[c.val] = (counts[c.val] || 0) + 1; });
+            hand.forEach(c => {
+                counts[c.val] = (counts[c.val] || 0) + 1;
+            });
+
             return hand.sort((a, b) => {
                 let countDiff = (counts[b.val] || 0) - (counts[a.val] || 0);
                 if (countDiff !== 0) return countDiff;
+
                 let valDiff = (cardValueWeight[a.val] || 0) - (cardValueWeight[b.val] || 0);
                 if (valDiff !== 0) return valDiff;
+
                 return a.suit.localeCompare(b.suit);
             });
         }
@@ -362,111 +371,88 @@
             document.getElementById('activity-log-ticker').innerText = msg;
         }
 
-        // --- GLOBAL CROSS-DEVICE CLOUD SERVER ROOM REGISTRY ---
-        const CHANNEL_NAME = 'least_count_global_cloud_sync_chan_v5';
-        const bc = window.BroadcastChannel ? new BroadcastChannel(CHANNEL_NAME) : null;
-        let globalActiveRoomsMap = {};
-
-        if (bc) {
-            bc.onmessage = (event) => {
-                if (event.data && event.data.type === 'SYNC_ROOMS') {
-                    globalActiveRoomsMap = event.data.rooms || {};
-                    renderPublicRoomsUI();
-                }
-            };
-        }
-
-        function publishRoomGlobally(code, hostName, maxP, cardsP) {
-            let roomData = {
-                code: code,
-                hostName: hostName || 'Host',
-                maxPlayers: maxP,
-                cardsCount: cardsP,
-                timestamp: Date.now()
-            };
-            globalActiveRoomsMap[code] = roomData;
-            
-            if (bc) {
-                bc.postMessage({ type: 'SYNC_ROOMS', rooms: globalActiveRoomsMap });
-            }
-
-            try {
-                localStorage.setItem('lc_active_server_rooms', JSON.stringify(globalActiveRoomsMap));
-            } catch(e){}
-        }
-
-        function removeRoomGlobally(code) {
-            delete globalActiveRoomsMap[code];
-            if (bc) {
-                bc.postMessage({ type: 'SYNC_ROOMS', rooms: globalActiveRoomsMap });
-            }
-            try {
-                localStorage.setItem('lc_active_server_rooms', JSON.stringify(globalActiveRoomsMap));
-            } catch(e){}
-        }
-
+        // --- DATABASE PUBLIC ROOMS DIRECTORY LIST ---
         async function refreshPublicRoomsList() {
-            try {
-                let stored = localStorage.getItem('lc_active_server_rooms');
-                if (stored) {
-                    globalActiveRoomsMap = JSON.parse(stored);
-                }
-            } catch(err){}
-
-            let now = Date.now();
-            for (let c in globalActiveRoomsMap) {
-                if (now - globalActiveRoomsMap[c].timestamp > 25000) {
-                    delete globalActiveRoomsMap[c];
-                }
-            }
-            renderPublicRoomsUI();
-        }
-
-        function renderPublicRoomsUI() {
             const container = document.getElementById('public-rooms-container');
             if(!container) return;
 
-            let now = Date.now();
-            let activeRoomsList = Object.values(globalActiveRoomsMap).filter(r => (now - r.timestamp) < 25000);
+            try {
+                const response = await fetch(SUPABASE_URL, {
+                    method: 'GET',
+                    headers: {
+                        'apikey': SUPABASE_APIKEY,
+                        'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
 
-            if(activeRoomsList.length === 0) {
-                container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found. Create one or enter code!</p>`;
-                return;
+                if(!response.ok) throw new Error('Failed to fetch rooms');
+                let rooms = await response.json();
+                
+                // Filter only waiting rooms and exclude rooms where game has already started
+                let publicRooms = (Array.isArray(rooms) ? rooms : []).filter(r => r.status === 'waiting' && r.game_started !== 'yes' && r.game_started !== 'true');
+
+                if(publicRooms.length === 0) {
+                    container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active waiting rooms found. Create one above!</p>`;
+                    return;
+                }
+
+                container.innerHTML = '';
+                publicRooms.forEach(room => {
+                    let div = document.createElement('div');
+                    div.className = 'bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 p-2 rounded-xl flex justify-between items-center transition cursor-pointer';
+                    div.onclick = () => {
+                        document.getElementById('join-room-input').value = room.join_code;
+                        joinRoom();
+                    };
+                    div.innerHTML = `
+                        <div>
+                            <div class="text-xs font-bold text-emerald-300">Room: ${room.join_code} <span class="text-[10px] text-zinc-400 font-normal">(${room.host_name}'s Room)</span></div>
+                            <div class="text-[10px] text-zinc-400">Max: ${room.max_players} players • Cards: ${room.cards}</div>
+                        </div>
+                        <span class="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] rounded-lg">Join</span>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch(e) {
+                container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">Unable to load rooms from database.</p>`;
             }
-
-            container.innerHTML = '';
-            activeRoomsList.forEach(room => {
-                let div = document.createElement('div');
-                div.className = 'bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 p-2 rounded-xl flex justify-between items-center transition cursor-pointer';
-                div.onclick = () => {
-                    document.getElementById('join-room-input').value = room.code;
-                    joinRoom();
-                };
-                div.innerHTML = `
-                    <div>
-                        <div class="text-xs font-bold text-emerald-300">Room: ${room.code} <span class="text-[10px] text-zinc-400 font-normal">(${room.hostName}'s Room)</span></div>
-                        <div class="text-[10px] text-zinc-400">Max: ${room.maxPlayers} players • Cards: ${room.cardsCount}</div>
-                    </div>
-                    <span class="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] rounded-lg">Join</span>
-                `;
-                container.appendChild(div);
-            });
         }
 
-        setInterval(() => {
-            if(isHost && !isSoloMode && roomCode && !document.getElementById('waiting-screen').classList.contains('hidden')) {
-                publishRoomGlobally(roomCode, myName, maxPlayersLimit, cardsPerPlayer);
-            }
-        }, 3000);
+        async function registerPublicRoom(statusValue = 'waiting', startedValue = 'no') {
+            if(!isHost || isSoloMode || !roomCode) return;
+            try {
+                const roomPayload = {
+                    id: 'g_' + Math.random().toString(36).substring(2, 7),
+                    host_name: myName || 'Host',
+                    max_players: String(maxPlayersLimit),
+                    cards: String(cardsPerPlayer),
+                    eliminate_points: String(targetEliminationPoints),
+                    join_code: roomCode,
+                    status: statusValue,
+                    game_started: startedValue,
+                    created_at: new Date().toISOString()
+                };
+
+                await fetch(SUPABASE_URL, {
+                    method: 'POST',
+                    headers: {
+                        'apikey': SUPABASE_APIKEY,
+                        'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify(roomPayload)
+                });
+            } catch(e) {}
+        }
 
         window.addEventListener('load', () => {
             refreshPublicRoomsList();
-            setInterval(refreshPublicRoomsList, 2500);
         });
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
-                if(isHost && roomCode) removeRoomGlobally(roomCode);
                 intentionalDisconnect = true;
                 location.reload();
             }
@@ -560,7 +546,7 @@
             guestReconnectAttempts++;
 
             try {
-                const newConn = peer.connect('LC-' + roomCode, { reliable: true, serialization: 'json' });
+                const newConn = peer.connect(roomCode, { reliable: true, serialization: 'json' });
                 conn = newConn;
 
                 newConn.on('open', () => {
@@ -580,6 +566,7 @@
             }
         }
 
+        // --- SOLO MODE ---
         function startSoloGame() {
             myName = document.getElementById('nickname-input').value.trim() || "Player";
             cardsPerPlayer = parseInt(document.getElementById('cards-count-select').value);
@@ -635,15 +622,12 @@
         function createHostPeer() {
             if(intentionalDisconnect) return;
 
-            // Expanded robust STUN configuration for all mobile carriers & browsers
-            peer = new Peer('LC-' + roomCode, {
+            peer = new Peer(roomCode, {
                 debug: 1,
                 config: {
                     iceServers: [
                         { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { urls: 'stun:global.stun.twilio.com:3478' },
-                        { urls: 'stun:stun.stunprotocol.org:3478' }
+                        { urls: 'stun:global.stun.twilio.com:3478' }
                     ]
                 }
             });
@@ -665,7 +649,7 @@
                     document.getElementById('waiting-msg').classList.add('hidden');
 
                     updateWaitingRoomUI();
-                    publishRoomGlobally(roomCode, myName, maxPlayersLimit, cardsPerPlayer);
+                    registerPublicRoom('waiting', 'no');
                     logTicker(`Room active! Code: ${roomCode}`);
                 }
                 startHeartbeat();
@@ -738,15 +722,12 @@
             }
             conn = null;
 
-            // Expanded robust STUN configuration for guest connections
             peer = new Peer({
                 debug: 1,
                 config: {
                     iceServers: [
                         { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { urls: 'stun:global.stun.twilio.com:3478' },
-                        { urls: 'stun:stun.stunprotocol.org:3478' }
+                        { urls: 'stun:global.stun.twilio.com:3478' }
                     ]
                 }
             });
@@ -980,8 +961,6 @@
         function startHostGame() {
             if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 players to start!"); return; }
             
-            removeRoomGlobally(roomCode);
-
             let fullDeck = createDeck();
             players.forEach(p => {
                 p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
@@ -993,6 +972,9 @@
             currentTurnIndex = 0;
             turnPhase = 'drop';
             roundActive = true;
+
+            // Update room status in database to started so it drops from public list view
+            registerPublicRoom('active', 'yes');
 
             let startPayload = {
                 type: 'START_GAME',
