@@ -104,7 +104,7 @@
                     🤖 Play vs Computer (Solo)
                 </button>
 
-                <button onclick="createRoom()" class="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm">
+                <button onclick="createRoom()" id="create-room-btn" class="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm">
                     Create Room (Host)
                 </button>
                 <div class="relative flex py-0.5 items-center">
@@ -114,7 +114,7 @@
                 </div>
                 <div class="flex space-x-2">
                     <input type="text" id="join-room-input" placeholder="Room Code" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 font-medium uppercase text-sm">
-                    <button onclick="joinRoom()" class="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm whitespace-nowrap">
+                    <button onclick="joinRoom()" id="join-room-btn" class="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm whitespace-nowrap">
                         Join Code
                     </button>
                 </div>
@@ -557,7 +557,11 @@
 
         function connectGuestToHost() {
             if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
-            if(conn && conn.open) { guestReconnectAttempts = 0; return; }
+            if(conn && conn.open) { 
+                guestReconnectAttempts = 0; 
+                resetJoinButtonState(true);
+                return; 
+            }
             guestReconnectAttempts++;
 
             try {
@@ -566,18 +570,33 @@
 
                 newConn.on('open', () => {
                     guestReconnectAttempts = 0;
+                    resetJoinButtonState(true);
                     newConn.send({ type: 'JOIN_REQUEST', name: myName, clientToken: myClientToken });
                     logTicker(`Connected to room ${roomCode}.`);
                 });
 
                 newConn.on('data', (data) => handleGuestData(data));
-                newConn.on('error', () => scheduleGuestReconnect());
+                newConn.on('error', () => {
+                    resetJoinButtonState(false);
+                    scheduleGuestReconnect();
+                });
                 newConn.on('close', () => {
                     if(conn === newConn) conn = null;
                     if(!intentionalDisconnect) scheduleGuestReconnect();
                 });
             } catch(e) {
+                resetJoinButtonState(false);
                 scheduleGuestReconnect();
+            }
+        }
+
+        function resetJoinButtonState(success) {
+            const btn = document.getElementById('join-room-btn');
+            if(btn) {
+                btn.disabled = false;
+                btn.innerText = "Join Code";
+                btn.classList.remove('opacity-50', 'bg-emerald-600');
+                btn.classList.add('bg-amber-500');
             }
         }
 
@@ -716,6 +735,15 @@
                 return;
             }
 
+            // Explicit Join Button Click State Feedback
+            const joinBtn = document.getElementById('join-room-btn');
+            if(joinBtn) {
+                joinBtn.disabled = true;
+                joinBtn.innerText = "Connecting...";
+                joinBtn.classList.add('opacity-50', 'bg-emerald-600');
+                joinBtn.classList.remove('bg-amber-500');
+            }
+
             isHost = false;
             roomCode = codeInput;
             guestReconnectAttempts = 0;
@@ -740,6 +768,7 @@
 
             peer.on('error', () => {
                 if(!intentionalDisconnect) {
+                    resetJoinButtonState(false);
                     showLobbyError("Room code not found or host is offline. Retrying...");
                     scheduleGuestReconnect();
                 }
@@ -882,6 +911,7 @@
             if(data.type === 'PING') return;
             switch(data.type) {
                 case 'REJECT':
+                    resetJoinButtonState(false);
                     showLobbyError("Rejected: " + data.reason);
                     break;
                 case 'KICKED':
