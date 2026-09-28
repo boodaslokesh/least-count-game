@@ -473,6 +473,23 @@
             } catch(e) {}
         }
 
+        async function updateRoomStartedStatus(startedValue = 'yes') {
+            if(!isHost || isSoloMode || !roomCode) return;
+            try {
+                // Using Supabase PATCH request based on join_code filter
+                await fetch(`${SUPABASE_URL}?join_code=eq.${roomCode}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'apikey': SUPABASE_APIKEY,
+                        'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify({ game_started: startedValue, status: 'active' })
+                });
+            } catch(e) {}
+        }
+
         window.addEventListener('load', () => {
             refreshPublicRoomsList();
         });
@@ -1013,7 +1030,7 @@
             turnPhase = 'drop';
             roundActive = true;
 
-            registerPublicRoom('active', 'yes');
+            updateRoomStartedStatus('yes');
 
             let startPayload = {
                 type: 'START_GAME',
