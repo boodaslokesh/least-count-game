@@ -308,6 +308,22 @@
         const SUPABASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co/rest/v1/least-count';
         const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
 
+        // --- ENHANCED STUN/TURN CONFIGURATION FOR MAXIMUM COMPATIBILITY ---
+        const peerConfig = {
+            debug: 1,
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ],
+                iceCandidatePoolSize: 10
+            }
+        };
+
         // --- PULL TO REFRESH GESTURE HANDLER ---
         let touchStartY = 0;
         let isPulling = false;
@@ -389,7 +405,6 @@
                 if(!response.ok) throw new Error('Failed to fetch rooms');
                 let rooms = await response.json();
                 
-                // Filter only waiting rooms and exclude rooms where game has already started
                 let publicRooms = (Array.isArray(rooms) ? rooms : []).filter(r => r.status === 'waiting' && r.game_started !== 'yes' && r.game_started !== 'true');
 
                 if(publicRooms.length === 0) {
@@ -622,15 +637,7 @@
         function createHostPeer() {
             if(intentionalDisconnect) return;
 
-            peer = new Peer(roomCode, {
-                debug: 1,
-                config: {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:global.stun.twilio.com:3478' }
-                    ]
-                }
-            });
+            peer = new Peer(roomCode, peerConfig);
 
             peer.on('open', (id) => {
                 myId = id;
@@ -722,15 +729,7 @@
             }
             conn = null;
 
-            peer = new Peer({
-                debug: 1,
-                config: {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:global.stun.twilio.com:3478' }
-                    ]
-                }
-            });
+            peer = new Peer(peerConfig);
 
             peer.on('open', (id) => {
                 myId = id;
@@ -973,7 +972,6 @@
             turnPhase = 'drop';
             roundActive = true;
 
-            // Update room status in database to started so it drops from public list view
             registerPublicRoom('active', 'yes');
 
             let startPayload = {
