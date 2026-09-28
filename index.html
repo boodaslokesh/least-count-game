@@ -405,7 +405,17 @@
                 if(!response.ok) throw new Error('Failed to fetch rooms');
                 let rooms = await response.json();
                 
-                let publicRooms = (Array.isArray(rooms) ? rooms : []).filter(r => r.status === 'waiting' && r.game_started !== 'yes' && r.game_started !== 'true');
+                let now = new Date();
+                let publicRooms = (Array.isArray(rooms) ? rooms : []).filter(r => {
+                    if (r.status !== 'waiting') return false;
+                    if (r.game_started === 'yes' || r.game_started === 'true') return false;
+                    if (r.created_at) {
+                        let createdAt = new Date(r.created_at);
+                        let diffMinutes = (now - createdAt) / (1000 * 60);
+                        if (diffMinutes > 5) return false;
+                    }
+                    return true;
+                });
 
                 if(publicRooms.length === 0) {
                     container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active waiting rooms found. Create one above!</p>`;
