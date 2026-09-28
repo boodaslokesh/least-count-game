@@ -405,14 +405,15 @@
                 if(!response.ok) throw new Error('Failed to fetch rooms');
                 let rooms = await response.json();
                 
-                let now = new Date();
+                let now = new Date().getTime();
                 let publicRooms = (Array.isArray(rooms) ? rooms : []).filter(r => {
                     if (r.status !== 'waiting') return false;
                     if (r.game_started === 'yes' || r.game_started === 'true') return false;
                     if (r.created_at) {
-                        let createdAt = new Date(r.created_at);
-                        let diffMinutes = (now - createdAt) / (1000 * 60);
-                        if (diffMinutes > 5) return false;
+                        let createdTime = new Date(r.created_at).getTime();
+                        if (!isNaN(createdTime) && (now - createdTime > 5 * 60 * 1000)) {
+                            return false;
+                        }
                     }
                     return true;
                 });
