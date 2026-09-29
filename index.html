@@ -91,15 +91,17 @@
                 </div>
             </div>
 
+            <!-- Added Feature: Current Playing Rooms Division -->
             <div class="pt-2 text-left space-y-1.5 border-t border-zinc-900">
                 <div class="flex justify-between items-center">
-                    <span class="text-[11px] uppercase tracking-wider text-zinc-400 font-semibold">Available Public Rooms</span>
+                    <span class="text-[11px] uppercase tracking-wider text-emerald-400 font-bold">🟢 Current Playing Rooms</span>
                     <button onclick="refreshPublicRoomsList()" class="text-[10px] text-emerald-400 hover:underline">Refresh</button>
                 </div>
-                <div id="public-rooms-container" class="space-y-1.5 max-h-28 overflow-y-auto">
+                <div id="public-rooms-container" class="space-y-1.5 max-h-32 overflow-y-auto">
                     <p class="text-[11px] text-zinc-500 italic text-center py-2">Searching public registry...</p>
                 </div>
             </div>
+
             <p id="lobby-error" class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
@@ -313,7 +315,7 @@
         }
     }
 
-    function initRealtimeChannel(code) {
+    function initRealtimeChannel(code, autoViewOnly = false) {
         if (roomChannel) {
             supabaseClient.removeChannel(roomChannel);
         }
@@ -327,7 +329,8 @@
                     name: myName,
                     clientToken: myClientToken,
                     senderId: myClientToken,
-                    rejoinRequest: true
+                    viewOnlyMode: autoViewOnly,
+                    rejoinRequest: !autoViewOnly
                 });
             }
         });
@@ -385,6 +388,7 @@
         document.getElementById('activity-log-ticker').innerText = msg;
     }
 
+    // Enhanced Public Rooms Registry Fetching for active playing rooms & spectator viewing
     async function refreshPublicRoomsList() {
         const container = document.getElementById('public-rooms-container');
         if (!container) return;
@@ -396,37 +400,52 @@
             if (!response.ok) throw new Error('Failed to fetch rooms');
             let rooms = await response.json();
             let now = new Date().getTime();
-            let publicRooms = (Array.isArray(rooms) ? rooms : []).filter(r => {
-                if (r.status !== 'waiting') return false;
-                if (r.game_started === 'yes' || r.game_started === 'true') return false;
+            let validRooms = (Array.isArray(rooms) ? rooms : []).filter(r => {
                 if (r.created_at) {
                     let createdTime = new Date(r.created_at).getTime();
-                    if (!isNaN(createdTime) && now - createdTime > 5 * 60 * 1000) return false;
+                    if (!isNaN(createdTime) && now - createdTime > 30 * 60 * 1000) return false;
                 }
                 return true;
             });
-            if (publicRooms.length === 0) {
-                container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active waiting rooms found. Create one above!</p>`;
+            if (validRooms.length === 0) {
+                container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">No active rooms found right now. Create one!</p>`;
                 return;
             }
             container.innerHTML = '';
-            publicRooms.forEach(room => {
+            validRooms.forEach(room => {
                 let div = document.createElement('div');
-                div.className = 'bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 p-2 rounded-xl flex justify-between items-center transition cursor-pointer';
-                div.onclick = () => {
-                    document.getElementById('join-room-input').value = room.join_code;
-                    joinRoom();
-                };
+                div.className = 'bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 p-2 rounded-xl flex justify-between items-center transition';
+                
+                let isPlaying = room.game_started === 'yes' || room.game_started === 'true' || room.status === 'active';
+                let statusBadge = isPlaying ? '<span class="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">Playing</span>' : '<span class="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Waiting</span>';
+
                 div.innerHTML = `<div>
-                    <div class="text-xs font-bold text-emerald-300">Room: ${room.join_code} <span class="text-[10px] text-zinc-400 font-normal">(${room.host_name}'s Room)</span></div>
-                    <div class="text-[10px] text-zinc-400">Max: ${room.max_players} players • Cards: ${room.cards}</div>
+                    <div class="text-xs font-bold text-emerald-300 flex items-center gap-1.5">Room: ${room.join_code} ${statusBadge}</div>
+                    <div class="text-[10px] text-zinc-400">Host: ${room.host_name || 'Host'} • Max: ${room.max_players}</div>
                 </div>
-                <span class="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] rounded-lg">Join</span>`;
+                <div class="flex space-x-1">
+                    <button onclick="spectateRoom('${room.join_code}')" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded-lg">Spectate</button>
+                    <button onclick="quickJoinRoom('${room.join_code}')" class="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] rounded-lg">Join</button>
+                </div>`;
                 container.appendChild(div);
             });
         } catch (e) {
             container.innerHTML = `<p class="text-[11px] text-zinc-500 italic text-center py-2">Unable to load rooms from database.</p>`;
         }
+    }
+
+    function quickJoinRoom(code) {
+        document.getElementById('join-room-input').value = code;
+        joinRoom();
+    }
+
+    function spectateRoom(code) {
+        myName = document.getElementById('nickname-input').value.trim() || "Spectator_" + Math.floor(Math.random()*100);
+        isHost = false;
+        myId = myClientToken;
+        roomCode = code;
+        gameHistory = [];
+        initRealtimeChannel(code, true);
     }
 
     async function registerPublicRoom(statusValue = 'waiting', startedValue = 'no') {
@@ -603,9 +622,49 @@
         }
     }
 
+    function updateScoreboardTable() {
+        const tbody = document.getElementById('scoreboard-table-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        players.forEach(p => {
+            let tr = document.createElement('tr');
+            tr.className = 'border-b border-zinc-900';
+            let status = p.eliminated ? '<span class="text-rose-400">Eliminated</span>' : '<span class="text-emerald-400">Active</span>';
+            if (p.viewOnly) status = '<span class="text-indigo-400">Spectator</span>';
+            tr.innerHTML = `<td class="py-2 font-bold">${p.name} ${p.isHost ? '(Host)' : ''}</td>
+                <td class="py-2 text-right font-mono text-amber-300 font-bold">${p.scores}</td>
+                <td class="py-2 text-right">${status}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
     function toggleHistoryModal(show) {
         document.getElementById('history-modal').classList.toggle('hidden', !show);
         if (show) updateHistoryContainer();
+    }
+
+    function updateHistoryContainer() {
+        const container = document.getElementById('history-container');
+        if (!container) return;
+        if (!gameHistory || gameHistory.length === 0) {
+            container.innerHTML = `<p class="text-zinc-500 italic text-center py-4">No completed rounds yet.</p>`;
+            return;
+        }
+        container.innerHTML = '';
+        gameHistory.forEach((round, idx) => {
+            let div = document.createElement('div');
+            div.className = 'bg-zinc-900 p-3 rounded-xl border border-zinc-800 space-y-1';
+            let detailsHtml = '';
+            if (round.details) {
+                round.details.forEach(d => {
+                    detailsHtml += `<div class="text-[11px] text-zinc-300 flex justify-between"><span>${d.name} (Sum: ${d.sum})</span><span class="text-amber-400">+${d.pointsAdded} pts</span></div>`;
+                });
+            }
+            div.innerHTML = `<div class="font-bold text-amber-300">Round ${idx + 1}: ${round.callerName} called show</div>
+                <div class="text-[11px] text-emerald-400 font-semibold">Outcome: ${round.outcome || 'Completed'}</div>
+                <div class="mt-1 space-y-0.5 border-t border-zinc-800 pt-1">${detailsHtml}</div>`;
+            container.appendChild(div);
+        });
     }
 
     function closeRoundOverModal() {
@@ -735,7 +794,7 @@
         myId = myClientToken;
         roomCode = codeInput;
         gameHistory = [];
-        initRealtimeChannel(roomCode);
+        initRealtimeChannel(roomCode, false);
     }
 
     function showLobbyError(msg) {
@@ -841,28 +900,37 @@
                 if (existingPlayer) {
                     if (existingPlayer.connected !== false && !existingPlayer.rejoinPending) {
                         existingPlayer.connected = true;
-                        existingPlayer.viewOnly = false;
+                        existingPlayer.viewOnly = data.viewOnlyMode || false;
                         broadcastPlayerList();
                         updateWaitingRoomUI();
                         if (roundActive) {
-                            sendRealtimeMessage({ type: 'GAME_STATE_UPDATE', players, deck, discardPile, currentTurnIndex, turnPhase, message: `${existingPlayer.name} is already connected.` });
-                        } else {
-                            logTicker(`${existingPlayer.name} rejoined.`);
+                            sendRealtimeMessage({ type: 'GAME_STATE_UPDATE', players, deck, discardPile, currentTurnIndex, turnPhase, message: `${existingPlayer.name} connected.` });
                         }
+                        return;
+                    }
+                    if (data.viewOnlyMode) {
+                        existingPlayer.viewOnly = true;
+                        existingPlayer.rejoinPending = false;
+                        sendRealtimeMessage({ type: 'REJOIN_PERMISSION_RESPONSE', targetToken: data.clientToken, permission: 'view', players, deck, discardPile, currentTurnIndex, turnPhase, roundActive, gameHistory });
                         return;
                     }
                     existingPlayer.rejoinPending = true;
                     existingPlayer.connected = false;
                     showRejoinRequestNotification(existingPlayer);
                     updateWaitingRoomUI();
-                    logTicker(`${existingPlayer.name} is requesting permission to rejoin.`);
                     return;
                 }
 
-                if (roundActive) {
-                    sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Game already started. Only previous players can request rejoin.' });
+                if (data.viewOnlyMode || roundActive) {
+                    let newSpectator = {
+                        id: data.clientToken, name: data.name || 'Spectator', clientToken: data.clientToken, connected: false, isHost: false, scores: 0, hand: [], eliminated: false, isBot: false, viewOnly: true, rejoinPending: false
+                    };
+                    players.push(newSpectator);
+                    sendRealtimeMessage({ type: 'REJOIN_PERMISSION_RESPONSE', targetToken: data.clientToken, permission: 'view', players, deck, discardPile, currentTurnIndex, turnPhase, roundActive, gameHistory });
+                    broadcastPlayerList();
                     return;
                 }
+
                 if (players.length >= maxPlayersLimit) {
                     sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Room is full.' });
                     return;
@@ -921,7 +989,7 @@
             case 'REJOIN_PERMISSION_RESPONSE':
                 if (data.targetToken !== myClientToken) break;
                 if (data.permission === 'deny') {
-                    showLobbyError("The host denied your rejoin request.");
+                    showLobbyError("Access denied.");
                     resetJoinButtonState(false);
                     try { if (roomChannel) supabaseClient.removeChannel(roomChannel); } catch (e) {}
                     setTimeout(() => location.reload(), 1200);
@@ -951,10 +1019,10 @@
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
-                    document.getElementById('game-status-banner').innerText = data.permission === 'view' ? "View Only Mode" : "Playing";
+                    document.getElementById('game-status-banner').innerText = data.permission === 'view' ? "View Only Spectator Mode" : "Playing";
 
                     renderGameBoard();
-                    logTicker(data.permission === 'view' ? "Host allowed you to view the game only." : "Host allowed you to continue playing.");
+                    logTicker(data.permission === 'view' ? "Joined room as spectator." : "Joined room to play.");
                 }
                 break;
             case 'HOST_TRANSFERRED':
@@ -1028,7 +1096,7 @@
 
                 let syncedMe = players[myIndex];
                 if (syncedMe && syncedMe.viewOnly === true) {
-                    document.getElementById('game-status-banner').innerText = "View Only Mode";
+                    document.getElementById('game-status-banner').innerText = "View Only Spectator Mode";
                 } else {
                     document.getElementById('game-status-banner').innerText = "Playing";
                 }
@@ -1109,7 +1177,7 @@
     }
 
     function broadcastGameState(msg) {
-        sendRealtimeMessage({ type: 'GAME_STATE_UPDATE', players, deck, discardPile, currentTurnIndex, turnPhase, message: msg });
+        sendRealtimeMessage({ type: 'GAME_STATE_UPDATE', players, deck, discardPile, currentTurnIndex, turnPhase, message: msg, gameHistory });
     }
 
     function checkBotTurn() {
@@ -1226,7 +1294,7 @@
         } else {
             let me = players[myIndex];
             if (me && (me.viewOnly === true || me.connected === false)) return;
-            sendRealtimeMessage({ type: 'PLAYER_ACTION', players, deck, discardPile, currentTurnIndex, turnPhase, message: msg });
+            sendRealtimeMessage({ type: 'PLAYER_ACTION', players, deck, discardPile, currentTurnIndex, turnPhase, message: msg, gameHistory });
         }
     }
 
@@ -1236,6 +1304,7 @@
         discardPile = data.discardPile;
         currentTurnIndex = data.currentTurnIndex;
         turnPhase = data.turnPhase;
+        if (data.gameHistory) gameHistory = data.gameHistory;
         broadcastGameState(data.message);
         renderGameBoard();
         logTicker(data.message);
@@ -1412,7 +1481,7 @@
             }
 
             let statusText = '';
-            if (p.viewOnly === true) statusText = `<span class="text-indigo-400 text-[8px]">VIEW</span>`;
+            if (p.viewOnly === true) statusText = `<span class="text-indigo-400 text-[8px]">SPECTATOR</span>`;
             else if (p.rejoinPending === true) statusText = `<span class="text-amber-400 text-[8px]">REJOIN</span>`;
             else if (p.connected === false) statusText = `<span class="text-rose-400 text-[8px]">OFFLINE</span>`;
 
@@ -1447,7 +1516,7 @@
 
         let displayName = me.name;
         if (me.eliminated) displayName += ' (Out)';
-        else if (me.viewOnly === true) displayName += ' (View Only)';
+        else if (me.viewOnly === true) displayName += ' (Spectating)';
         else if (me.connected === false) displayName += ' (Offline)';
         document.getElementById('my-display-name').innerText = displayName;
 
@@ -1458,36 +1527,30 @@
         let isMyTurn = (currentTurnIndex === myIndex);
 
         if (me.viewOnly === true) {
-            document.getElementById('turn-announcement').innerText = "👁 VIEW ONLY";
-            document.getElementById('action-instruction').innerText = "You can watch the game, but cannot play.";
-        } else if (me.connected === false) {
-            document.getElementById('turn-announcement').innerText = "OFFLINE";
-            document.getElementById('action-instruction').innerText = "Waiting for rejoin permission.";
+            document.getElementById('turn-announcement').innerText = "👁 SPECTATING MODE";
+            document.getElementById('action-instruction').innerText = "Watching live game without participating";
+        } else if (isMyTurn) {
+            document.getElementById('turn-announcement').innerText = "👉 YOUR TURN (" + me.name + ")";
+            document.getElementById('action-instruction').innerText = (turnPhase === 'drop') ? "Tap card(s) to drop" : "Tap stock deck to draw";
         } else {
-            document.getElementById('turn-announcement').innerText = isMyTurn ? "👉 YOUR TURN!" : `Turn: ${activePlayer ? activePlayer.name : 'Waiting'}`;
-            document.getElementById('action-instruction').innerText = isMyTurn ? (turnPhase === 'drop' ? "Select card to drop." : "Click stock to draw.") : "Waiting...";
+            document.getElementById('turn-announcement').innerText = "Turn: " + (activePlayer ? activePlayer.name : 'Waiting');
+            document.getElementById('action-instruction').innerText = "Wait for your turn";
         }
 
-        const stockDeck = document.getElementById('stock-deck');
-        if (stockDeck) {
-            if (me.viewOnly === true || me.connected === false || !isMyTurn) {
-                stockDeck.classList.add('opacity-60', 'cursor-not-allowed');
-            } else {
-                stockDeck.classList.remove('opacity-60', 'cursor-not-allowed');
-            }
-        }
-
-        me.hand.forEach(card => {
+        (me.hand || []).forEach(card => {
             let isRed = ['♥', '♦'].includes(card.suit);
-            let cardEl = document.createElement('div');
-            cardEl.className = `w-12 h-20 sm:w-16 sm:h-24 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1 sm:p-1.5 font-bold cursor-pointer hover:-translate-y-1 transition transform select-none ${isRed ? 'text-rose-600' : 'text-slate-900'}`;
-            cardEl.innerHTML = `
+            let cardDiv = document.createElement('div');
+            let isInteractable = (isMyTurn && turnPhase === 'drop' && !me.eliminated && me.viewOnly !== true && me.connected !== false);
+            cardDiv.className = `w-14 h-20 sm:w-18 sm:h-26 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1.5 font-bold select-none transition ${isRed ? 'text-rose-600' : 'text-slate-900'} ${isInteractable ? 'cursor-pointer hover:-translate-y-2 hover:border-amber-400' : 'opacity-80'}`;
+            cardDiv.innerHTML = `
                 <div class="text-[10px]">${card.val}</div>
-                <div class="text-sm sm:text-lg self-center">${card.suit}</div>
+                <div class="text-base sm:text-xl self-center">${card.suit}</div>
                 <div class="text-[10px] self-end rotate-180">${card.val}</div>
             `;
-            cardEl.onclick = () => handleCardClick(card.uid);
-            myHandContainer.appendChild(cardEl);
+            if (isInteractable) {
+                cardDiv.onclick = () => handleCardClick(card.uid);
+            }
+            myHandContainer.appendChild(cardDiv);
         });
     }
 </script>
