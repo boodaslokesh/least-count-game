@@ -42,18 +42,16 @@
             <span id="room-badge" class="text-[10px] sm:text-xs bg-zinc-900 px-2 py-0.5 rounded text-emerald-300 hidden">Room: <span id="current-room-id" class="font-mono font-bold uppercase"></span></span>
         </div>
 
-        <div class="flex items-center space-x-2">
-            <!-- VOICE CHAT CONTROLS -->
-            <div id="voice-controls-bar" class="hidden flex items-center space-x-1.5 bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800">
-                <button id="mic-toggle-btn" onclick="toggleMicrophone()" class="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-bold transition flex items-center space-x-1" title="Toggle Mic">
-                    <span id="mic-icon">🎙️</span> <span id="mic-text" class="text-[10px]">Mic Off</span>
+        <!-- VOICE CHAT & HEADER CONTROLS -->
+        <div class="flex items-center space-x-1.5">
+            <div id="voice-controls" class="hidden flex items-center space-x-1 bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800">
+                <button id="mic-toggle-btn" onclick="toggleMicrophone()" class="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-semibold transition" title="Toggle Mic">
+                    🎙️ Mic: Off
                 </button>
-                <button id="speaker-toggle-btn" onclick="toggleSpeaker()" class="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-bold transition flex items-center space-x-1" title="Toggle Speaker">
-                    <span id="speaker-icon">🔊</span> <span id="speaker-text" class="text-[10px]">Speaker On</span>
+                <button id="speaker-toggle-btn" onclick="toggleSpeaker()" class="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-semibold transition" title="Toggle Speaker">
+                    🔊 Spk: On
                 </button>
-                <span id="voice-status-dot" class="w-2 h-2 rounded-full bg-zinc-600" title="Voice Channel Status"></span>
             </div>
-
             <div id="game-status-banner" class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden">
                 Waiting...
             </div>
@@ -170,6 +168,9 @@
             <!-- OPPONENTS HUD BAR -->
             <div id="opponents-hud" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 shrink-0"></div>
 
+            <!-- LIVE CHAT BUBBLES OVERLAY (BETWEEN HUD AND CENTER BOARD) -->
+            <div id="live-chat-bubbles-container" class="w-full max-w-2xl mx-auto flex flex-col space-y-1 px-2 z-10 shrink-0 max-h-24 overflow-y-auto"></div>
+
             <!-- CENTER PLAY AREA -->
             <div class="bg-black border border-zinc-800 p-3 sm:p-4 rounded-xl flex flex-row justify-around items-center gap-2 relative shadow-inner shrink-0">
                 
@@ -225,8 +226,11 @@
 
     <!-- FOOTER -->
     <footer class="p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
-        <div class="text-zinc-400 truncate max-w-[50vw]" id="activity-log-ticker">Ready</div>
+        <div class="text-zinc-400 truncate max-w-[40vw]" id="activity-log-ticker">Ready</div>
         <div class="flex space-x-2">
+            <button onclick="toggleChatModal(true)" class="relative bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+                Chat <span id="chat-badge" class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full hidden"></span>
+            </button>
             <button onclick="toggleHistoryModal(true)" class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
                 History
             </button>
@@ -235,6 +239,23 @@
             </button>
         </div>
     </footer>
+
+    <!-- IN-GAME CHAT MODAL -->
+    <div id="chat-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-black border border-zinc-800 w-full max-w-md rounded-2xl p-4 shadow-2xl flex flex-col h-[75vh]">
+            <div class="flex justify-between items-center border-b border-zinc-900 pb-2">
+                <h3 class="text-base font-bold text-emerald-300">In-Game Chat</h3>
+                <button onclick="toggleChatModal(false)" class="text-zinc-400 hover:text-white font-bold text-lg px-2">&times;</button>
+            </div>
+            <div id="chat-messages-container" class="flex-grow overflow-y-auto space-y-2 py-3 text-xs sm:text-sm">
+                <p class="text-zinc-500 italic text-center py-4">No messages yet. Say hello!</p>
+            </div>
+            <div class="pt-2 border-t border-zinc-900 flex space-x-2">
+                <input type="text" id="chat-input-field" placeholder="Type a message..." maxlength="120" autocomplete="off" class="flex-grow px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-xs sm:text-sm" onkeydown="if(event.key==='Enter') sendChatMessage()">
+                <button onclick="sendChatMessage()" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-xs sm:text-sm transition">Send</button>
+            </div>
+        </div>
+    </div>
 
     <!-- HISTORY MODAL -->
     <div id="history-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
@@ -294,18 +315,18 @@
         </div>
     </div>
 
-    <!-- WINNER CELEBRATION MODAL (GLOBAL) -->
+    <!-- TOURNAMENT WINNER CELEBRATION MODAL -->
     <div id="tournament-winner-modal" class="fixed inset-0 bg-black/95 backdrop-blur-lg hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-black border-2 border-amber-500 w-full max-w-md rounded-2xl p-6 shadow-2xl text-center space-y-4 animate-bounce-short">
-            <div class="text-5xl">👑</div>
+        <div class="bg-black border-2 border-amber-400 w-full max-w-md rounded-2xl p-6 shadow-2xl text-center space-y-4">
+            <div class="text-4xl">👑</div>
             <h2 class="text-2xl sm:text-3xl font-black text-amber-400 tracking-wider">TOURNAMENT CHAMPION!</h2>
-            <p id="tournament-winner-announcement" class="text-sm sm:text-base text-zinc-200 font-semibold"></p>
-            <div class="bg-zinc-900 p-3 rounded-xl border border-zinc-800 text-xs text-zinc-400">
-                Last player standing with lowest accumulated penalty points.
+            <p id="tournament-winner-announcement" class="text-base sm:text-lg font-bold text-emerald-300"></p>
+            <p class="text-xs text-zinc-400">The ultimate Least Count champion has emerged!</p>
+            <div class="pt-2">
+                <button onclick="location.reload()" class="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-xl shadow-lg transition text-sm">
+                    Play New Game
+                </button>
             </div>
-            <button onclick="location.reload()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl shadow-lg transition text-sm">
-                Play New Game
-            </button>
         </div>
     </div>
 
@@ -342,8 +363,9 @@
         let players = [];
         let myIndex = 0;
         let gameHistory = [];
+        let chatMessages = [];
         let roundCounter = 0;
-        let startingPlayerRotationIndex = 0; // Tracks which player starts the current round
+        let firstTurnPlayerIndex = 0; // Rotates each round
 
         let deck = [];
         let discardPile = [];
@@ -354,122 +376,142 @@
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
-        // --- BUILT-IN VOICE CHAT (WEB AUDIO / AUDIO STREAMING) ---
+        // --- VOICE CHAT & AUDIO STREAMING VARIABLES ---
         let localAudioStream = null;
-        let audioContext = null;
-        let micActive = false;
-        let speakerActive = true;
-        const remoteAudioElements = {};
+        let mediaRecorder = null;
+        let isMicOn = false;
+        let isSpeakerOn = true;
+        let audioPlaybackQueue = [];
+        let isPlayingAudio = false;
 
-        async function initVoiceChat() {
-            try {
-                localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                localAudioStream.getAudioTracks().forEach(track => { track.enabled = false; });
-                micActive = false;
-                updateMicUI();
-                updateSpeakerUI();
-                document.getElementById('voice-controls-bar').classList.remove('hidden');
-                document.getElementById('voice-status-dot').className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
-                logTicker("Voice chat initialized successfully.");
-            } catch (err) {
-                console.warn("Microphone access not granted or unavailable:", err);
-                document.getElementById('voice-controls-bar').classList.remove('hidden');
-                document.getElementById('voice-status-dot').className = "w-2 h-2 rounded-full bg-rose-500";
-                logTicker("Microphone access unavailable. Voice chat disabled.");
-            }
-        }
-
-        function toggleMicrophone() {
-            if (!localAudioStream) {
-                initVoiceChat().then(() => {
-                    if (localAudioStream) toggleMicrophone();
-                });
-                return;
-            }
-            micActive = !micActive;
-            localAudioStream.getAudioTracks().forEach(track => { track.enabled = micActive; });
-            updateMicUI();
-            
-            if (micActive) {
-                startAudioBroadcasting();
-            }
-        }
-
-        function updateMicUI() {
+        async function toggleMicrophone() {
             const btn = document.getElementById('mic-toggle-btn');
-            const icon = document.getElementById('mic-icon');
-            const text = document.getElementById('mic-text');
-            if (micActive) {
-                btn.className = "px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold transition flex items-center space-x-1";
-                icon.innerText = "🎙️";
-                text.innerText = "Mic On";
+            if (!isMicOn) {
+                try {
+                    localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    startContinuousAudioStreaming();
+                    isMicOn = true;
+                    btn.innerText = "🎙️ Mic: On";
+                    btn.className = "px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-semibold transition";
+                    logTicker("Microphone active.");
+                } catch (err) {
+                    alert("Unable to access microphone. Please check permissions.");
+                }
             } else {
-                btn.className = "px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-bold transition flex items-center space-x-1";
-                icon.innerText = "🔇";
-                text.innerText = "Mic Off";
+                stopContinuousAudioStreaming();
+                isMicOn = false;
+                btn.innerText = "🎙️ Mic: Off";
+                btn.className = "px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-semibold transition";
+                logTicker("Microphone muted.");
             }
         }
 
-        function toggleSpeaker() {
-            speakerActive = !speakerActive;
-            updateSpeakerUI();
-            Object.values(remoteAudioElements).forEach(audioEl => {
-                audioEl.muted = !speakerActive;
-            });
-        }
-
-        function updateSpeakerUI() {
-            const btn = document.getElementById('speaker-toggle-btn');
-            const icon = document.getElementById('speaker-icon');
-            const text = document.getElementById('speaker-text');
-            if (speakerActive) {
-                btn.className = "px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-bold transition flex items-center space-x-1";
-                icon.innerText = "🔊";
-                text.innerText = "Speaker On";
-            } else {
-                btn.className = "px-2 py-0.5 bg-rose-900/80 hover:bg-rose-900 text-white rounded text-[11px] font-bold transition flex items-center space-x-1";
-                icon.innerText = "🔇";
-                text.innerText = "Muted";
-            }
-        }
-
-        function startAudioBroadcasting() {
+        function startContinuousAudioStreaming() {
             if (!localAudioStream) return;
             try {
-                let mediaRecorder = new MediaRecorder(localAudioStream, { mimeType: 'audio/webm' });
+                mediaRecorder = new MediaRecorder(localAudioStream, { mimeType: 'audio/webm' });
                 mediaRecorder.ondataavailable = async (e) => {
-                    if (e.data && e.data.size > 0 && micActive) {
-                        let reader = new FileReader();
-                        reader.onload = function() {
+                    if (e.data && e.data.size > 0 && roomChannel) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const base64Audio = reader.result;
                             sendRealtimeMessage({
                                 type: 'VOICE_AUDIO_CHUNK',
                                 senderToken: myClientToken,
                                 senderName: myName,
-                                audioData: reader.result
+                                audioData: base64Audio
                             });
                         };
                         reader.readAsDataURL(e.data);
                     }
                 };
                 mediaRecorder.start();
-                setTimeout(() => {
-                    if (mediaRecorder.state === 'recording') mediaRecorder.stop();
-                }, 1500);
-            } catch(e) {}
+                
+                // Restart recorder every 2 seconds to continuously push audio chunks without stopping
+                window.audioRecorderInterval = setInterval(() => {
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        mediaRecorder.stop();
+                        mediaRecorder.start();
+                    }
+                }, 2000);
+            } catch (e) {
+                // Fallback if webm mimeType is unsupported
+                try {
+                    mediaRecorder = new MediaRecorder(localAudioStream);
+                    mediaRecorder.ondataavailable = async (e) => {
+                        if (e.data && e.data.size > 0 && roomChannel) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                sendRealtimeMessage({
+                                    type: 'VOICE_AUDIO_CHUNK',
+                                    senderToken: myClientToken,
+                                    senderName: myName,
+                                    audioData: reader.result
+                                });
+                            };
+                            reader.readAsDataURL(e.data);
+                        }
+                    };
+                    mediaRecorder.start();
+                    window.audioRecorderInterval = setInterval(() => {
+                        if (mediaRecorder && mediaRecorder.state === 'recording') {
+                            mediaRecorder.stop();
+                            mediaRecorder.start();
+                        }
+                    }, 2000);
+                } catch (err) {}
+            }
         }
 
-        function handleIncomingAudioChunk(payload) {
-            if (payload.senderToken === myClientToken || !speakerActive) return;
-            try {
-                let audio = remoteAudioElements[payload.senderToken];
-                if (!audio) {
-                    audio = new Audio();
-                    audio.muted = !speakerActive;
-                    remoteAudioElements[payload.senderToken] = audio;
-                }
-                audio.src = payload.audioData;
-                audio.play().catch(e => {});
-            } catch(e) {}
+        function stopContinuousAudioStreaming() {
+            if (window.audioRecorderInterval) {
+                clearInterval(window.audioRecorderInterval);
+                window.audioRecorderInterval = null;
+            }
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            if (localAudioStream) {
+                localAudioStream.getTracks().forEach(track => track.stop());
+                localAudioStream = null;
+            }
+        }
+
+        function toggleSpeaker() {
+            isSpeakerOn = !isSpeakerOn;
+            const btn = document.getElementById('speaker-toggle-btn');
+            if (isSpeakerOn) {
+                btn.innerText = "🔊 Spk: On";
+                btn.className = "px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-semibold transition";
+            } else {
+                btn.innerText = "🔇 Spk: Off";
+                btn.className = "px-2 py-0.5 bg-rose-900/80 hover:bg-rose-900 text-rose-200 rounded text-[11px] font-semibold transition";
+            }
+        }
+
+        function playIncomingAudio(base64Data) {
+            if (!isSpeakerOn) return;
+            audioPlaybackQueue.push(base64Data);
+            processAudioQueue();
+        }
+
+        function processAudioQueue() {
+            if (isPlayingAudio || audioPlaybackQueue.length === 0) return;
+            isPlayingAudio = true;
+            const audioData = audioPlaybackQueue.shift();
+            const audio = new Audio(audioData);
+            audio.onended = () => {
+                isPlayingAudio = false;
+                processAudioQueue();
+            };
+            audio.onerror = () => {
+                isPlayingAudio = false;
+                processAudioQueue();
+            };
+            audio.play().catch(() => {
+                isPlayingAudio = false;
+                processAudioQueue();
+            });
         }
 
         // --- REALTIME MESSAGING WRAPPER ---
@@ -494,10 +536,6 @@
 
             roomChannel
                 .on('broadcast', { event: 'game_event' }, ({ payload }) => {
-                    if (payload.type === 'VOICE_AUDIO_CHUNK') {
-                        handleIncomingAudioChunk(payload);
-                        return;
-                    }
                     handleIncomingNetworkData(payload);
                 })
                 .subscribe((status) => {
@@ -684,6 +722,7 @@
 
         async function confirmExitGame() {
             if (!confirm("Are you sure you want to exit?")) return;
+            stopContinuousAudioStreaming();
             if (!isSoloMode && roomCode && roomChannel) {
                 try {
                     if (isHost) {
@@ -771,6 +810,90 @@
             }
         }
 
+        let chatModalOpen = false;
+        function toggleChatModal(show) {
+            chatModalOpen = show;
+            document.getElementById('chat-modal').classList.toggle('hidden', !show);
+            if(show) {
+                document.getElementById('chat-badge').classList.add('hidden');
+                updateChatMessagesContainer();
+            }
+        }
+
+        function sendChatMessage() {
+            const input = document.getElementById('chat-input-field');
+            const text = input.value.trim();
+            if(!text) return;
+
+            const chatMsg = {
+                sender: myName || 'Player',
+                text: text,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            };
+
+            input.value = '';
+
+            if(isSoloMode) {
+                chatMessages.push(chatMsg);
+                updateChatMessagesContainer();
+                renderLiveChatBubbles(chatMsg);
+                if(!chatModalOpen) {
+                    document.getElementById('chat-badge').classList.remove('hidden');
+                }
+            } else {
+                sendRealtimeMessage({
+                    type: 'CHAT_MESSAGE',
+                    chatMsg: chatMsg
+                });
+            }
+        }
+
+        function updateChatMessagesContainer() {
+            const container = document.getElementById('chat-messages-container');
+            if(!container) return;
+            if(!chatMessages || chatMessages.length === 0) {
+                container.innerHTML = `<p class="text-zinc-500 italic text-center py-4">No messages yet. Say hello!</p>`;
+                return;
+            }
+
+            container.innerHTML = '';
+            chatMessages.forEach(m => {
+                let div = document.createElement('div');
+                div.className = 'bg-zinc-900 border border-zinc-800 p-2.5 rounded-xl space-y-0.5';
+                div.innerHTML = `
+                    <div class="flex justify-between items-center text-[10px] text-zinc-400">
+                        <span class="font-bold text-emerald-300">${m.sender}</span>
+                        <span>${m.time}</span>
+                    </div>
+                    <div class="text-xs sm:text-sm text-zinc-200">${m.text}</div>
+                `;
+                container.appendChild(div);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function renderLiveChatBubbles(chatMsg) {
+            const bubblesContainer = document.getElementById('live-chat-bubbles-container');
+            if(!bubblesContainer) return;
+
+            let bubble = document.createElement('div');
+            bubble.className = 'bg-zinc-900/90 border border-zinc-700/80 px-3 py-1.5 rounded-xl text-xs flex justify-between items-center shadow-lg animate-fade-in backdrop-blur-sm';
+            bubble.innerHTML = `
+                <div><strong class="text-emerald-400">${chatMsg.sender}:</strong> <span class="text-zinc-200">${chatMsg.text}</span></div>
+                <span class="text-[9px] text-zinc-400 ml-2">${chatMsg.time}</span>
+            `;
+
+            bubblesContainer.appendChild(bubble);
+            bubblesContainer.scrollTop = bubblesContainer.scrollHeight;
+
+            // Remove after 15 seconds
+            setTimeout(() => {
+                if(bubble && bubble.parentNode) {
+                    bubble.parentNode.removeChild(bubble);
+                }
+            }, 15000);
+        }
+
         function closeRoundOverModal() {
             document.getElementById('round-over-modal').classList.add('hidden');
         }
@@ -806,8 +929,9 @@
             myId = 'player-me';
             roomCode = 'SOLO';
             gameHistory = [];
+            chatMessages = [];
             roundCounter = 0;
-            startingPlayerRotationIndex = 0;
+            firstTurnPlayerIndex = 0;
 
             players = [
                 { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
@@ -834,7 +958,7 @@
             
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
-            currentTurnIndex = getNextEligibleStartingPlayerIndex();
+            currentTurnIndex = firstTurnPlayerIndex;
             turnPhase = 'drop';
             roundActive = true;
 
@@ -844,10 +968,10 @@
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('game-status-banner').classList.remove('hidden');
             document.getElementById('game-status-banner').innerText = "Solo vs Computer Mode";
+            document.getElementById('voice-controls').classList.remove('hidden');
 
-            initVoiceChat();
             renderGameBoard();
-            logTicker(`Solo game started! First turn: ${players[currentTurnIndex].name}`);
+            logTicker("Solo game started against Computer bots!");
             checkBotTurn();
         }
 
@@ -864,14 +988,14 @@
             roomCode = generateShortCode();
             roundActive = false;
             gameHistory = [];
+            chatMessages = [];
             roundCounter = 0;
-            startingPlayerRotationIndex = 0;
+            firstTurnPlayerIndex = 0;
 
             players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
             myIndex = 0;
 
             initRealtimeChannel(roomCode);
-            initVoiceChat();
 
             document.getElementById('lobby-screen').classList.add('hidden');
             document.getElementById('waiting-screen').classList.remove('hidden');
@@ -909,9 +1033,9 @@
             myId = myClientToken;
             roomCode = codeInput;
             gameHistory = [];
+            chatMessages = [];
 
             initRealtimeChannel(roomCode);
-            initVoiceChat();
         }
 
         function showLobbyError(msg) {
@@ -1011,6 +1135,18 @@
                 else if (data.type === 'CALL_SHOW') {
                     handleHostShowCall(data.peerId);
                 }
+                else if (data.type === 'CHAT_MESSAGE') {
+                    chatMessages.push(data.chatMsg);
+                    sendRealtimeMessage({ type: 'BROADCAST_CHAT', chatMsg: data.chatMsg });
+                    updateChatMessagesContainer();
+                    renderLiveChatBubbles(data.chatMsg);
+                    if(!chatModalOpen) {
+                        document.getElementById('chat-badge').classList.remove('hidden');
+                    }
+                }
+                else if (data.type === 'VOICE_AUDIO_CHUNK') {
+                    sendRealtimeMessage({ type: 'BROADCAST_AUDIO', senderToken: data.senderToken, audioData: data.audioData });
+                }
                 else if (data.type === 'PLAYER_LEFT') {
                     const leaving = players.find(p => p.clientToken === data.clientToken || p.id === data.clientToken);
                     if (leaving) {
@@ -1100,7 +1236,6 @@
                     cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints || targetEliminationPoints;
                     gameHistory = data.gameHistory || gameHistory;
-                    startingPlayerRotationIndex = data.startingPlayerRotationIndex !== undefined ? data.startingPlayerRotationIndex : startingPlayerRotationIndex;
                     roundActive = true;
                     
                     document.getElementById('waiting-screen').classList.add('hidden');
@@ -1110,6 +1245,7 @@
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
+                    document.getElementById('voice-controls').classList.remove('hidden');
                     
                     myIndex = players.findIndex(p => p.id === myId);
                     renderGameBoard();
@@ -1130,6 +1266,7 @@
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
+                    document.getElementById('voice-controls').classList.remove('hidden');
                     renderGameBoard();
                     logTicker(data.message);
                     break;
@@ -1142,8 +1279,22 @@
                     renderGameBoard();
                     break;
                 case 'TOURNAMENT_WINNER':
-                    roundActive = false;
-                    showTournamentWinnerModal(data.winnerName);
+                    document.getElementById('tournament-winner-announcement').innerText = data.winnerName + ` (${data.winnerScore} pts)`;
+                    document.getElementById('round-over-modal').classList.add('hidden');
+                    document.getElementById('tournament-winner-modal').classList.remove('hidden');
+                    break;
+                case 'BROADCAST_CHAT':
+                    chatMessages.push(data.chatMsg);
+                    updateChatMessagesContainer();
+                    renderLiveChatBubbles(data.chatMsg);
+                    if(!chatModalOpen) {
+                        document.getElementById('chat-badge').classList.remove('hidden');
+                    }
+                    break;
+                case 'BROADCAST_AUDIO':
+                    if (data.senderToken !== myClientToken) {
+                        playIncomingAudio(data.audioData);
+                    }
                     break;
             }
         }
@@ -1169,28 +1320,13 @@
             return hand.reduce((acc, card) => acc + card.points, 0);
         }
 
-        function getNextEligibleStartingPlayerIndex() {
-            let activeCandidates = [];
-            players.forEach((p, idx) => {
-                if (!p.eliminated && p.connected !== false) {
-                    activeCandidates.push(idx);
-                }
-            });
-            if (activeCandidates.length === 0) return 0;
-            
-            // Rotate starting player index among active players each round
-            startingPlayerRotationIndex = startingPlayerRotationIndex % activeCandidates.length;
-            let chosenIndex = activeCandidates[startingPlayerRotationIndex];
-            startingPlayerRotationIndex = (startingPlayerRotationIndex + 1) % activeCandidates.length;
-            return chosenIndex;
-        }
-
         function startHostGame() {
             if(players.filter(p => p.connected !== false && !p.eliminated).length < 2) { alert("Need at least 2 players to start!"); return; }
             
             roundCounter = 1;
             gameHistory = [];
-            startingPlayerRotationIndex = 0;
+            chatMessages = [];
+            firstTurnPlayerIndex = 0;
 
             let fullDeck = createDeck();
             players.forEach(p => {
@@ -1200,7 +1336,7 @@
             
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
-            currentTurnIndex = getNextEligibleStartingPlayerIndex();
+            currentTurnIndex = firstTurnPlayerIndex;
             turnPhase = 'drop';
             roundActive = true;
 
@@ -1214,8 +1350,7 @@
                 currentTurnIndex: currentTurnIndex,
                 targetPoints: targetEliminationPoints,
                 cardsPerPlayer: cardsPerPlayer,
-                gameHistory: gameHistory,
-                startingPlayerRotationIndex: startingPlayerRotationIndex
+                gameHistory: gameHistory
             };
 
             sendRealtimeMessage(startPayload);
@@ -1227,10 +1362,10 @@
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('current-room-id').innerText = roomCode;
             document.getElementById('game-status-banner').classList.remove('hidden');
+            document.getElementById('voice-controls').classList.remove('hidden');
 
             renderGameBoard();
-            logTicker(`Game started! First turn: ${players[currentTurnIndex].name}`);
-            checkBotTurn();
+            logTicker("Game started!");
         }
 
         function broadcastGameState(msg) {
@@ -1353,7 +1488,7 @@
                 currentTurnIndex = (currentTurnIndex + 1) % players.length;
                 attempts++;
             } while (attempts < players.length &&
-                (!players[currentTurnIndex] || players[currentTurnIndex].eliminated || players[currentTurnIndex].connected === false));
+                (!players[currentTurnIndex] || players[currentIndex].eliminated || players[currentIndex].connected === false));
         }
 
         function syncActionComplete(msg) {
@@ -1474,17 +1609,21 @@
 
             let activePlayers = players.filter(p => !p.eliminated && p.connected !== false);
             if (activePlayers.length <= 1) {
-                let champion = activePlayers[0] || players[0];
-                let winnerPayload = {
+                let winner = activePlayers[0] || players[0];
+                let winPayload = {
                     type: 'TOURNAMENT_WINNER',
-                    winnerName: champion.name,
+                    winnerName: winner.name,
+                    winnerScore: winner.scores,
                     players: players,
                     gameHistory: gameHistory
                 };
-                showTournamentWinnerModal(champion.name);
-                renderGameBoard();
+
+                document.getElementById('tournament-winner-announcement').innerText = winner.name + ` (${winner.scores} pts)`;
+                document.getElementById('round-over-modal').classList.add('hidden');
+                document.getElementById('tournament-winner-modal').classList.remove('hidden');
+
                 if (isHost && !isSoloMode) {
-                    sendRealtimeMessage(winnerPayload);
+                    sendRealtimeMessage(winPayload);
                 }
                 return;
             }
@@ -1509,12 +1648,6 @@
             document.getElementById('waiting-next-round-msg').innerText = "Any connected player can start the next round.";
         }
 
-        function showTournamentWinnerModal(winnerName) {
-            document.getElementById('round-over-modal').classList.add('hidden');
-            document.getElementById('tournament-winner-announcement').innerHTML = `Congratulations <strong>${winnerName}</strong> for winning the Least Count tournament!`;
-            document.getElementById('tournament-winner-modal').classList.remove('hidden');
-        }
-
         function startNextRound() {
             if (!isHost && !isSoloMode) {
                 sendRealtimeMessage({ type: 'START_NEXT_ROUND_REQUEST', clientToken: myClientToken });
@@ -1524,19 +1657,28 @@
             }
             let activePlayers = players.filter(p => !p.eliminated && p.connected !== false);
             if(activePlayers.length <= 1) {
-                let champion = activePlayers[0] || players[0];
-                let winnerPayload = {
+                let winner = activePlayers[0] || players[0];
+                let winPayload = {
                     type: 'TOURNAMENT_WINNER',
-                    winnerName: champion.name,
+                    winnerName: winner.name,
+                    winnerScore: winner.scores,
                     players: players,
                     gameHistory: gameHistory
                 };
-                showTournamentWinnerModal(champion.name);
-                if(!isSoloMode) sendRealtimeMessage(winnerPayload);
+                document.getElementById('tournament-winner-announcement').innerText = winner.name + ` (${winner.scores} pts)`;
+                document.getElementById('round-over-modal').classList.add('hidden');
+                document.getElementById('tournament-winner-modal').classList.remove('hidden');
+                if (!isSoloMode) sendRealtimeMessage(winPayload);
                 return;
             }
 
-            roundCounter++;
+            // Rotate first turn player sequentially across active players
+            let attempts = 0;
+            do {
+                firstTurnPlayerIndex = (firstTurnPlayerIndex + 1) % players.length;
+                attempts++;
+            } while (attempts < players.length && (players[firstTurnPlayerIndex].eliminated || players[firstTurnPlayerIndex].connected === false));
+
             let fullDeck = createDeck();
             players.forEach(p => {
                 if(!p.eliminated && p.connected !== false) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
@@ -1545,7 +1687,7 @@
             deck = fullDeck;
             roundActive = true;
             turnPhase = 'drop';
-            currentTurnIndex = getNextEligibleStartingPlayerIndex();
+            currentTurnIndex = firstTurnPlayerIndex;
 
             let startPayload = {
                 type: 'START_GAME',
@@ -1555,8 +1697,7 @@
                 currentTurnIndex: currentTurnIndex,
                 targetPoints: targetEliminationPoints,
                 cardsPerPlayer: cardsPerPlayer,
-                gameHistory: gameHistory,
-                startingPlayerRotationIndex: startingPlayerRotationIndex
+                gameHistory: gameHistory
             };
 
             document.getElementById('round-over-modal').classList.add('hidden');
@@ -1564,7 +1705,7 @@
                 sendRealtimeMessage(startPayload);
             }
             renderGameBoard();
-            logTicker(`New round started! First turn: ${players[currentTurnIndex].name}`);
+            logTicker("New round started!");
             checkBotTurn();
         }
 
@@ -1703,3 +1844,4 @@
         }
     </script>
 </body>
+</html>
