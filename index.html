@@ -42,19 +42,13 @@
             <span id="room-badge" class="text-[10px] sm:text-xs bg-zinc-900 px-2 py-0.5 rounded text-emerald-300 hidden">Room: <span id="current-room-id" class="font-mono font-bold uppercase"></span></span>
         </div>
 
-        <!-- VOICE CHAT & HEADER CONTROLS -->
-        <div class="flex items-center space-x-1.5">
-            <div id="voice-controls" class="hidden flex items-center space-x-1 bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800">
-                <button id="mic-toggle-btn" onclick="toggleMicrophone()" class="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-semibold transition" title="Toggle Mic">
-                    🎙️ Mic: Off
-                </button>
-                <button id="speaker-toggle-btn" onclick="toggleSpeaker()" class="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-semibold transition" title="Toggle Speaker">
-                    🔊 Spk: On
-                </button>
-            </div>
+        <div class="flex items-center space-x-2">
             <div id="game-status-banner" class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden">
                 Waiting...
             </div>
+            <button onclick="toggleChatModal(true)" class="relative bg-zinc-900 hover:bg-zinc-800 text-emerald-400 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800 flex items-center gap-1">
+                💬 Chat <span id="chat-badge" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full"></span>
+            </button>
             <button onclick="confirmExitGame()" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-rose-700/50">
                 Exit Game
             </button>
@@ -168,9 +162,6 @@
             <!-- OPPONENTS HUD BAR -->
             <div id="opponents-hud" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 shrink-0"></div>
 
-            <!-- LIVE CHAT BUBBLES OVERLAY (BETWEEN HUD AND CENTER BOARD) -->
-            <div id="live-chat-bubbles-container" class="w-full max-w-2xl mx-auto flex flex-col space-y-1 px-2 z-10 shrink-0 max-h-24 overflow-y-auto"></div>
-
             <!-- CENTER PLAY AREA -->
             <div class="bg-black border border-zinc-800 p-3 sm:p-4 rounded-xl flex flex-row justify-around items-center gap-2 relative shadow-inner shrink-0">
                 
@@ -226,11 +217,8 @@
 
     <!-- FOOTER -->
     <footer class="p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
-        <div class="text-zinc-400 truncate max-w-[40vw]" id="activity-log-ticker">Ready</div>
+        <div class="text-zinc-400 truncate max-w-[50vw]" id="activity-log-ticker">Ready</div>
         <div class="flex space-x-2">
-            <button onclick="toggleChatModal(true)" class="relative bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
-                Chat <span id="chat-badge" class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full hidden"></span>
-            </button>
             <button onclick="toggleHistoryModal(true)" class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
                 History
             </button>
@@ -240,18 +228,18 @@
         </div>
     </footer>
 
-    <!-- IN-GAME CHAT MODAL -->
+    <!-- CHAT MODAL -->
     <div id="chat-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-black border border-zinc-800 w-full max-w-md rounded-2xl p-4 shadow-2xl flex flex-col h-[75vh]">
-            <div class="flex justify-between items-center border-b border-zinc-900 pb-2">
-                <h3 class="text-base font-bold text-emerald-300">In-Game Chat</h3>
+        <div class="bg-black border border-zinc-800 w-full max-w-md rounded-2xl p-4 shadow-2xl flex flex-col h-[70vh]">
+            <div class="flex justify-between items-center border-b border-zinc-900 pb-2 mb-2">
+                <h3 class="text-base font-bold text-emerald-300">Game Chat & History</h3>
                 <button onclick="toggleChatModal(false)" class="text-zinc-400 hover:text-white font-bold text-lg px-2">&times;</button>
             </div>
-            <div id="chat-messages-container" class="flex-grow overflow-y-auto space-y-2 py-3 text-xs sm:text-sm">
-                <p class="text-zinc-500 italic text-center py-4">No messages yet. Say hello!</p>
+            <div id="chat-messages-container" class="flex-grow overflow-y-auto space-y-2 pr-1 text-xs sm:text-sm">
+                <p class="text-zinc-500 italic text-center py-4">No chat messages yet. Say hello!</p>
             </div>
-            <div class="pt-2 border-t border-zinc-900 flex space-x-2">
-                <input type="text" id="chat-input-field" placeholder="Type a message..." maxlength="120" autocomplete="off" class="flex-grow px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-xs sm:text-sm" onkeydown="if(event.key==='Enter') sendChatMessage()">
+            <div class="pt-2 border-t border-zinc-900 flex space-x-2 mt-2">
+                <input type="text" id="chat-input" placeholder="Type a message..." maxlength="120" onkeydown="if(event.key==='Enter') sendChatMessage()" class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-xs sm:text-sm">
                 <button onclick="sendChatMessage()" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-xs sm:text-sm transition">Send</button>
             </div>
         </div>
@@ -315,21 +303,6 @@
         </div>
     </div>
 
-    <!-- TOURNAMENT WINNER CELEBRATION MODAL -->
-    <div id="tournament-winner-modal" class="fixed inset-0 bg-black/95 backdrop-blur-lg hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-black border-2 border-amber-400 w-full max-w-md rounded-2xl p-6 shadow-2xl text-center space-y-4">
-            <div class="text-4xl">👑</div>
-            <h2 class="text-2xl sm:text-3xl font-black text-amber-400 tracking-wider">TOURNAMENT CHAMPION!</h2>
-            <p id="tournament-winner-announcement" class="text-base sm:text-lg font-bold text-emerald-300"></p>
-            <p class="text-xs text-zinc-400">The ultimate Least Count champion has emerged!</p>
-            <div class="pt-2">
-                <button onclick="location.reload()" class="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-xl shadow-lg transition text-sm">
-                    Play New Game
-                </button>
-            </div>
-        </div>
-    </div>
-
     <script>
         // SUPABASE CLIENT & REALTIME CHANNEL INITIALIZATION
         const SUPABASE_BASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co';
@@ -363,9 +336,8 @@
         let players = [];
         let myIndex = 0;
         let gameHistory = [];
-        let chatMessages = [];
+        let chatHistory = [];
         let roundCounter = 0;
-        let firstTurnPlayerIndex = 0; // Rotates each round
 
         let deck = [];
         let discardPile = [];
@@ -375,144 +347,6 @@
 
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-
-        // --- VOICE CHAT & AUDIO STREAMING VARIABLES ---
-        let localAudioStream = null;
-        let mediaRecorder = null;
-        let isMicOn = false;
-        let isSpeakerOn = true;
-        let audioPlaybackQueue = [];
-        let isPlayingAudio = false;
-
-        async function toggleMicrophone() {
-            const btn = document.getElementById('mic-toggle-btn');
-            if (!isMicOn) {
-                try {
-                    localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                    startContinuousAudioStreaming();
-                    isMicOn = true;
-                    btn.innerText = "🎙️ Mic: On";
-                    btn.className = "px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-semibold transition";
-                    logTicker("Microphone active.");
-                } catch (err) {
-                    alert("Unable to access microphone. Please check permissions.");
-                }
-            } else {
-                stopContinuousAudioStreaming();
-                isMicOn = false;
-                btn.innerText = "🎙️ Mic: Off";
-                btn.className = "px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-semibold transition";
-                logTicker("Microphone muted.");
-            }
-        }
-
-        function startContinuousAudioStreaming() {
-            if (!localAudioStream) return;
-            try {
-                mediaRecorder = new MediaRecorder(localAudioStream, { mimeType: 'audio/webm' });
-                mediaRecorder.ondataavailable = async (e) => {
-                    if (e.data && e.data.size > 0 && roomChannel) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                            const base64Audio = reader.result;
-                            sendRealtimeMessage({
-                                type: 'VOICE_AUDIO_CHUNK',
-                                senderToken: myClientToken,
-                                senderName: myName,
-                                audioData: base64Audio
-                            });
-                        };
-                        reader.readAsDataURL(e.data);
-                    }
-                };
-                mediaRecorder.start();
-                
-                // Restart recorder every 2 seconds to continuously push audio chunks without stopping
-                window.audioRecorderInterval = setInterval(() => {
-                    if (mediaRecorder && mediaRecorder.state === 'recording') {
-                        mediaRecorder.stop();
-                        mediaRecorder.start();
-                    }
-                }, 2000);
-            } catch (e) {
-                // Fallback if webm mimeType is unsupported
-                try {
-                    mediaRecorder = new MediaRecorder(localAudioStream);
-                    mediaRecorder.ondataavailable = async (e) => {
-                        if (e.data && e.data.size > 0 && roomChannel) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                                sendRealtimeMessage({
-                                    type: 'VOICE_AUDIO_CHUNK',
-                                    senderToken: myClientToken,
-                                    senderName: myName,
-                                    audioData: reader.result
-                                });
-                            };
-                            reader.readAsDataURL(e.data);
-                        }
-                    };
-                    mediaRecorder.start();
-                    window.audioRecorderInterval = setInterval(() => {
-                        if (mediaRecorder && mediaRecorder.state === 'recording') {
-                            mediaRecorder.stop();
-                            mediaRecorder.start();
-                        }
-                    }, 2000);
-                } catch (err) {}
-            }
-        }
-
-        function stopContinuousAudioStreaming() {
-            if (window.audioRecorderInterval) {
-                clearInterval(window.audioRecorderInterval);
-                window.audioRecorderInterval = null;
-            }
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-            }
-            if (localAudioStream) {
-                localAudioStream.getTracks().forEach(track => track.stop());
-                localAudioStream = null;
-            }
-        }
-
-        function toggleSpeaker() {
-            isSpeakerOn = !isSpeakerOn;
-            const btn = document.getElementById('speaker-toggle-btn');
-            if (isSpeakerOn) {
-                btn.innerText = "🔊 Spk: On";
-                btn.className = "px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[11px] font-semibold transition";
-            } else {
-                btn.innerText = "🔇 Spk: Off";
-                btn.className = "px-2 py-0.5 bg-rose-900/80 hover:bg-rose-900 text-rose-200 rounded text-[11px] font-semibold transition";
-            }
-        }
-
-        function playIncomingAudio(base64Data) {
-            if (!isSpeakerOn) return;
-            audioPlaybackQueue.push(base64Data);
-            processAudioQueue();
-        }
-
-        function processAudioQueue() {
-            if (isPlayingAudio || audioPlaybackQueue.length === 0) return;
-            isPlayingAudio = true;
-            const audioData = audioPlaybackQueue.shift();
-            const audio = new Audio(audioData);
-            audio.onended = () => {
-                isPlayingAudio = false;
-                processAudioQueue();
-            };
-            audio.onerror = () => {
-                isPlayingAudio = false;
-                processAudioQueue();
-            };
-            audio.play().catch(() => {
-                isPlayingAudio = false;
-                processAudioQueue();
-            });
-        }
 
         // --- REALTIME MESSAGING WRAPPER ---
         function sendRealtimeMessage(payload) {
@@ -612,6 +446,62 @@
 
         function logTicker(msg) {
             document.getElementById('activity-log-ticker').innerText = msg;
+        }
+
+        // --- CHAT SYSTEM ---
+        function toggleChatModal(show) {
+            document.getElementById('chat-modal').classList.toggle('hidden', !show);
+            if (show) {
+                document.getElementById('chat-badge').classList.add('hidden');
+                updateChatUI();
+            }
+        }
+
+        function sendChatMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+
+            const chatMsg = {
+                sender: myName || 'Player',
+                senderToken: myClientToken,
+                text: text,
+                time: Date.now()
+            };
+
+            if (isSoloMode) {
+                chatHistory.push(chatMsg);
+                updateChatUI();
+                renderGameBoard();
+            } else {
+                sendRealtimeMessage({
+                    type: 'CHAT_MESSAGE',
+                    chatMessage: chatMsg
+                });
+            }
+        }
+
+        function updateChatUI() {
+            const container = document.getElementById('chat-messages-container');
+            if (!container) return;
+            if (chatHistory.length === 0) {
+                container.innerHTML = `<p class="text-zinc-500 italic text-center py-4">No chat messages yet. Say hello!</p>`;
+                return;
+            }
+
+            container.innerHTML = '';
+            chatHistory.forEach(msg => {
+                let div = document.createElement('div');
+                div.className = `p-2 rounded-xl ${msg.senderToken === myClientToken ? 'bg-emerald-950/40 border border-emerald-900/50 ml-6' : 'bg-zinc-900 border border-zinc-800 mr-6'}`;
+                div.innerHTML = `<div class="text-[10px] text-zinc-400 font-bold">${msg.sender}</div><div class="text-white text-xs sm:text-sm mt-0.5">${escapeHtml(msg.text)}</div>`;
+                container.appendChild(div);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
 
         // --- DATABASE PUBLIC ROOMS DIRECTORY LIST ---
@@ -722,7 +612,6 @@
 
         async function confirmExitGame() {
             if (!confirm("Are you sure you want to exit?")) return;
-            stopContinuousAudioStreaming();
             if (!isSoloMode && roomCode && roomChannel) {
                 try {
                     if (isHost) {
@@ -810,90 +699,6 @@
             }
         }
 
-        let chatModalOpen = false;
-        function toggleChatModal(show) {
-            chatModalOpen = show;
-            document.getElementById('chat-modal').classList.toggle('hidden', !show);
-            if(show) {
-                document.getElementById('chat-badge').classList.add('hidden');
-                updateChatMessagesContainer();
-            }
-        }
-
-        function sendChatMessage() {
-            const input = document.getElementById('chat-input-field');
-            const text = input.value.trim();
-            if(!text) return;
-
-            const chatMsg = {
-                sender: myName || 'Player',
-                text: text,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            };
-
-            input.value = '';
-
-            if(isSoloMode) {
-                chatMessages.push(chatMsg);
-                updateChatMessagesContainer();
-                renderLiveChatBubbles(chatMsg);
-                if(!chatModalOpen) {
-                    document.getElementById('chat-badge').classList.remove('hidden');
-                }
-            } else {
-                sendRealtimeMessage({
-                    type: 'CHAT_MESSAGE',
-                    chatMsg: chatMsg
-                });
-            }
-        }
-
-        function updateChatMessagesContainer() {
-            const container = document.getElementById('chat-messages-container');
-            if(!container) return;
-            if(!chatMessages || chatMessages.length === 0) {
-                container.innerHTML = `<p class="text-zinc-500 italic text-center py-4">No messages yet. Say hello!</p>`;
-                return;
-            }
-
-            container.innerHTML = '';
-            chatMessages.forEach(m => {
-                let div = document.createElement('div');
-                div.className = 'bg-zinc-900 border border-zinc-800 p-2.5 rounded-xl space-y-0.5';
-                div.innerHTML = `
-                    <div class="flex justify-between items-center text-[10px] text-zinc-400">
-                        <span class="font-bold text-emerald-300">${m.sender}</span>
-                        <span>${m.time}</span>
-                    </div>
-                    <div class="text-xs sm:text-sm text-zinc-200">${m.text}</div>
-                `;
-                container.appendChild(div);
-            });
-            container.scrollTop = container.scrollHeight;
-        }
-
-        function renderLiveChatBubbles(chatMsg) {
-            const bubblesContainer = document.getElementById('live-chat-bubbles-container');
-            if(!bubblesContainer) return;
-
-            let bubble = document.createElement('div');
-            bubble.className = 'bg-zinc-900/90 border border-zinc-700/80 px-3 py-1.5 rounded-xl text-xs flex justify-between items-center shadow-lg animate-fade-in backdrop-blur-sm';
-            bubble.innerHTML = `
-                <div><strong class="text-emerald-400">${chatMsg.sender}:</strong> <span class="text-zinc-200">${chatMsg.text}</span></div>
-                <span class="text-[9px] text-zinc-400 ml-2">${chatMsg.time}</span>
-            `;
-
-            bubblesContainer.appendChild(bubble);
-            bubblesContainer.scrollTop = bubblesContainer.scrollHeight;
-
-            // Remove after 15 seconds
-            setTimeout(() => {
-                if(bubble && bubble.parentNode) {
-                    bubble.parentNode.removeChild(bubble);
-                }
-            }, 15000);
-        }
-
         function closeRoundOverModal() {
             document.getElementById('round-over-modal').classList.add('hidden');
         }
@@ -929,9 +734,8 @@
             myId = 'player-me';
             roomCode = 'SOLO';
             gameHistory = [];
-            chatMessages = [];
+            chatHistory = [];
             roundCounter = 0;
-            firstTurnPlayerIndex = 0;
 
             players = [
                 { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
@@ -958,7 +762,7 @@
             
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
-            currentTurnIndex = firstTurnPlayerIndex;
+            currentTurnIndex = 0;
             turnPhase = 'drop';
             roundActive = true;
 
@@ -968,7 +772,6 @@
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('game-status-banner').classList.remove('hidden');
             document.getElementById('game-status-banner').innerText = "Solo vs Computer Mode";
-            document.getElementById('voice-controls').classList.remove('hidden');
 
             renderGameBoard();
             logTicker("Solo game started against Computer bots!");
@@ -988,9 +791,8 @@
             roomCode = generateShortCode();
             roundActive = false;
             gameHistory = [];
-            chatMessages = [];
+            chatHistory = [];
             roundCounter = 0;
-            firstTurnPlayerIndex = 0;
 
             players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
             myIndex = 0;
@@ -1033,7 +835,7 @@
             myId = myClientToken;
             roomCode = codeInput;
             gameHistory = [];
-            chatMessages = [];
+            chatHistory = [];
 
             initRealtimeChannel(roomCode);
         }
@@ -1093,7 +895,7 @@
                         if (roundActive) {
                             sendRealtimeMessage({
                                 type: 'GAME_STATE_UPDATE', players, deck, discardPile,
-                                currentTurnIndex, turnPhase,
+                                currentTurnIndex, turnPhase, chatHistory,
                                 message: `${existingPlayer.name} rejoined the game.`
                             });
                         } else {
@@ -1136,16 +938,8 @@
                     handleHostShowCall(data.peerId);
                 }
                 else if (data.type === 'CHAT_MESSAGE') {
-                    chatMessages.push(data.chatMsg);
-                    sendRealtimeMessage({ type: 'BROADCAST_CHAT', chatMsg: data.chatMsg });
-                    updateChatMessagesContainer();
-                    renderLiveChatBubbles(data.chatMsg);
-                    if(!chatModalOpen) {
-                        document.getElementById('chat-badge').classList.remove('hidden');
-                    }
-                }
-                else if (data.type === 'VOICE_AUDIO_CHUNK') {
-                    sendRealtimeMessage({ type: 'BROADCAST_AUDIO', senderToken: data.senderToken, audioData: data.audioData });
+                    chatHistory.push(data.chatMessage);
+                    broadcastChatState();
                 }
                 else if (data.type === 'PLAYER_LEFT') {
                     const leaving = players.find(p => p.clientToken === data.clientToken || p.id === data.clientToken);
@@ -1245,7 +1039,6 @@
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
-                    document.getElementById('voice-controls').classList.remove('hidden');
                     
                     myIndex = players.findIndex(p => p.id === myId);
                     renderGameBoard();
@@ -1256,6 +1049,7 @@
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
                     turnPhase = data.turnPhase;
+                    if (data.chatHistory) chatHistory = data.chatHistory;
                     roundActive = true;
                     myIndex = players.findIndex(p => p.id === myId);
                     document.getElementById('waiting-screen').classList.add('hidden');
@@ -1266,9 +1060,16 @@
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
-                    document.getElementById('voice-controls').classList.remove('hidden');
                     renderGameBoard();
                     logTicker(data.message);
+                    break;
+                case 'CHAT_SYNC':
+                    chatHistory = data.chatHistory;
+                    if (document.getElementById('chat-modal').classList.contains('hidden')) {
+                        document.getElementById('chat-badge').classList.remove('hidden');
+                    }
+                    updateChatUI();
+                    renderGameBoard();
                     break;
                 case 'ROUND_OVER':
                     players = data.players || players;
@@ -1278,25 +1079,19 @@
                     showRoundOverModal(data.resultsData, data.callerName);
                     renderGameBoard();
                     break;
-                case 'TOURNAMENT_WINNER':
-                    document.getElementById('tournament-winner-announcement').innerText = data.winnerName + ` (${data.winnerScore} pts)`;
-                    document.getElementById('round-over-modal').classList.add('hidden');
-                    document.getElementById('tournament-winner-modal').classList.remove('hidden');
-                    break;
-                case 'BROADCAST_CHAT':
-                    chatMessages.push(data.chatMsg);
-                    updateChatMessagesContainer();
-                    renderLiveChatBubbles(data.chatMsg);
-                    if(!chatModalOpen) {
-                        document.getElementById('chat-badge').classList.remove('hidden');
-                    }
-                    break;
-                case 'BROADCAST_AUDIO':
-                    if (data.senderToken !== myClientToken) {
-                        playIncomingAudio(data.audioData);
-                    }
-                    break;
             }
+        }
+
+        function broadcastChatState() {
+            sendRealtimeMessage({
+                type: 'CHAT_SYNC',
+                chatHistory: chatHistory
+            });
+            if (document.getElementById('chat-modal').classList.contains('hidden')) {
+                document.getElementById('chat-badge').classList.remove('hidden');
+            }
+            updateChatUI();
+            renderGameBoard();
         }
 
         function createDeck() {
@@ -1320,27 +1115,57 @@
             return hand.reduce((acc, card) => acc + card.points, 0);
         }
 
+        // --- ROUND-ROBIN STARTING TURN & DEALING ---
+        let roundStarterIndex = 0;
+
         function startHostGame() {
-            if(players.filter(p => p.connected !== false && !p.eliminated).length < 2) { alert("Need at least 2 players to start!"); return; }
+            let activeList = players.filter(p => p.connected !== false && !p.eliminated);
+            if(activeList.length < 2) { alert("Need at least 2 players to start!"); return; }
             
             roundCounter = 1;
             gameHistory = [];
-            chatMessages = [];
-            firstTurnPlayerIndex = 0;
+            roundStarterIndex = 0; // First round starts with player 0
+            
+            dealNewRoundCards();
+        }
 
+        function startNextRound() {
+            if (!isHost && !isSoloMode) {
+                sendRealtimeMessage({ type: 'START_NEXT_ROUND_REQUEST', clientToken: myClientToken });
+                document.getElementById('waiting-next-round-msg').classList.remove('hidden');
+                document.getElementById('waiting-next-round-msg').innerText = "Requesting next round...";
+                return;
+            }
+
+            let activePlayers = players.filter(p => !p.eliminated && p.connected !== false);
+            if(activePlayers.length <= 1) {
+                alert(`Tournament Over! Winner is ${activePlayers[0] ? activePlayers[0].name : 'Nobody'}!`);
+                location.reload();
+                return;
+            }
+
+            // Round-robin increment for who starts the next round/turn
+            roundStarterIndex = (roundStarterIndex + 1) % players.length;
+            while (players[roundStarterIndex].eliminated || players[roundStarterIndex].connected === false) {
+                roundStarterIndex = (roundStarterIndex + 1) % players.length;
+            }
+
+            dealNewRoundCards();
+        }
+
+        function dealNewRoundCards() {
             let fullDeck = createDeck();
             players.forEach(p => {
-                p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
-                p.eliminated = false;
+                if(!p.eliminated && p.connected !== false) {
+                    p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
+                }
             });
             
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
-            currentTurnIndex = firstTurnPlayerIndex;
+            currentTurnIndex = roundStarterIndex; // Round-robin starter turn
             turnPhase = 'drop';
             roundActive = true;
-
-            updateRoomStartedStatus('yes');
 
             let startPayload = {
                 type: 'START_GAME',
@@ -1353,7 +1178,9 @@
                 gameHistory: gameHistory
             };
 
-            sendRealtimeMessage(startPayload);
+            if(!isSoloMode) {
+                sendRealtimeMessage(startPayload);
+            }
 
             document.getElementById('waiting-screen').classList.add('hidden');
             document.getElementById('round-over-modal').classList.add('hidden');
@@ -1362,10 +1189,10 @@
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('current-room-id').innerText = roomCode;
             document.getElementById('game-status-banner').classList.remove('hidden');
-            document.getElementById('voice-controls').classList.remove('hidden');
 
             renderGameBoard();
-            logTicker("Game started!");
+            logTicker(`Round started! ${players[currentTurnIndex].name}'s turn.`);
+            checkBotTurn();
         }
 
         function broadcastGameState(msg) {
@@ -1376,6 +1203,7 @@
                 discardPile: discardPile,
                 currentTurnIndex: currentTurnIndex,
                 turnPhase: turnPhase,
+                chatHistory: chatHistory,
                 message: msg
             };
             sendRealtimeMessage(payload);
@@ -1606,28 +1434,6 @@
             });
 
             roundActive = false;
-
-            let activePlayers = players.filter(p => !p.eliminated && p.connected !== false);
-            if (activePlayers.length <= 1) {
-                let winner = activePlayers[0] || players[0];
-                let winPayload = {
-                    type: 'TOURNAMENT_WINNER',
-                    winnerName: winner.name,
-                    winnerScore: winner.scores,
-                    players: players,
-                    gameHistory: gameHistory
-                };
-
-                document.getElementById('tournament-winner-announcement').innerText = winner.name + ` (${winner.scores} pts)`;
-                document.getElementById('round-over-modal').classList.add('hidden');
-                document.getElementById('tournament-winner-modal').classList.remove('hidden');
-
-                if (isHost && !isSoloMode) {
-                    sendRealtimeMessage(winPayload);
-                }
-                return;
-            }
-
             let payload = { type: 'ROUND_OVER', resultsData: resultsText, callerName: caller.name, players: players, gameHistory: gameHistory };
 
             showRoundOverModal(resultsText, caller.name);
@@ -1646,67 +1452,6 @@
             document.getElementById('host-next-round-container').classList.remove('hidden');
             document.getElementById('waiting-next-round-msg').classList.add('hidden');
             document.getElementById('waiting-next-round-msg').innerText = "Any connected player can start the next round.";
-        }
-
-        function startNextRound() {
-            if (!isHost && !isSoloMode) {
-                sendRealtimeMessage({ type: 'START_NEXT_ROUND_REQUEST', clientToken: myClientToken });
-                document.getElementById('waiting-next-round-msg').classList.remove('hidden');
-                document.getElementById('waiting-next-round-msg').innerText = "Requesting next round...";
-                return;
-            }
-            let activePlayers = players.filter(p => !p.eliminated && p.connected !== false);
-            if(activePlayers.length <= 1) {
-                let winner = activePlayers[0] || players[0];
-                let winPayload = {
-                    type: 'TOURNAMENT_WINNER',
-                    winnerName: winner.name,
-                    winnerScore: winner.scores,
-                    players: players,
-                    gameHistory: gameHistory
-                };
-                document.getElementById('tournament-winner-announcement').innerText = winner.name + ` (${winner.scores} pts)`;
-                document.getElementById('round-over-modal').classList.add('hidden');
-                document.getElementById('tournament-winner-modal').classList.remove('hidden');
-                if (!isSoloMode) sendRealtimeMessage(winPayload);
-                return;
-            }
-
-            // Rotate first turn player sequentially across active players
-            let attempts = 0;
-            do {
-                firstTurnPlayerIndex = (firstTurnPlayerIndex + 1) % players.length;
-                attempts++;
-            } while (attempts < players.length && (players[firstTurnPlayerIndex].eliminated || players[firstTurnPlayerIndex].connected === false));
-
-            let fullDeck = createDeck();
-            players.forEach(p => {
-                if(!p.eliminated && p.connected !== false) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
-            });
-            discardPile = [fullDeck.pop()];
-            deck = fullDeck;
-            roundActive = true;
-            turnPhase = 'drop';
-            currentTurnIndex = firstTurnPlayerIndex;
-
-            let startPayload = {
-                type: 'START_GAME',
-                players: players,
-                deck: deck,
-                discardPile: discardPile,
-                currentTurnIndex: currentTurnIndex,
-                targetPoints: targetEliminationPoints,
-                cardsPerPlayer: cardsPerPlayer,
-                gameHistory: gameHistory
-            };
-
-            document.getElementById('round-over-modal').classList.add('hidden');
-            if(!isSoloMode) {
-                sendRealtimeMessage(startPayload);
-            }
-            renderGameBoard();
-            logTicker("New round started!");
-            checkBotTurn();
         }
 
         function renderGameBoard() {
@@ -1738,6 +1483,17 @@
                     `;
                 }
 
+                // Filter last 3 chat messages for this opponent (or any messages sent by them)
+                let playerMessages = chatHistory.filter(msg => msg.senderToken === p.clientToken || msg.sender === p.name).slice(-3);
+                let chatSnippetHtml = '';
+                if (playerMessages.length > 0) {
+                    chatSnippetHtml = `<div class="mt-1 pt-1 border-t border-zinc-800/80 space-y-0.5 max-h-16 overflow-hidden">`;
+                    playerMessages.forEach(m => {
+                        chatSnippetHtml += `<div class="text-[9px] text-emerald-300 truncate font-mono">“${escapeHtml(m.text)}”</div>`;
+                    });
+                    chatSnippetHtml += `</div>`;
+                }
+
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
                         <span class="font-bold truncate max-w-[65px]">${p.name}</span>
@@ -1746,6 +1502,7 @@
                     <div class="flex justify-between items-center text-[10px] mt-1 text-zinc-400">
                         <span>Cards:</span><span class="font-bold text-white">${p.hand ? p.hand.length : 0}</span>
                     </div>
+                    ${chatSnippetHtml}
                     ${actionsHtml}
                 `;
                 hudContainer.appendChild(div);
@@ -1797,6 +1554,17 @@
                 myHandContainer.appendChild(cardEl);
             });
         }
+
+        // Automatic timer to purge/hide chat snippets after 15 seconds
+        setInterval(() => {
+            let now = Date.now();
+            let initialLen = chatHistory.length;
+            // Filter out messages older than 15 seconds (15000ms)
+            chatHistory = chatHistory.filter(m => (now - m.time) < 15000);
+            if (chatHistory.length !== initialLen) {
+                renderGameBoard();
+            }
+        }, 1000);
 
         function updateScoreboardTable() {
             const tbody = document.getElementById('scoreboard-table-body');
