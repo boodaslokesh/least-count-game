@@ -198,10 +198,6 @@
                     <div class="flex items-center space-x-2">
                         <span class="font-bold text-xs sm:text-sm text-zinc-200 truncate max-w-[120px]" id="my-display-name">You</span>
                         <span class="text-[10px] sm:text-xs bg-zinc-900 text-zinc-300 px-2 py-0.5 rounded-full border border-zinc-800">Sum: <strong id="my-hand-sum" class="text-white">0</strong></span>
-                        <!-- Timer inside local player division -->
-                        <div id="timer-circle-container" class="relative w-6 h-6 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center hidden ml-2">
-                            <span id="timer-seconds" class="text-[10px] font-mono font-bold text-amber-400">15</span>
-                        </div>
                     </div>
                     <div class="flex space-x-2">
                         <button id="call-show-btn" onclick="callShow()" disabled class="px-3 py-1 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[11px] font-bold rounded-lg shadow transition">
@@ -356,10 +352,6 @@
         let currentTurnIndex = 0;
         let roundActive = false;
         let turnPhase = 'drop'; // 'drop' or 'draw'
-
-        // Turn Timer variables
-        let turnTimerInterval = null;
-        let turnTimeLeft = 15;
 
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -698,7 +690,6 @@
 
             renderGameBoard();
             logTicker("Solo game started against Computer bots!");
-            startTurnTimer();
             checkBotTurn();
         }
 
@@ -922,7 +913,6 @@
                         myId = players[myIndex].id;
                     }
                     renderGameBoard();
-                    startTurnTimer();
                     break;
                 case 'GAME_STATE_UPDATE':
                     players = data.players;
@@ -935,11 +925,9 @@
                         myId = players[myIndex].id;
                     }
                     renderGameBoard();
-                    startTurnTimer();
                     logTicker(data.message);
                     break;
                 case 'ROUND_OVER':
-                    stopTurnTimer();
                     players = data.players;
                     gameHistory = data.gameHistory || gameHistory;
                     showRoundOverModal(data.resultsData, data.callerName);
@@ -1010,7 +998,6 @@
             document.getElementById('game-status-banner').classList.remove('hidden');
 
             renderGameBoard();
-            startTurnTimer();
             logTicker("Game started!");
         }
 
@@ -1027,113 +1014,6 @@
             sendRealtimeMessage(payload);
         }
 
-        // --- TURN TIMER FUNCTIONS (15 SECONDS) ---
-        function startTurnTimer() {
-            stopTurnTimer();
-            if (!roundActive) return;
-
-            let currentP = players[currentTurnIndex];
-            if (!currentP || currentP.eliminated) return;
-
-            turnTimeLeft = 15;
-            
-            // Update UI for all player divisions (opponents and local player)
-            updateAllPlayerTimers();
-
-            turnTimerInterval = setInterval(() => {
-                turnTimeLeft--;
-                updateAllPlayerTimers();
-
-                if (turnTimeLeft <= 0) {
-                    stopTurnTimer();
-                    handleTimerExpiry();
-                }
-            }, 1000);
-        }
-
-        function updateAllPlayerTimers() {
-            // Update local player timer display
-            const timerContainer = document.getElementById('timer-circle-container');
-            const timerSecEl = document.getElementById('timer-seconds');
-            let isMyTurn = (currentTurnIndex === myIndex);
-
-            if(timerContainer) {
-                if(isMyTurn && roundActive) {
-                    timerContainer.classList.remove('hidden');
-                    if(timerSecEl) timerSecEl.innerText = turnTimeLeft;
-                } else {
-                    timerContainer.classList.add('hidden');
-                }
-            }
-
-            // Update opponents HUD timer displays
-            players.forEach((p, idx) => {
-                if(idx === myIndex) return;
-                let oppTimerEl = document.getElementById(`opp-timer-${idx}`);
-                let oppTimerSecEl = document.getElementById(`opp-timer-sec-${idx}`);
-                let isOppTurn = (idx === currentTurnIndex);
-
-                if(oppTimerEl && oppTimerSecEl) {
-                    if(isOppTurn && roundActive && !p.eliminated) {
-                        oppTimerEl.classList.remove('hidden');
-                        oppTimerSecEl.innerText = turnTimeLeft;
-                    } else {
-                        oppTimerEl.classList.add('hidden');
-                    }
-                }
-            });
-        }
-
-        function stopTurnTimer() {
-            if (turnTimerInterval) {
-                clearInterval(turnTimerInterval);
-                turnTimerInterval = null;
-            }
-            updateAllPlayerTimers();
-        }
-
-        function handleTimerExpiry() {
-            if (!roundActive) return;
-            let currentP = players[currentTurnIndex];
-            if (!currentP) return;
-
-            if (currentTurnIndex === myIndex || isHost || isSoloMode) {
-                autoPlayExpiredTurn(currentP);
-            }
-        }
-
-        function autoPlayExpiredTurn(player) {
-            if (!roundActive) return;
-            if (player.hand.length === 0) {
-                advanceTurn();
-                syncActionComplete(`${player.name}'s turn timed out.`);
-                startTurnTimer();
-                checkBotTurn();
-                return;
-            }
-
-            player.hand.sort((a,b) => b.points - a.points);
-            let highestCard = player.hand[0];
-            player.hand = player.hand.filter(c => c.uid !== highestCard.uid);
-            discardPile.push(highestCard);
-
-            if(deck.length === 0 && discardPile.length > 1) {
-                let top = discardPile.pop();
-                deck = discardPile;
-                discardPile = [top];
-            }
-            if(deck.length > 0) {
-                player.hand.push(deck.pop());
-            }
-            player.hand = sortHandCards(player.hand);
-
-            turnPhase = 'drop';
-            advanceTurn();
-            syncActionComplete(`${player.name}'s turn timed out. Auto-played highest card.`);
-            startTurnTimer();
-            checkBotTurn();
-        }
-
         function checkBotTurn() {
             if(!isSoloMode || !roundActive) return;
             let currentP = players[currentTurnIndex];
@@ -1144,7 +1024,6 @@
 
         function executeBotTurn(bot) {
             if(!roundActive || currentTurnIndex !== players.findIndex(p => p.id === bot.id)) return;
-            stopTurnTimer();
             let botSum = calculateHandSum(bot.hand);
             if(botSum <= 5 && Math.random() < 0.7) {
                 executeShowRound(bot.id);
@@ -1170,7 +1049,6 @@
             if(matchesBoard) {
                 advanceTurn();
                 syncActionComplete(`${bot.name} matched board drop.`);
-                startTurnTimer();
                 checkBotTurn();
             } else {
                 if(deck.length === 0 && discardPile.length > 1) {
@@ -1181,7 +1059,6 @@
                 if(deck.length > 0) bot.hand.push(deck.pop());
                 advanceTurn();
                 syncActionComplete(`${bot.name} completed turn.`);
-                startTurnTimer();
                 checkBotTurn();
             }
         }
@@ -1206,11 +1083,9 @@
                 let matchesBoard = previousTopCard && (selectedCard.val === previousTopCard.val);
 
                 if(matchesBoard) {
-                    stopTurnTimer();
                     turnPhase = 'drop';
                     advanceTurn();
                     syncActionComplete(`${me.name} dropped matching board card.`);
-                    startTurnTimer();
                     checkBotTurn();
                 } else {
                     turnPhase = 'draw';
@@ -1233,11 +1108,9 @@
             }
             if(deck.length > 0) me.hand.push(deck.pop());
             
-            stopTurnTimer();
             turnPhase = 'drop';
             advanceTurn();
             syncActionComplete(`${me.name} drew a card.`);
-            startTurnTimer();
             checkBotTurn();
         }
 
@@ -1273,7 +1146,6 @@
             let sum = calculateHandSum(me.hand);
             if(sum > 5) { alert("Sum must be 5 or less!"); return; }
 
-            stopTurnTimer();
             if(isHost || isSoloMode) {
                 executeShowRound(myId);
             } else {
@@ -1286,7 +1158,6 @@
         }
 
         function executeShowRound(callerPeerId) {
-            stopTurnTimer();
             let caller = players.find(p => p.id === callerPeerId);
             if(!caller) return;
             let callerSum = calculateHandSum(caller.hand);
@@ -1417,7 +1288,6 @@
                 sendRealtimeMessage(startPayload);
             }
             renderGameBoard();
-            startTurnTimer();
             logTicker("New round started!");
             checkBotTurn();
         }
@@ -1439,19 +1309,14 @@
                 if(idx === myIndex) return;
                 let isTurn = (idx === currentTurnIndex);
                 let div = document.createElement('div');
-                // Target player division class specified by user: p-2 rounded-lg border flex flex-col justify-between transition bg-black border-zinc-800
                 div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-50' : ''}`;
                 
                 let removeBtnHtml = (isHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
-
-                // Timer inside the opponent's player division
-                let timerHtml = `<div id="opp-timer-${idx}" class="relative w-5 h-5 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center hidden"><span id="opp-timer-sec-${idx}" class="text-[9px] font-mono font-bold text-amber-400">15</span></div>`;
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
                         <span class="font-bold truncate max-w-[65px]">${p.name} ${p.eliminated ? '(Out)' : ''}</span>
                         <div class="flex items-center space-x-1">
-                            ${timerHtml}
                             ${removeBtnHtml}
                         </div>
                     </div>
@@ -1507,9 +1372,6 @@
                 }
                 myHandContainer.appendChild(cardEl);
             });
-
-            // Update timers state in sync with UI render
-            updateAllPlayerTimers();
         }
 
         function updateScoreboardTable() {
