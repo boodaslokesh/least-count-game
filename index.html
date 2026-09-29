@@ -193,7 +193,7 @@
             </div>
 
             <!-- PLAYER'S HAND CONTAINER -->
-            <div class="bg-black border border-zinc-800 p-2 sm:p-3 rounded-xl flex flex-col space-y-2 shrink-0">
+            <div id="my-player-card-division" class="p-2 rounded-lg border flex flex-col justify-between transition bg-black border-zinc-800 shrink-0 space-y-2">
                 <div class="flex justify-between items-center px-1">
                     <div class="flex items-center space-x-2">
                         <span class="font-bold text-xs sm:text-sm text-zinc-200 truncate max-w-[120px]" id="my-display-name">You</span>
@@ -254,32 +254,6 @@
             </div>
             <div class="pt-2 flex justify-end">
                 <button onclick="toggleInstructionsModal(false)" class="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 font-semibold text-white rounded-xl text-xs">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- VIEW PERMISSION MODAL -->
-    <div id="view-permission-modal" class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-black border border-zinc-800 w-full max-w-sm rounded-2xl p-5 shadow-2xl text-center space-y-3">
-            <h3 class="text-base font-bold text-amber-300">View Permission Request</h3>
-            <p id="view-permission-text" class="text-xs text-zinc-300">Player wants to view your game cards.</p>
-            <div class="flex space-x-2 pt-2">
-                <button onclick="respondViewPermission(false)" class="w-1/2 py-2 bg-zinc-800 hover:bg-zinc-700 font-semibold text-white rounded-xl text-xs">Decline</button>
-                <button onclick="respondViewPermission(true)" class="w-1/2 py-2 bg-emerald-500 hover:bg-emerald-400 font-bold text-black rounded-xl text-xs">Allow</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- VIEW CARDS MODAL -->
-    <div id="view-cards-modal" class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-black border border-zinc-800 w-full max-w-md rounded-2xl p-5 shadow-2xl space-y-3">
-            <div class="flex justify-between items-center border-b border-zinc-900 pb-2">
-                <h3 id="view-cards-title" class="text-base font-bold text-emerald-300">Player Cards</h3>
-                <button onclick="document.getElementById('view-cards-modal').classList.add('hidden')" class="text-zinc-400 hover:text-white font-bold text-lg px-2">&times;</button>
-            </div>
-            <div id="view-cards-container" class="flex flex-wrap gap-2 justify-center py-3 min-h-[100px] items-center"></div>
-            <div class="pt-1 flex justify-end">
-                <button onclick="document.getElementById('view-cards-modal').classList.add('hidden')" class="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 font-semibold text-white rounded-xl text-xs">Close</button>
             </div>
         </div>
     </div>
@@ -357,9 +331,6 @@
         let myName = '';
         let myClientToken = '';
 
-        // Store persistently approved viewing tokens: Set of target IDs that local eliminated player can view continuously
-        let approvedViewTargets = new Set();
-
         try {
             myClientToken = sessionStorage.getItem('leastCountClientToken') || '';
             if(!myClientToken) {
@@ -389,9 +360,6 @@
         // Turn Timer variables
         let turnTimerInterval = null;
         let turnTimeLeft = 15;
-
-        // View permission request target
-        let pendingViewRequesterId = '';
 
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -690,7 +658,6 @@
             roomCode = 'SOLO';
             gameHistory = [];
             roundCounter = 0;
-            approvedViewTargets.clear();
 
             players = [
                 { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, clientToken: myClientToken }
@@ -749,7 +716,6 @@
             roundActive = false;
             gameHistory = [];
             roundCounter = 0;
-            approvedViewTargets.clear();
 
             players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
             myIndex = 0;
@@ -792,7 +758,6 @@
             myId = myClientToken;
             roomCode = codeInput;
             gameHistory = [];
-            approvedViewTargets.clear();
 
             initRealtimeChannel(roomCode);
         }
@@ -897,26 +862,6 @@
                 else if (data.type === 'START_NEXT_ROUND') {
                     startNextRound();
                 }
-                else if (data.type === 'REQUEST_VIEW_CARDS') {
-                    // Forward view request to target player
-                    sendRealtimeMessage({
-                        type: 'FORWARD_VIEW_REQUEST',
-                        targetId: data.targetId,
-                        requesterId: data.requesterId,
-                        requesterName: data.requesterName
-                    });
-                }
-                else if (data.type === 'VIEW_RESPONSE') {
-                    // Broadcast view response back to requester
-                    sendRealtimeMessage({
-                        type: 'NOTIFY_VIEW_RESPONSE',
-                        requesterId: data.requesterId,
-                        targetId: data.targetId,
-                        targetName: data.targetName,
-                        allowed: data.allowed,
-                        targetHand: data.targetHand
-                    });
-                }
                 return;
             }
 
@@ -962,7 +907,6 @@
                     gameHistory = data.gameHistory || gameHistory;
                     roundActive = true;
                     turnPhase = 'drop';
-                    approvedViewTargets.clear();
                     
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.add('hidden');
@@ -998,26 +942,8 @@
                     stopTurnTimer();
                     players = data.players;
                     gameHistory = data.gameHistory || gameHistory;
-                    approvedViewTargets.clear();
                     showRoundOverModal(data.resultsData, data.callerName);
                     renderGameBoard();
-                    break;
-                case 'FORWARD_VIEW_REQUEST':
-                    if (data.targetId === myId || data.targetId === myClientToken) {
-                        pendingViewRequesterId = data.requesterId;
-                        document.getElementById('view-permission-text').innerText = `${data.requesterName} has requested to view your game cards. Do you allow?`;
-                        document.getElementById('view-permission-modal').classList.remove('hidden');
-                    }
-                    break;
-                case 'NOTIFY_VIEW_RESPONSE':
-                    if (data.requesterId === myId || data.requesterId === myClientToken) {
-                        if (data.allowed) {
-                            approvedViewTargets.add(data.targetId);
-                            showViewedCardsModal(data.targetName, data.targetHand);
-                        } else {
-                            alert(`${data.targetName} declined your request to view cards.`);
-                        }
-                    }
                     break;
             }
         }
@@ -1048,7 +974,6 @@
             
             roundCounter = 1;
             gameHistory = [];
-            approvedViewTargets.clear();
             let fullDeck = createDeck();
             players.forEach(p => {
                 p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
@@ -1111,14 +1036,13 @@
             if (!currentP || currentP.eliminated) return;
 
             turnTimeLeft = 15;
-            const timerContainer = document.getElementById('timer-circle-container');
-            const timerSecEl = document.getElementById('timer-seconds');
-            if(timerContainer) timerContainer.classList.remove('hidden');
-            if(timerSecEl) timerSecEl.innerText = turnTimeLeft;
+            
+            // Update UI for all player divisions (opponents and local player)
+            updateAllPlayerTimers();
 
             turnTimerInterval = setInterval(() => {
                 turnTimeLeft--;
-                if(timerSecEl) timerSecEl.innerText = turnTimeLeft;
+                updateAllPlayerTimers();
 
                 if (turnTimeLeft <= 0) {
                     stopTurnTimer();
@@ -1127,13 +1051,45 @@
             }, 1000);
         }
 
+        function updateAllPlayerTimers() {
+            // Update local player timer display
+            const timerContainer = document.getElementById('timer-circle-container');
+            const timerSecEl = document.getElementById('timer-seconds');
+            let isMyTurn = (currentTurnIndex === myIndex);
+
+            if(timerContainer) {
+                if(isMyTurn && roundActive) {
+                    timerContainer.classList.remove('hidden');
+                    if(timerSecEl) timerSecEl.innerText = turnTimeLeft;
+                } else {
+                    timerContainer.classList.add('hidden');
+                }
+            }
+
+            // Update opponents HUD timer displays
+            players.forEach((p, idx) => {
+                if(idx === myIndex) return;
+                let oppTimerEl = document.getElementById(`opp-timer-${idx}`);
+                let oppTimerSecEl = document.getElementById(`opp-timer-sec-${idx}`);
+                let isOppTurn = (idx === currentTurnIndex);
+
+                if(oppTimerEl && oppTimerSecEl) {
+                    if(isOppTurn && roundActive && !p.eliminated) {
+                        oppTimerEl.classList.remove('hidden');
+                        oppTimerSecEl.innerText = turnTimeLeft;
+                    } else {
+                        oppTimerEl.classList.add('hidden');
+                    }
+                }
+            });
+        }
+
         function stopTurnTimer() {
             if (turnTimerInterval) {
                 clearInterval(turnTimerInterval);
                 turnTimerInterval = null;
             }
-            const timerContainer = document.getElementById('timer-circle-container');
-            if(timerContainer) timerContainer.classList.add('hidden');
+            updateAllPlayerTimers();
         }
 
         function handleTimerExpiry() {
@@ -1141,7 +1097,6 @@
             let currentP = players[currentTurnIndex];
             if (!currentP) return;
 
-            // If current player is local or if we are host managing the game
             if (currentTurnIndex === myIndex || isHost || isSoloMode) {
                 autoPlayExpiredTurn(currentP);
             }
@@ -1157,7 +1112,6 @@
                 return;
             }
 
-            // Automatically push highest card in his cards and draw a card
             player.hand.sort((a,b) => b.points - a.points);
             let highestCard = player.hand[0];
             player.hand = player.hand.filter(c => c.uid !== highestCard.uid);
@@ -1446,7 +1400,6 @@
             roundActive = true;
             turnPhase = 'drop';
             currentTurnIndex = players.findIndex(p => !p.eliminated);
-            approvedViewTargets.clear();
 
             let startPayload = {
                 type: 'START_GAME',
@@ -1469,92 +1422,6 @@
             checkBotTurn();
         }
 
-        // --- VIEW ELIMINATED/OTHER PLAYER CARDS FEATURE ---
-        function requestViewCards(targetPlayerId, targetPlayerName) {
-            let me = players[myIndex];
-            // Enforce requirement: ONLY eliminated player can ask permission
-            if (!me || !me.eliminated) {
-                alert("Only an eliminated player can ask permission to view cards!");
-                return;
-            }
-
-            // If already approved previously, view continuously without requesting again
-            if (approvedViewTargets.has(targetPlayerId)) {
-                let targetP = players.find(p => p.id === targetPlayerId);
-                if (targetP) {
-                    showViewedCardsModal(targetP.name, targetP.hand);
-                }
-                return;
-            }
-
-            if (isHost || isSoloMode) {
-                let targetP = players.find(p => p.id === targetPlayerId);
-                if (targetP) {
-                    approvedViewTargets.add(targetPlayerId);
-                    showViewedCardsModal(targetP.name, targetP.hand);
-                }
-            } else {
-                sendRealtimeMessage({
-                    type: 'REQUEST_VIEW_CARDS',
-                    targetId: targetPlayerId,
-                    requesterId: myId,
-                    requesterName: myName
-                });
-                alert(`Requested view permission from ${targetPlayerName}. Waiting for approval...`);
-            }
-        }
-
-        function respondViewPermission(allowed) {
-            document.getElementById('view-permission-modal').classList.add('hidden');
-            let requesterId = pendingViewRequesterId;
-            let me = players[myIndex];
-
-            if (isHost || isSoloMode) {
-                if (allowed && me) {
-                    let reqPlayer = players.find(p => p.id === requesterId);
-                    if(reqPlayer) {
-                        sendRealtimeMessage({
-                            type: 'NOTIFY_VIEW_RESPONSE',
-                            requesterId: requesterId,
-                            targetId: me.id,
-                            targetName: me.name,
-                            allowed: true,
-                            targetHand: me.hand
-                        });
-                    }
-                }
-            } else {
-                sendRealtimeMessage({
-                    type: 'VIEW_RESPONSE',
-                    requesterId: requesterId,
-                    targetId: myId,
-                    targetName: me.name,
-                    allowed: allowed,
-                    targetHand: me.hand
-                });
-            }
-        }
-
-        function showViewedCardsModal(targetName, handCards) {
-            document.getElementById('view-cards-title').innerText = `${targetName}'s Cards`;
-            const container = document.getElementById('view-cards-container');
-            container.innerHTML = '';
-
-            (handCards || []).forEach(card => {
-                let isRed = ['♥', '♦'].includes(card.suit);
-                let cardEl = document.createElement('div');
-                cardEl.className = `w-12 h-20 sm:w-16 sm:h-24 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1 sm:p-1.5 font-bold select-none shrink-0 ${isRed ? 'text-rose-600' : 'text-slate-900'}`;
-                cardEl.innerHTML = `
-                    <div class="text-[10px] sm:text-xs">${card.val}</div>
-                    <div class="text-sm sm:text-lg self-center">${card.suit}</div>
-                    <div class="text-[10px] sm:text-xs self-end rotate-180">${card.val}</div>
-                `;
-                container.appendChild(cardEl);
-            });
-
-            document.getElementById('view-cards-modal').classList.add('hidden');
-        }
-
         function renderGameBoard() {
             const topScoresContainer = document.getElementById('top-scores-container');
             topScoresContainer.innerHTML = '';
@@ -1572,24 +1439,25 @@
                 if(idx === myIndex) return;
                 let isTurn = (idx === currentTurnIndex);
                 let div = document.createElement('div');
+                // Target player division class specified by user: p-2 rounded-lg border flex flex-col justify-between transition bg-black border-zinc-800
                 div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-50' : ''}`;
                 
                 let removeBtnHtml = (isHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
-                let me = players[myIndex];
-                let isEliminated = me && me.eliminated;
-                let viewCardsBtnText = approvedViewTargets.has(p.id) ? "View Cards" : "Ask to View";
-                let viewCardsBtnHtml = isEliminated ? `<button onclick="requestViewCards('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="mt-1 bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded text-[10px] font-semibold w-full transition">${viewCardsBtnText}</button>` : '';
+                // Timer inside the opponent's player division
+                let timerHtml = `<div id="opp-timer-${idx}" class="relative w-5 h-5 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center hidden"><span id="opp-timer-sec-${idx}" class="text-[9px] font-mono font-bold text-amber-400">15</span></div>`;
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
                         <span class="font-bold truncate max-w-[65px]">${p.name} ${p.eliminated ? '(Out)' : ''}</span>
-                        ${removeBtnHtml}
+                        <div class="flex items-center space-x-1">
+                            ${timerHtml}
+                            ${removeBtnHtml}
+                        </div>
                     </div>
                     <div class="flex justify-between items-center text-[10px] mt-1 text-zinc-400">
                         <span>Cards:</span><span class="font-bold text-white">${p.hand ? p.hand.length : 0}</span>
                     </div>
-                    ${viewCardsBtnHtml}
                 `;
                 hudContainer.appendChild(div);
             });
@@ -1639,6 +1507,9 @@
                 }
                 myHandContainer.appendChild(cardEl);
             });
+
+            // Update timers state in sync with UI render
+            updateAllPlayerTimers();
         }
 
         function updateScoreboardTable() {
