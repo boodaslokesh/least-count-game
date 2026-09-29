@@ -159,10 +159,9 @@
             <!-- OPPONENTS HUD BAR -->
             <div id="opponents-hud" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 shrink-0"></div>
 
-            <!-- CHAT MESSAGES DISPLAY BAR (DIRECTLY BELOW OPPONENTS HUD) -->
-            <div id="chat-messages-banner" class="w-full bg-zinc-900/90 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs text-emerald-300 hidden shrink-0 items-center space-x-2">
-                <span class="font-bold text-amber-400 whitespace-nowrap">💬 <span id="chat-sender-label">Player</span>:</span>
-                <span id="chat-text-label" class="truncate text-white">Hello everyone</span>
+            <!-- CHAT MESSAGES DISPLAY BAR (UP TO LAST 3 MESSAGES) -->
+            <div id="chat-messages-banner" class="w-full bg-zinc-900/90 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs text-emerald-300 hidden shrink-0 flex flex-col space-y-1">
+                <!-- Dynamic message rows populated here -->
             </div>
 
             <!-- CENTER PLAY AREA -->
@@ -814,8 +813,8 @@
             });
         }
 
-        // --- CHAT SYSTEM LOGIC ---
-        let activeChatTimeout = null;
+        // --- CHAT SYSTEM LOGIC (LAST 3 MESSAGES QUEUE) ---
+        let chatMessagesQueue = [];
 
         function sendRoomChatMessage() {
             const inputEl = document.getElementById('room-chat-input');
@@ -841,24 +840,23 @@
 
         function displayChatMessageLocally(senderName, text) {
             const chatBanner = document.getElementById('chat-messages-banner');
-            const senderLabel = document.getElementById('chat-sender-label');
-            const textLabel = document.getElementById('chat-text-label');
+            if(!chatBanner) return;
 
-            if(!chatBanner || !senderLabel || !textLabel) return;
-
-            senderLabel.innerText = senderName;
-            textLabel.innerText = text;
-            chatBanner.classList.remove('hidden');
-            chatBanner.classList.add('flex');
-
-            if (activeChatTimeout) {
-                clearTimeout(activeChatTimeout);
+            chatMessagesQueue.push({ sender: senderName, text: text });
+            if (chatMessagesQueue.length > 3) {
+                chatMessagesQueue.shift(); // Remove the oldest message when exceeding 3
             }
 
-            activeChatTimeout = setTimeout(() => {
-                chatBanner.classList.add('hidden');
-                chatBanner.classList.remove('flex');
-            }, 15000);
+            chatBanner.innerHTML = '';
+            chatMessagesQueue.forEach(msg => {
+                let row = document.createElement('div');
+                row.className = 'flex items-center space-x-2 truncate';
+                row.innerHTML = `<span class="font-bold text-amber-400 whitespace-nowrap">💬 ${msg.sender}:</span><span class="truncate text-white">${msg.text}</span>`;
+                chatBanner.appendChild(row);
+            });
+
+            chatBanner.classList.remove('hidden');
+            chatBanner.classList.add('flex');
         }
 
         // --- INCOMING NETWORK DATA SWITCH ---
