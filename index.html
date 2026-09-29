@@ -43,9 +43,6 @@
         </div>
 
         <div class="flex items-center space-x-2">
-            <button id="header-share-btn" onclick="shareRoomLink()" class="hidden bg-amber-500 hover:bg-amber-400 text-black px-2.5 py-1 rounded-lg font-bold transition text-[11px]">
-                🔗 Share Link
-            </button>
             <div id="game-status-banner" class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden">
                 Waiting...
             </div>
@@ -69,7 +66,7 @@
             <div class="space-y-2.5 text-left">
                 <div>
                     <label class="block text-[11px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Your Nickname</label>
-                    <input type="text" id="nickname-input" placeholder="Enter name (auto-assigned if blank)" maxlength="12" autocapitalize="words" autocorrect="off" spellcheck="false" autocomplete="off" class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 font-medium text-sm">
+                    <input type="text" id="nickname-input" placeholder="Enter your name" maxlength="12" autocapitalize="words" autocorrect="off" spellcheck="false" autocomplete="off" class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 font-medium text-sm">
                 </div>
                 <div class="grid grid-cols-3 gap-2">
                     <div>
@@ -140,12 +137,9 @@
         <!-- WAITING ROOM SCREEN -->
         <div id="waiting-screen" class="hidden bg-black p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-zinc-800 text-center space-y-4">
             <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">Waiting for Players</h2>
-            <div class="bg-zinc-900 p-3 rounded-xl border border-zinc-800 flex flex-col items-center justify-center space-y-2">
-                <p class="text-[11px] text-zinc-400 uppercase tracking-wider">Room Code</p>
+            <div class="bg-zinc-900 p-3 rounded-xl border border-zinc-800">
+                <p class="text-[11px] text-zinc-400 uppercase tracking-wider mb-1">Room Code</p>
                 <p id="display-room-code" class="text-2xl sm:text-3xl font-mono font-black text-amber-400 tracking-widest select-all"></p>
-                <button onclick="shareRoomLink()" class="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded-lg shadow transition flex items-center space-x-1">
-                    <span>🔗 Share Game Link</span>
-                </button>
             </div>
             <div>
                 <h3 class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Connected (<span id="connected-count">1</span>/<span id="max-count">4</span>) • Cards: <span id="display-cards-count">7</span> • Target: <span id="display-target-pts">100</span> pts</h3>
@@ -337,75 +331,32 @@
         const SUPABASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co/rest/v1/least-count';
         const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
 
-        // --- ENHANCED STUN/TURN CONFIGURATION FOR MAXIMUM MOBILE COMPATIBILITY ---
+        // --- ENHANCED STUN/TURN CONFIGURATION FOR MAXIMUM COMPATIBILITY ---
+        // Optional TURN relays: define window.LEAST_COUNT_TURN_SERVERS before this
+        // script with your provider's TURN URLs and short-lived credentials.
+        // Example: [{ urls: 'turn:turn.example.com:3478', username: 'TEMP_USER', credential: 'TEMP_PASSWORD' }]
+        // Do not publish permanent TURN credentials in a public HTML file.
+        const DEFAULT_ICE_SERVERS = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+        ];
         const peerConfig = {
             debug: 1,
             config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:stun3.l.google.com:19302' },
-                    { urls: 'stun:stun4.l.google.com:19302' },
-                    { urls: 'stun:global.stun.twilio.com:3478' }
-                ],
-                iceCandidatePoolSize: 10
+                iceServers: DEFAULT_ICE_SERVERS.concat(
+                    Array.isArray(window.LEAST_COUNT_TURN_SERVERS) ? window.LEAST_COUNT_TURN_SERVERS : []
+                ),
+                iceCandidatePoolSize: 10,
+                iceTransportPolicy: 'all',
+                bundlePolicy: 'max-bundle',
+                rtcpMuxPolicy: 'require'
             }
         };
-
-        // --- AUTO-GENERATE DEFAULT NAME ---
-        function getDefaultGuestName() {
-            let saved = sessionStorage.getItem('leastCountGuestName');
-            if(saved) return saved;
-            let randomNum = Math.floor(1000 + Math.random() * 9000);
-            let genName = "Guest " + randomNum;
-            try { sessionStorage.setItem('leastCountGuestName', genName); } catch(e){}
-            return genName;
-        }
-
-        // --- SHARE LINK FEATURE ---
-        function shareRoomLink() {
-            if(!roomCode) return;
-            const link = `${window.location.origin}${window.location.pathname}#${roomCode}`;
-            if (navigator.share) {
-                navigator.share({
-                    title: 'Join Least Count Game',
-                    text: `Join my Least Count room code: ${roomCode}`,
-                    url: link
-                }).catch(() => {
-                    copyLinkToClipboard(link);
-                });
-            } else {
-                copyLinkToClipboard(link);
-            }
-        }
-
-        function copyLinkToClipboard(link) {
-            navigator.clipboard.writeText(link).then(() => {
-                alert('Room Link copied to clipboard!');
-            }).catch(() => {
-                prompt('Copy this join link:', link);
-            });
-        }
-
-        function checkUrlHashAndAutoJoin() {
-            const hash = window.location.hash.replace('#', '').trim().toUpperCase();
-            if(hash && hash.length >= 4) {
-                const joinInput = document.getElementById('join-room-input');
-                if(joinInput) joinInput.value = hash;
-                
-                // Auto-fill nickname if missing
-                const nicknameInput = document.getElementById('nickname-input');
-                if(!nicknameInput.value.trim()) {
-                    nicknameInput.value = getDefaultGuestName();
-                }
-
-                // Trigger auto-join instantly
-                setTimeout(() => {
-                    joinRoom();
-                }, 300);
-            }
-        }
+        const JOIN_CONNECT_TIMEOUT_MS = 15000;
+        let guestConnectTimeout = null;
+        let peerInitTimeout = null;
 
         // --- PULL TO REFRESH GESTURE HANDLER ---
         let touchStartY = 0;
@@ -543,7 +494,7 @@
                     created_at: new Date().toISOString()
                 };
 
-                await fetch(SUPABASE_URL, {
+                const response = await fetch(SUPABASE_URL, {
                     method: 'POST',
                     headers: {
                         'apikey': SUPABASE_APIKEY,
@@ -553,7 +504,12 @@
                     },
                     body: JSON.stringify(roomPayload)
                 });
-            } catch(e) {}
+                if (!response.ok) {
+                    const detail = await response.text();
+                    console.error('Room registration failed:', response.status, detail);
+                    logTicker('Room is live, but public listing could not be updated.');
+                }
+            } catch(e) { console.error('Room registration error:', e); }
         }
 
         async function updateRoomStartedStatus(startedValue = 'yes') {
@@ -574,13 +530,11 @@
 
         window.addEventListener('load', () => {
             refreshPublicRoomsList();
-            checkUrlHashAndAutoJoin();
         });
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
                 intentionalDisconnect = true;
-                location.hash = '';
                 location.reload();
             }
         }
@@ -667,46 +621,89 @@
         function scheduleGuestReconnect() {
             if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
             if(guestReconnectTimer) return;
-            const delay = Math.min(1000 * Math.max(1, guestReconnectAttempts + 1), 5000);
+            const delay = Math.min(1000 * Math.pow(2, Math.min(guestReconnectAttempts, 3)), 8000) + Math.floor(Math.random() * 400);
             guestReconnectTimer = setTimeout(() => {
                 guestReconnectTimer = null;
                 connectGuestToHost();
             }, delay);
         }
 
+        function clearGuestConnectTimeout() {
+            if (guestConnectTimeout) {
+                clearTimeout(guestConnectTimeout);
+                guestConnectTimeout = null;
+            }
+        }
+
         function connectGuestToHost() {
             if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
-            if(conn && conn.open) { 
-                guestReconnectAttempts = 0; 
-                resetJoinButtonState(true);
-                return; 
-            }
+            if(conn && conn.open) return;
+
             guestReconnectAttempts++;
+            const attemptConn = (() => {
+                try { return peer.connect(roomCode, { reliable: true, serialization: 'json' }); }
+                catch (e) { return null; }
+            })();
 
-            try {
-                const newConn = peer.connect(roomCode, { reliable: true, serialization: 'json' });
-                conn = newConn;
-
-                newConn.on('open', () => {
-                    guestReconnectAttempts = 0;
-                    resetJoinButtonState(true);
-                    newConn.send({ type: 'JOIN_REQUEST', name: myName, clientToken: myClientToken });
-                    logTicker(`Connected to room ${roomCode}.`);
-                });
-
-                newConn.on('data', (data) => handleGuestData(data));
-                newConn.on('error', () => {
-                    resetJoinButtonState(false);
-                    scheduleGuestReconnect();
-                });
-                newConn.on('close', () => {
-                    if(conn === newConn) conn = null;
-                    if(!intentionalDisconnect) scheduleGuestReconnect();
-                });
-            } catch(e) {
+            if(!attemptConn) {
                 resetJoinButtonState(false);
                 scheduleGuestReconnect();
+                return;
             }
+            conn = attemptConn;
+            clearGuestConnectTimeout();
+
+            let joinAcknowledged = false;
+            const armJoinTimeout = () => {
+                clearGuestConnectTimeout();
+                guestConnectTimeout = setTimeout(() => {
+                    if (conn === attemptConn && !joinAcknowledged) {
+                        logTicker('Host did not respond. Retrying connection...');
+                        try { attemptConn.close(); } catch(e) {}
+                        if (conn === attemptConn) conn = null;
+                        resetJoinButtonState(false);
+                        scheduleGuestReconnect();
+                    }
+                }, JOIN_CONNECT_TIMEOUT_MS);
+            };
+            armJoinTimeout();
+
+            attemptConn.on('open', () => {
+                guestReconnectAttempts = 0;
+                try {
+                    attemptConn.send({ type: 'JOIN_REQUEST', name: myName, clientToken: myClientToken });
+                    logTicker('Connected to host; waiting for room response...');
+                    armJoinTimeout();
+                } catch(e) {
+                    try { attemptConn.close(); } catch(_) {}
+                }
+            });
+
+            attemptConn.on('data', (data) => {
+                if (conn !== attemptConn) return;
+                if (data && (data.type === 'UPDATE_PLAYERS' || data.type === 'START_GAME' ||
+                             data.type === 'GAME_STATE_UPDATE' || data.type === 'REJECT' || data.type === 'RECONNECTED')) {
+                    joinAcknowledged = true;
+                    clearGuestConnectTimeout();
+                    resetJoinButtonState(data.type !== 'REJECT');
+                }
+                handleGuestData(data);
+            });
+            attemptConn.on('error', (err) => {
+                if (conn !== attemptConn) return;
+                clearGuestConnectTimeout();
+                console.warn('PeerJS data connection error:', err);
+                resetJoinButtonState(false);
+                scheduleGuestReconnect();
+            });
+            attemptConn.on('close', () => {
+                clearGuestConnectTimeout();
+                if(conn === attemptConn) conn = null;
+                if(!intentionalDisconnect) {
+                    resetJoinButtonState(false);
+                    scheduleGuestReconnect();
+                }
+            });
         }
 
         function resetJoinButtonState(success) {
@@ -721,7 +718,7 @@
 
         // --- SOLO MODE ---
         function startSoloGame() {
-            myName = document.getElementById('nickname-input').value.trim() || getDefaultGuestName();
+            myName = document.getElementById('nickname-input').value.trim() || "Player";
             cardsPerPlayer = parseInt(document.getElementById('cards-count-select').value);
             targetEliminationPoints = parseInt(document.getElementById('target-points-select').value);
             maxPlayersLimit = parseInt(document.getElementById('max-players-select').value);
@@ -765,7 +762,6 @@
             document.getElementById('lobby-screen').classList.add('hidden');
             document.getElementById('game-board-screen').classList.remove('hidden');
             document.getElementById('room-badge').classList.add('hidden');
-            document.getElementById('header-share-btn').classList.add('hidden');
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('game-status-banner').classList.remove('hidden');
             document.getElementById('game-status-banner').innerText = "Solo vs Computer Mode";
@@ -789,8 +785,6 @@
                     gameHistory = [];
                     roundCounter = 0;
 
-                    window.location.hash = roomCode;
-
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
@@ -798,7 +792,6 @@
                     document.getElementById('display-cards-count').innerText = cardsPerPlayer;
                     document.getElementById('display-target-pts').innerText = targetEliminationPoints;
                     document.getElementById('host-controls').classList.remove('hidden');
-                    document.getElementById('header-share-btn').classList.remove('hidden');
                     document.getElementById('waiting-msg').classList.add('hidden');
 
                     updateWaitingRoomUI();
@@ -810,6 +803,10 @@
             });
 
             peer.on('connection', (c) => {
+                const previous = connections[c.peer];
+                if (previous && previous !== c) {
+                    try { previous.close(); } catch(e) {}
+                }
                 connections[c.peer] = c;
                 setupHostConnectionListeners(c);
             });
@@ -817,8 +814,16 @@
             peer.on('error', (err) => {
                 if(intentionalDisconnect) return;
                 if(err.type === 'unavailable-id') {
+                    // Release the colliding peer before retrying with a fresh room code.
+                    try { if (peer && !peer.destroyed) peer.destroy(); } catch(e) {}
+                    peer = null;
+                    hostPeerInitialized = false;
                     roomCode = generateShortCode();
-                    createHostPeer();
+                    logTicker('Room code collision; generating a new code...');
+                    setTimeout(() => { if (isHost && !intentionalDisconnect) createHostPeer(); }, 250);
+                } else {
+                    console.error('Host PeerJS error:', err);
+                    showLobbyError('Could not initialize room. Check connection and try again.');
                 }
             });
         }
@@ -828,15 +833,8 @@
             intentionalDisconnect = false;
             hostPeerInitialized = false;
             guestReconnectAttempts = 0;
-            
-            // Auto assign default name if missing
-            let nameInput = document.getElementById('nickname-input');
-            myName = nameInput.value.trim();
-            if(!myName) {
-                myName = getDefaultGuestName();
-                nameInput.value = myName;
-            }
-
+            myName = document.getElementById('nickname-input').value.trim();
+            if(!myName) { showLobbyError("Please enter your nickname."); return; }
             maxPlayersLimit = parseInt(document.getElementById('max-players-select').value);
             cardsPerPlayer = parseInt(document.getElementById('cards-count-select').value);
             targetEliminationPoints = parseInt(document.getElementById('target-points-select').value);
@@ -863,19 +861,11 @@
         function joinRoom() {
             isSoloMode = false;
             intentionalDisconnect = false;
-            
-            // Auto assign default name if nickname is blank
-            let nameInput = document.getElementById('nickname-input');
-            myName = nameInput.value.trim();
-            if(!myName) {
-                myName = getDefaultGuestName();
-                nameInput.value = myName;
-            }
-
+            myName = document.getElementById('nickname-input').value.trim();
             let codeInput = document.getElementById('join-room-input').value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-            if(!codeInput) {
-                showLobbyError("Please enter a Room Code.");
+            if(!myName || !codeInput) {
+                showLobbyError("Enter your nickname and Room Code.");
                 return;
             }
 
@@ -889,7 +879,6 @@
 
             isHost = false;
             roomCode = codeInput;
-            window.location.hash = roomCode;
             guestReconnectAttempts = 0;
             gameHistory = [];
 
@@ -911,10 +900,14 @@
                 connectGuestToHost();
             });
 
-            peer.on('error', () => {
+            peer.on('error', (err) => {
                 if(!intentionalDisconnect) {
+                    console.warn('PeerJS peer error:', err);
                     resetJoinButtonState(false);
-                    showLobbyError("Room code not found or host is offline. Retrying...");
+                    const msg = err && err.type === 'peer-unavailable'
+                        ? 'Host is not reachable yet. Retrying...'
+                        : 'Network/PeerJS error. Check internet, VPN or firewall; retrying...';
+                    showLobbyError(msg);
                     scheduleGuestReconnect();
                 }
             });
@@ -987,7 +980,7 @@
 
                     let newPlayer = {
                         id: c.peer,
-                        name: data.name || 'Guest',
+                        name: data.name || 'Player',
                         clientToken: clientToken || ('guest-' + c.peer),
                         connected: true,
                         isHost: false,
@@ -1012,6 +1005,8 @@
             });
 
             c.on('close', () => {
+                // Ignore a late close event from an older connection replaced by a reconnect.
+                if (connections[c.peer] !== c) return;
                 delete connections[c.peer];
                 let disconnectedPlayer = players.find(p => p.id === c.peer);
                 if(disconnectedPlayer && !disconnectedPlayer.isHost) {
@@ -1057,8 +1052,15 @@
             if(data.type === 'PING') return;
             switch(data.type) {
                 case 'REJECT':
+                    clearGuestConnectTimeout();
+                    intentionalDisconnect = true;
                     resetJoinButtonState(false);
-                    showLobbyError("Rejected: " + data.reason);
+                    showLobbyError("Unable to join: " + (data.reason || 'Room rejected the request.'));
+                    if (conn) { try { conn.close(); } catch(e) {} }
+                    conn = null;
+                    stopConnectionWatchdog();
+                    if (peer) { try { peer.destroy(); } catch(e) {} peer = null; }
+                    intentionalDisconnect = false;
                     break;
                 case 'KICKED':
                     alert("You were removed by host.");
@@ -1072,7 +1074,6 @@
                     targetEliminationPoints = data.targetPoints;
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.remove('hidden');
-                    document.getElementById('header-share-btn').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
                     document.getElementById('max-count').innerText = maxPlayersLimit;
                     updateWaitingRoomUI();
@@ -1091,7 +1092,6 @@
                     document.getElementById('round-over-modal').classList.add('hidden');
                     document.getElementById('game-board-screen').classList.remove('hidden');
                     document.getElementById('room-badge').classList.remove('hidden');
-                    document.getElementById('header-share-btn').classList.remove('hidden');
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
@@ -1175,7 +1175,6 @@
             document.getElementById('round-over-modal').classList.add('hidden');
             document.getElementById('game-board-screen').classList.remove('hidden');
             document.getElementById('room-badge').classList.remove('hidden');
-            document.getElementById('header-share-btn').classList.remove('hidden');
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('current-room-id').innerText = roomCode;
             document.getElementById('game-status-banner').classList.remove('hidden');
