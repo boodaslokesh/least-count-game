@@ -159,6 +159,12 @@
             <!-- OPPONENTS HUD BAR -->
             <div id="opponents-hud" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 shrink-0"></div>
 
+            <!-- CHAT MESSAGES DISPLAY BAR (DIRECTLY BELOW OPPONENTS HUD) -->
+            <div id="chat-messages-banner" class="w-full bg-zinc-900/90 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs text-emerald-300 hidden shrink-0 items-center space-x-2">
+                <span class="font-bold text-amber-400 whitespace-nowrap">💬 <span id="chat-sender-label">Player</span>:</span>
+                <span id="chat-text-label" class="truncate text-white">Hello everyone</span>
+            </div>
+
             <!-- CENTER PLAY AREA -->
             <div class="bg-black border border-zinc-800 p-3 sm:p-4 rounded-xl flex flex-row justify-around items-center gap-2 relative shadow-inner shrink-0">
                 
@@ -803,13 +809,13 @@
                     `;
                 }
 
-                li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${actionsHtml}`;
+                li.innerHTML = `<div class="flex items-center space-x-2">👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${actionsHtml}`;
                 ul.appendChild(li);
             });
         }
 
         // --- CHAT SYSTEM LOGIC ---
-        const activeChatTimeouts = {};
+        let activeChatTimeout = null;
 
         function sendRoomChatMessage() {
             const inputEl = document.getElementById('room-chat-input');
@@ -822,7 +828,7 @@
             const senderToken = myClientToken || myId;
 
             if (isSoloMode) {
-                displayChatMessageLocally(senderToken, senderName, text);
+                displayChatMessageLocally(senderName, text);
             } else {
                 sendRealtimeMessage({
                     type: 'ROOM_CHAT_MESSAGE',
@@ -833,21 +839,25 @@
             }
         }
 
-        function displayChatMessageLocally(senderToken, senderName, text) {
-            let targetPlayer = players.find(p => (p.clientToken === senderToken || p.id === senderToken));
-            if(!targetPlayer) return;
-            targetPlayer.lastChatMessage = text;
-            renderGameBoard();
+        function displayChatMessageLocally(senderName, text) {
+            const chatBanner = document.getElementById('chat-messages-banner');
+            const senderLabel = document.getElementById('chat-sender-label');
+            const textLabel = document.getElementById('chat-text-label');
 
-            if (activeChatTimeouts[targetPlayer.id]) {
-                clearTimeout(activeChatTimeouts[targetPlayer.id]);
+            if(!chatBanner || !senderLabel || !textLabel) return;
+
+            senderLabel.innerText = senderName;
+            textLabel.innerText = text;
+            chatBanner.classList.remove('hidden');
+            chatBanner.classList.add('flex');
+
+            if (activeChatTimeout) {
+                clearTimeout(activeChatTimeout);
             }
 
-            activeChatTimeouts[targetPlayer.id] = setTimeout(() => {
-                if (players.find(p => p.id === targetPlayer.id)) {
-                    targetPlayer.lastChatMessage = '';
-                    renderGameBoard();
-                }
+            activeChatTimeout = setTimeout(() => {
+                chatBanner.classList.add('hidden');
+                chatBanner.classList.remove('flex');
             }, 15000);
         }
 
@@ -908,7 +918,7 @@
                 }
                 else if (data.type === 'ROOM_CHAT_MESSAGE') {
                     sendRealtimeMessage(data);
-                    displayChatMessageLocally(data.senderToken, data.senderName, data.text);
+                    displayChatMessageLocally(data.senderName, data.text);
                 }
                 else if (data.type === 'PLAYER_LEFT') {
                     const leaving = players.find(p => p.clientToken === data.clientToken || p.id === data.clientToken);
@@ -1032,7 +1042,7 @@
                     logTicker(data.message);
                     break;
                 case 'ROOM_CHAT_MESSAGE':
-                    displayChatMessageLocally(data.senderToken, data.senderName, data.text);
+                    displayChatMessageLocally(data.senderName, data.text);
                     break;
                 case 'ROUND_OVER':
                     players = data.players || players;
@@ -1442,14 +1452,11 @@
                     `;
                 }
 
-                let chatBubbleHtml = p.lastChatMessage ? `<div class="mt-1 bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 px-1.5 py-0.5 rounded text-[10px] break-words">💬 ${p.lastChatMessage}</div>` : '';
-
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
                         <span class="font-bold truncate max-w-[65px]">${p.name}</span>
                         ${p.isHost ? '<span class="text-[9px] text-amber-400">Host</span>' : ''}
                     </div>
-                    ${chatBubbleHtml}
                     <div class="flex justify-between items-center text-[10px] mt-1 text-zinc-400">
                         <span>Cards:</span><span class="font-bold text-white">${p.hand ? p.hand.length : 0}</span>
                     </div>
