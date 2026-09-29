@@ -132,6 +132,9 @@
                 </div>
             </div>
 
+            <!-- LOBBY INSTRUCTIONS -->
+
+
             <p id="lobby-error" class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
@@ -309,11 +312,12 @@
             <h2 id="round-over-title" class="text-xl sm:text-2xl font-black text-amber-400 text-center">SHOW CALLED!</h2>
             <div id="round-over-content" class="text-xs sm:text-sm text-zinc-300 space-y-2 max-h-48 overflow-y-auto p-2 bg-zinc-950 rounded-xl border border-zinc-900"></div>
             
-            <div id="next-round-container" class="pt-1">
+            <div id="host-next-round-container" class="hidden pt-1">
                 <button onclick="startNextRound()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition text-sm">
                     Start Next Round
                 </button>
             </div>
+            <p id="waiting-next-round-msg" class="text-xs text-zinc-400 text-center animate-pulse">Waiting for host to start next round...</p>
         </div>
     </div>
 
@@ -569,13 +573,6 @@
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
-                // If exiting during an active game/room, notify others so fallback host takes over
-                if (!isSoloMode && roomCode && myClientToken) {
-                    sendRealtimeMessage({
-                        type: 'PLAYER_LEFT',
-                        leftToken: myClientToken
-                    });
-                }
                 location.reload();
             }
         }
@@ -589,7 +586,11 @@
                     kickedId: targetPeerId
                 });
 
-                broadcastOrSyncState("Player removed by host.");
+                broadcastPlayerList();
+                if(roundActive) {
+                    if(currentTurnIndex >= players.length) currentTurnIndex = 0;
+                    broadcastGameState("Player removed by host.");
+                }
                 updateWaitingRoomUI();
                 renderGameBoard();
                 logTicker(`Removed ${targetPlayerName} from the game.`);
@@ -653,20 +654,18 @@
             roundCounter = 0;
 
             players = [
-                { id: myId, name: myName, clientToken: myClientToken, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, connected: true }
+                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
             ];
 
             for (let i = 1; i < maxPlayersLimit; i++) {
                 players.push({
                     id: `bot-${i}`,
                     name: `Bot ${i}`,
-                    clientToken: `bot-token-${i}`,
                     isHost: false,
                     scores: 0,
                     hand: [],
                     eliminated: false,
-                    isBot: true,
-                    connected: true
+                    isBot: true
                 });
             }
 
@@ -782,10 +781,7 @@
                 let li = document.createElement('li');
                 li.className = 'bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm flex justify-between items-center';
                 let removeBtnHtml = '';
-                // Any active connected player can remove others if host is gone, or original host
-                let activeHost = players.find(pl => pl.isHost && pl.connected !== false);
-                let amILeadHost = activeHost && activeHost.clientToken === myClientToken;
-                if ((isHost || amILeadHost) && !p.isHost && p.id !== myId) {
+                if (isHost && !p.isHost && p.id !== myId) {
                     removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
                 }
                 li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
@@ -793,31 +789,11 @@
             });
         }
 
-        // --- AUTOMATIC HOST ELECTION & RESILIENCE ---
-        function checkAndElectHost() {
-            if (isSoloMode) return;
-            let connectedPlayers = players.filter(p => p.connected !== false);
-            if (connectedPlayers.length === 0) return;
-
-            let currentHostAlive = connectedPlayers.some(p => p.isHost);
-            if (!currentHostAlive) {
-                // Elect the first connected player as the new host
-                connectedPlayers.sort((a, b) => a.name.localeCompare(b.name));
-                players.forEach(p => p.isHost = false);
-                connectedPlayers[0].isHost = true;
-            }
-
-            let newHostObj = players.find(p => p.clientToken === myClientToken && p.isHost);
-            if (newHostObj) {
-                isHost = true;
-            }
-        }
-
         // --- INCOMING NETWORK DATA SWITCH ---
         function handleIncomingNetworkData(data) {
-            if (data.type === 'JOIN_REQUEST') {
-                checkAndElectHost();
-                if (isHost) {
+            // HOST RECEIVES GUEST MESSAGES
+            if (isHost) {
+                if (data.type === 'JOIN_REQUEST') {
                     let existingPlayer = players.find(p => p.clientToken === data.clientToken || p.name.toLowerCase() === (data.name || '').toLowerCase());
                     if (existingPlayer) {
                         existingPlayer.connected = true;
@@ -826,16 +802,14 @@
 
                         if (roundActive) {
                             sendRealtimeMessage({
-                                type: 'SYNC_FULL_STATE',
+                                type: 'START_GAME',
                                 players: players,
                                 deck: deck,
                                 discardPile: discardPile,
                                 currentTurnIndex: currentTurnIndex,
-                                turnPhase: turnPhase,
                                 targetPoints: targetEliminationPoints,
                                 cardsPerPlayer: cardsPerPlayer,
-                                gameHistory: gameHistory,
-                                roundActive: roundActive
+                                gameHistory: gameHistory
                             });
                         } else {
                             broadcastPlayerList();
@@ -844,7 +818,12 @@
                         return;
                     }
 
-                    if (players.length >= maxPlayersLimit && !existingPlayer) {
+                    if (roundActive) {
+                        sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Game already started.' });
+                        return;
+                    }
+
+                    if (players.length >= maxPlayersLimit) {
                         sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Room is full.' });
                         return;
                     }
@@ -866,26 +845,16 @@
                     updateWaitingRoomUI();
                     logTicker(`${newPlayer.name} joined.`);
                 }
-                return;
-            }
-
-            if (data.type === 'PLAYER_LEFT') {
-                let leftP = players.find(p => p.clientToken === data.leftToken);
-                if (leftP) {
-                    leftP.connected = false;
-                    checkAndElectHost();
-                    updateWaitingRoomUI();
-                    if(roundActive) {
-                        renderGameBoard();
-                    }
+                else if (data.type === 'PLAYER_ACTION') {
+                    handleHostAction(data);
+                }
+                else if (data.type === 'CALL_SHOW') {
+                    handleHostShowCall(data.peerId);
                 }
                 return;
             }
 
-            // ALLOW ANY PLAYER TO HANDLE ACTIONS IF CURRENT HOST DROPS OUT
-            checkAndElectHost();
-
-            // GUEST OR PARTICIPANT INCOMING BROADCASTS
+            // GUEST RECEIVES HOST BROADCASTS
             switch(data.type) {
                 case 'REJECT':
                     if (data.targetToken === myClientToken) {
@@ -918,16 +887,14 @@
                     updateWaitingRoomUI();
                     break;
                 case 'START_GAME':
-                case 'SYNC_FULL_STATE':
                     players = data.players;
                     deck = data.deck;
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
-                    turnPhase = data.turnPhase || 'drop';
                     cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints || targetEliminationPoints;
                     gameHistory = data.gameHistory || gameHistory;
-                    roundActive = data.roundActive !== undefined ? data.roundActive : true;
+                    roundActive = true;
                     
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.add('hidden');
@@ -942,7 +909,6 @@
                     if (myIndex !== -1) {
                         myId = players[myIndex].id;
                     }
-                    checkAndElectHost();
                     renderGameBoard();
                     break;
                 case 'GAME_STATE_UPDATE':
@@ -955,30 +921,14 @@
                     if (myIndex !== -1) {
                         myId = players[myIndex].id;
                     }
-                    checkAndElectHost();
                     renderGameBoard();
                     logTicker(data.message);
                     break;
                 case 'ROUND_OVER':
-                    players = data.players;
+                    players = data.players; // <--- Fixed: ensures players score updates sync immediately for guests
                     gameHistory = data.gameHistory || gameHistory;
-                    roundActive = false;
                     showRoundOverModal(data.resultsData, data.callerName);
-                    renderGameBoard();
-                    break;
-                case 'CALL_SHOW':
-                    if (isHost || players.some(p => p.clientToken === myClientToken && p.isHost)) {
-                        executeShowRound(data.peerId);
-                    }
-                    break;
-                case 'PLAYER_ACTION':
-                    players = data.players;
-                    deck = data.deck;
-                    discardPile = data.discardPile;
-                    currentTurnIndex = data.currentTurnIndex;
-                    turnPhase = data.turnPhase;
-                    renderGameBoard();
-                    logTicker(data.message);
+                    renderGameBoard(); // Refresh scores on UI
                     break;
             }
         }
@@ -1031,8 +981,7 @@
                 currentTurnIndex: currentTurnIndex,
                 targetPoints: targetEliminationPoints,
                 cardsPerPlayer: cardsPerPlayer,
-                gameHistory: gameHistory,
-                roundActive: true
+                gameHistory: gameHistory
             };
 
             sendRealtimeMessage(startPayload);
@@ -1049,7 +998,7 @@
             logTicker("Game started!");
         }
 
-        function broadcastOrSyncState(msg) {
+        function broadcastGameState(msg) {
             let payload = {
                 type: 'GAME_STATE_UPDATE',
                 players: players,
@@ -1171,8 +1120,8 @@
         }
 
         function syncActionComplete(msg) {
-            if(isHost || isSoloMode) {
-                if(!isSoloMode) broadcastOrSyncState(msg);
+            if(isHost) {
+                if(!isSoloMode) broadcastGameState(msg);
                 renderGameBoard();
                 logTicker(msg);
             } else {
@@ -1201,8 +1150,12 @@
             }
         }
 
+        function handleHostShowCall(callerPeerId) {
+            executeShowRound(callerPeerId);
+        }
+
         function executeShowRound(callerPeerId) {
-            let caller = players.find(p => p.id === callerPeerId || p.clientToken === callerPeerId);
+            let caller = players.find(p => p.id === callerPeerId);
             if(!caller) return;
             let callerSum = calculateHandSum(caller.hand);
 
@@ -1275,7 +1228,7 @@
             showRoundOverModal(resultsText, caller.name);
             renderGameBoard();
 
-            if(!isSoloMode) {
+            if(isHost && !isSoloMode) {
                 sendRealtimeMessage(payload);
             }
         }
@@ -1284,6 +1237,14 @@
             document.getElementById('round-over-title').innerText = `${callerName.toUpperCase()} CALLED SHOW!`;
             document.getElementById('round-over-content').innerHTML = htmlContent;
             document.getElementById('round-over-modal').classList.remove('hidden');
+
+            if(isHost || isSoloMode) {
+                document.getElementById('host-next-round-container').classList.remove('hidden');
+                document.getElementById('waiting-next-round-msg').classList.add('hidden');
+            } else {
+                document.getElementById('host-next-round-container').classList.add('hidden');
+                document.getElementById('waiting-next-round-msg').classList.remove('hidden');
+            }
         }
 
         function startNextRound() {
@@ -1313,8 +1274,7 @@
                 currentTurnIndex: currentTurnIndex,
                 targetPoints: targetEliminationPoints,
                 cardsPerPlayer: cardsPerPlayer,
-                gameHistory: gameHistory,
-                roundActive: true
+                gameHistory: gameHistory
             };
 
             document.getElementById('round-over-modal').classList.add('hidden');
@@ -1345,9 +1305,7 @@
                 let div = document.createElement('div');
                 div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
                 
-                let activeHost = players.find(pl => pl.isHost && pl.connected !== false);
-                let amILeadHost = activeHost && activeHost.clientToken === myClientToken;
-                let removeBtnHtml = ((isHost || amILeadHost) && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
+                let removeBtnHtml = (isHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
