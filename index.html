@@ -90,7 +90,6 @@
                     <div>
                         <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Eliminate Pts</label>
                         <select id="target-points-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
-                            <option value="15">15 Pts</option>
                             <option value="50">50 Pts</option>
                             <option value="75">75 Pts</option>
                             <option value="100" selected>100 Pts</option>
@@ -755,14 +754,14 @@
 
         // --- INCOMING NETWORK DATA SWITCH ---
         function handleIncomingNetworkData(data) {
-            // CHECK IF ANY HOST IS PRESENT, ELSE AUTO-PROMOTE FIRST CONNECTED PLAYER
+            // AUTOMATED HOST FAILOVER RESILIENCE CHECK
             let currentHost = players.find(p => p.isHost && p.connected !== false);
             if (!currentHost && players.length > 0) {
                 let nextHost = players.find(p => p.connected !== false) || players[0];
                 if (nextHost) {
                     players.forEach(p => p.isHost = false);
                     nextHost.isHost = true;
-                    if (nextHost.id === myId) {
+                    if (nextHost.id === myId || nextHost.clientToken === myClientToken) {
                         isHost = true;
                     }
                 }
@@ -855,7 +854,7 @@
                     targetEliminationPoints = data.targetPoints;
                     gameHistory = data.gameHistory || gameHistory;
                     
-                    let meObj = players.find(p => p.id === myId);
+                    let meObj = players.find(p => p.id === myId || p.clientToken === myClientToken);
                     if (meObj && meObj.isHost) {
                         isHost = true;
                     }
@@ -875,7 +874,7 @@
                         document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                         document.getElementById('current-room-id').innerText = roomCode;
                         document.getElementById('game-status-banner').classList.remove('hidden');
-                        myIndex = players.findIndex(p => p.id === myId);
+                        myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
                         renderGameBoard();
                     } else {
                         document.getElementById('lobby-screen').classList.add('hidden');
@@ -903,7 +902,7 @@
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
                     
-                    myIndex = players.findIndex(p => p.id === myId);
+                    myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
                     renderGameBoard();
                     break;
                 case 'GAME_STATE_UPDATE':
@@ -912,7 +911,7 @@
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
                     turnPhase = data.turnPhase;
-                    myIndex = players.findIndex(p => p.id === myId);
+                    myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
                     renderGameBoard();
                     logTicker(data.message);
                     break;
@@ -1144,7 +1143,20 @@
             let sum = calculateHandSum(me.hand);
             if(sum > 5) { alert("Sum must be 5 or less!"); return; }
 
-            if(isHost || isSoloMode) {
+            // Ensure current active peer or fallback host handles show call execution
+            let currentHost = players.find(p => p.isHost && p.connected !== false);
+            if (!currentHost && players.length > 0) {
+                let nextHost = players.find(p => p.connected !== false) || players[0];
+                if (nextHost) {
+                    players.forEach(p => p.isHost = false);
+                    nextHost.isHost = true;
+                    if (nextHost.id === myId || nextHost.clientToken === myClientToken) {
+                        isHost = true;
+                    }
+                }
+            }
+
+            if(isHost || isSoloMode || (currentHost && currentHost.id === myId)) {
                 executeShowRound(myId);
             } else {
                 sendRealtimeMessage({ type: 'CALL_SHOW', peerId: myId });
@@ -1156,7 +1168,7 @@
         }
 
         function executeShowRound(callerPeerId) {
-            let caller = players.find(p => p.id === callerPeerId);
+            let caller = players.find(p => p.id === callerPeerId || p.clientToken === callerPeerId);
             if(!caller) return;
             let callerSum = calculateHandSum(caller.hand);
 
@@ -1173,25 +1185,25 @@
                 details: []
             };
             
-            let lowerPlayers = summaries.filter(item => item.player.id !== caller.id && item.sum < callerSum);
+            let lowerPlayers = summaries.filter(item => item.player.id !== caller.id && item.player.clientToken !== caller.clientToken && item.sum < callerSum);
 
             if (lowerPlayers.length > 0) {
                 resultsText += `<span class="text-rose-400 font-bold">FAILED SHOW! Someone had a lower count.</span><br>`;
                 caller.scores += 25;
                 roundRecord.outcome = "Failed Show (+25 penalty)";
                 summaries.forEach(item => {
-                    let ptsAdded = (item.player.id === caller.id) ? 25 : 0;
+                    let ptsAdded = (item.player.id === caller.id || item.player.clientToken === caller.clientToken) ? 25 : 0;
                     roundRecord.details.push({ name: item.player.name, sum: item.sum, pointsAdded: ptsAdded });
                 });
             } else {
-                let equalPlayers = summaries.filter(item => item.player.id !== caller.id && item.sum === callerSum);
+                let equalPlayers = summaries.filter(item => item.player.id !== caller.id && item.player.clientToken !== caller.clientToken && item.sum === callerSum);
                 if (equalPlayers.length > 0) {
                     resultsText += `<span class="text-amber-400 font-bold">MATCHED SHOW!</span><br>`;
-                    let matchedIds = [caller.id, ...equalPlayers.map(m => m.player.id)];
+                    let matchedIds = [caller.id, caller.clientToken, ...equalPlayers.map(m => m.player.id)];
                     roundRecord.outcome = "Matched Show";
                     summaries.forEach(item => {
                         let ptsAdded = 0;
-                        if (!matchedIds.includes(item.player.id)) {
+                        if (!matchedIds.includes(item.player.id) && !matchedIds.includes(item.player.clientToken)) {
                             item.player.scores += item.sum;
                             ptsAdded = item.sum;
                         }
@@ -1202,7 +1214,7 @@
                     roundRecord.outcome = "Good Show";
                     summaries.forEach(item => {
                         let ptsAdded = 0;
-                        if (item.player.id !== caller.id) {
+                        if (item.player.id !== caller.id && item.player.clientToken !== caller.clientToken) {
                             item.player.scores += item.sum;
                             ptsAdded = item.sum;
                         }
@@ -1229,8 +1241,11 @@
             showRoundOverModal(resultsText, caller.name);
             renderGameBoard();
 
-            if(isHost && !isSoloMode) {
-                sendRealtimeMessage(payload);
+            let currentHost = players.find(p => p.isHost && p.connected !== false);
+            if (!currentHost || currentHost.id === myId || currentHost.clientToken === myClientToken || isHost) {
+                if(!isSoloMode) {
+                    sendRealtimeMessage(payload);
+                }
             }
         }
 
@@ -1241,7 +1256,19 @@
         }
 
         function startNextRound() {
-            if (isHost || isSoloMode) {
+            let currentHost = players.find(p => p.isHost && p.connected !== false);
+            if (!currentHost && players.length > 0) {
+                let nextHost = players.find(p => p.connected !== false) || players[0];
+                if (nextHost) {
+                    players.forEach(p => p.isHost = false);
+                    nextHost.isHost = true;
+                    if (nextHost.id === myId || nextHost.clientToken === myClientToken) {
+                        isHost = true;
+                    }
+                }
+            }
+
+            if (isHost || isSoloMode || (currentHost && currentHost.id === myId)) {
                 executeStartNextRound();
             } else {
                 sendRealtimeMessage({ type: 'REQUEST_NEXT_ROUND' });
