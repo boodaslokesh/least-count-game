@@ -18,6 +18,7 @@
             padding: 0;
             overflow: hidden;
             touch-action: manipulation;
+            background-color: #000000;
         }
         .card-shadow {
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15);
@@ -321,7 +322,7 @@
         let discardPile = [];
         let currentTurnIndex = 0;
         let roundActive = false;
-        let turnPhase = 'drop'; // 'drop' or 'draw'
+        let turnPhase = 'drop';
 
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -330,9 +331,13 @@
         const SUPABASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co/rest/v1/least-count';
         const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
 
-        // ENHANCED TURN/STUN CONFIGURATION FOR CELLULAR & STRICT FIREWALL COMPATIBILITY
+        // ENHANCED ANDROID 14 & SAMSUNG CELLULAR WEBRTC STUN/TURN ICE CONFIGURATION
         const peerConfig = {
-            debug: 0,
+            host: '0.peerjs.com',
+            port: 443,
+            path: '/',
+            secure: true,
+            debug: 1,
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
@@ -343,6 +348,7 @@
                     { urls: 'stun:global.stun.twilio.com:3478' },
                     { urls: 'stun:stun.services.mozilla.com' }
                 ],
+                iceTransportPolicy: 'all',
                 iceCandidatePoolSize: 10
             }
         };
@@ -385,6 +391,17 @@
                 ptrText.innerText = "Refreshing...";
                 intentionalDisconnect = true;
                 setTimeout(() => location.reload(), 200);
+            }
+        });
+
+        // ANDROID 14 BACKGROUNDING / TAB VISIBILITY AUTO RECONNECT
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && !isSoloMode && roomCode && !intentionalDisconnect) {
+                if (isHost && peer && peer.disconnected) {
+                    try { peer.reconnect(); } catch(e) {}
+                } else if (!isHost && (!conn || !conn.open)) {
+                    scheduleGuestReconnect();
+                }
             }
         });
 
@@ -582,7 +599,7 @@
                 } else if(conn && conn.open) {
                     try { conn.send({ type: 'PING' }); } catch(e) {}
                 }
-            }, 5000);
+            }, 4000);
         }
 
         function startConnectionWatchdog() {
@@ -594,7 +611,7 @@
                 } else if(!conn || !conn.open) {
                     scheduleGuestReconnect();
                 }
-            }, 5000);
+            }, 4000);
         }
 
         function stopConnectionWatchdog() {
@@ -605,7 +622,7 @@
         function scheduleGuestReconnect() {
             if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
             if(guestReconnectTimer) return;
-            const delay = Math.min(1000 * Math.max(1, guestReconnectAttempts + 1), 5000);
+            const delay = Math.min(1000 * Math.max(1, guestReconnectAttempts + 1), 4000);
             guestReconnectTimer = setTimeout(() => {
                 guestReconnectTimer = null;
                 connectGuestToHost();
