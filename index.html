@@ -364,6 +364,17 @@
                 });
         }
 
+        // --- HANDLE EXIT / UNLOAD DISCONNECTION ---
+        window.addEventListener('beforeunload', () => {
+            if (roomChannel && roomCode && roomCode !== 'SOLO' && myName) {
+                sendRealtimeMessage({
+                    type: 'PLAYER_LEFT',
+                    clientToken: myClientToken,
+                    name: myName
+                });
+            }
+        });
+
         // --- PULL TO REFRESH GESTURE HANDLER ---
         let touchStartY = 0;
         let isPulling = false;
@@ -534,6 +545,13 @@
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
+                if (roomChannel && roomCode && roomCode !== 'SOLO' && myName) {
+                    sendRealtimeMessage({
+                        type: 'PLAYER_LEFT',
+                        clientToken: myClientToken,
+                        name: myName
+                    });
+                }
                 location.reload();
             }
         }
@@ -720,6 +738,7 @@
             setTimeout(() => el.classList.add('hidden'), 4500);
         }
 
+        // --- AUTOMATIC HOST SUCCESSION / FAILOVER ---
         function ensureHostRoleAssignment() {
             if (players.length === 0) return;
             let activeHost = players.find(p => p.isHost && p.connected !== false);
@@ -730,7 +749,7 @@
                     fallbackHost.isHost = true;
                 }
             }
-            let meObj = players.find(p => p.clientToken === myClientToken || p.id === myId);
+            let meObj = players.find(p => p.clientToken === myClientToken || p.id === myId || (p.name.toLowerCase() === myName.toLowerCase()));
             if (meObj && meObj.isHost) {
                 isHost = true;
             } else {
@@ -768,11 +787,11 @@
                 if (isHost && !p.isHost && p.clientToken !== myClientToken && p.id !== myId) {
                     removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.clientToken || p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
                 }
-                li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
+                li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(disconnected)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
                 ul.appendChild(li);
             });
             
-            // Allow active host or self-promoted peer to start game
+            ensureHostRoleAssignment();
             if (isHost) {
                 document.getElementById('host-controls').classList.remove('hidden');
                 document.getElementById('waiting-msg').classList.add('hidden');
@@ -789,6 +808,28 @@
             }
             ensureHostRoleAssignment();
 
+            // HANDLE PLAYER EXIT / DISCONNECT EVENT
+            if (data.type === 'PLAYER_LEFT') {
+                let p = players.find(x => x.clientToken === data.clientToken || x.id === data.clientToken || (data.name && x.name.toLowerCase() === data.name.toLowerCase()));
+                if (p) {
+                    p.connected = false;
+                }
+                ensureHostRoleAssignment();
+
+                if (roundActive) {
+                    // Skip turn if the disconnected player's turn came up
+                    if (players[currentTurnIndex] && (players[currentTurnIndex].connected === false || players[currentIndex].eliminated)) {
+                        advanceTurn();
+                    }
+                    if (isHost || isSoloMode) {
+                        broadcastGameState(`${p ? p.name : 'A player'} left the game.`);
+                    }
+                } else {
+                    updateWaitingRoomUI();
+                }
+                return;
+            }
+
             // HOST / LEADER NODE PROCESSING
             if (isHost) {
                 if (data.type === 'JOIN_REQUEST') {
@@ -798,8 +839,11 @@
                         existingPlayer.clientToken = data.clientToken;
                         existingPlayer.name = data.name || existingPlayer.name;
                         existingPlayer.connected = true;
-                        myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
+                        
+                        ensureHostRoleAssignment();
+                        myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId || (p.name.toLowerCase() === myName.toLowerCase()));
                         broadcastPlayerList();
+
                         if (roundActive) {
                             sendRealtimeMessage({
                                 type: 'START_GAME',
@@ -818,12 +862,12 @@
                     }
 
                     if (roundActive) {
-                        // Allow late join/rejoin if player name matches an existing table slot
                         let matchingSlot = players.find(p => p.name.toLowerCase() === data.name.toLowerCase());
                         if(matchingSlot) {
                             matchingSlot.clientToken = data.clientToken;
                             matchingSlot.id = data.clientToken;
                             matchingSlot.connected = true;
+                            ensureHostRoleAssignment();
                             broadcastPlayerList();
                             sendRealtimeMessage({
                                 type: 'START_GAME',
@@ -914,7 +958,7 @@
                         document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                         document.getElementById('current-room-id').innerText = roomCode;
                         document.getElementById('game-status-banner').classList.remove('hidden');
-                        myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
+                        myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId || (p.name.toLowerCase() === myName.toLowerCase()));
                         renderGameBoard();
                     } else {
                         document.getElementById('lobby-screen').classList.add('hidden');
@@ -943,7 +987,7 @@
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
                     
-                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
+                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId || (p.name.toLowerCase() === myName.toLowerCase()));
                     renderGameBoard();
                     break;
                 case 'GAME_STATE_UPDATE':
@@ -952,7 +996,7 @@
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
                     turnPhase = data.turnPhase;
-                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
+                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId || (p.name.toLowerCase() === myName.toLowerCase()));
                     renderGameBoard();
                     logTicker(data.message);
                     break;
@@ -990,7 +1034,7 @@
                 alert("Only the room host or active peer can start the game!");
                 return;
             }
-            if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 players to start!"); return; }
+            if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 connected players to start!"); return; }
             
             roundCounter = 1;
             gameHistory = [];
@@ -1034,6 +1078,14 @@
         }
 
         function broadcastGameState(msg) {
+            ensureHostRoleAssignment();
+            // Automatically skip disconnected or eliminated players' turns
+            let attempts = 0;
+            while (players[currentTurnIndex] && (players[currentTurnIndex].eliminated || players[currentTurnIndex].connected === false) && attempts < players.length) {
+                currentTurnIndex = (currentTurnIndex + 1) % players.length;
+                attempts++;
+            }
+
             let payload = {
                 type: 'GAME_STATE_UPDATE',
                 players: players,
@@ -1151,7 +1203,7 @@
             do {
                 currentTurnIndex = (currentTurnIndex + 1) % players.length;
                 attempts++;
-            } while (players[currentTurnIndex].eliminated && attempts < players.length);
+            } while ((players[currentTurnIndex].eliminated || players[currentTurnIndex].connected === false) && attempts < players.length);
         }
 
         function syncActionComplete(msg) {
@@ -1300,7 +1352,8 @@
         }
 
         function executeStartNextRound() {
-            let activePlayers = players.filter(p => !p.eliminated);
+            ensureHostRoleAssignment();
+            let activePlayers = players.filter(p => !p.eliminated && p.connected !== false);
             if(activePlayers.length <= 1) {
                 alert(`Tournament Over! Winner is ${activePlayers[0] ? activePlayers[0].name : 'Nobody'}!`);
                 location.reload();
@@ -1309,14 +1362,16 @@
 
             let fullDeck = createDeck();
             players.forEach(p => {
-                if(!p.eliminated) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
+                if(!p.eliminated && p.connected !== false) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
                 else p.hand = [];
             });
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
             roundActive = true;
             turnPhase = 'drop';
-            currentTurnIndex = players.findIndex(p => !p.eliminated);
+            
+            currentTurnIndex = players.findIndex(p => !p.eliminated && p.connected !== false);
+            if (currentTurnIndex === -1) currentTurnIndex = 0;
 
             let startPayload = {
                 type: 'START_GAME',
@@ -1340,7 +1395,7 @@
 
         function renderGameBoard() {
             ensureHostRoleAssignment();
-            myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
+            myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId || (p.name.toLowerCase() === myName.toLowerCase()));
             if (myIndex === -1) myIndex = 0;
 
             const topScoresContainer = document.getElementById('top-scores-container');
@@ -1348,7 +1403,7 @@
             players.forEach(p => {
                 let badge = document.createElement('div');
                 badge.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-zinc-900 border ${p.eliminated ? 'border-zinc-900 opacity-50' : 'border-zinc-800'} text-[11px]`;
-                badge.innerHTML = `<span class="font-bold text-zinc-300">${p.name}:</span> <span class="font-mono text-amber-300 font-bold">${p.scores}</span>`;
+                badge.innerHTML = `<span class="font-bold text-zinc-300">${p.name}${p.connected === false ? ' (dc)' : ''}:</span> <span class="font-mono text-amber-300 font-bold">${p.scores}</span>`;
                 topScoresContainer.appendChild(badge);
             });
 
@@ -1359,7 +1414,7 @@
                 if(idx === myIndex) return;
                 let isTurn = (idx === currentTurnIndex);
                 let div = document.createElement('div');
-                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
+                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated || p.connected === false ? 'opacity-40' : ''}`;
                 
                 let removeBtnHtml = (isHost && !p.isHost && p.clientToken !== myClientToken && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.clientToken || p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
