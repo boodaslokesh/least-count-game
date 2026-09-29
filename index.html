@@ -1102,11 +1102,14 @@
         }
 
         function advanceTurn() {
+            if (!players.length) return;
             let attempts = 0;
             do {
                 currentTurnIndex = (currentTurnIndex + 1) % players.length;
                 attempts++;
-            } while ((players[currentTurnIndex].eliminated || players[currentTurnIndex].connected === false) && attempts < players.length);
+            } while (attempts < players.length &&
+                (!players[currentTurnIndex] || players[currentTurnIndex].eliminated || players[currentTurnIndex].connected === false));
+            // Disconnected players retain their player record and hand, but never hold up a turn.
         }
 
         function syncActionComplete(msg) {
@@ -1261,13 +1264,14 @@
             let fullDeck = createDeck();
             players.forEach(p => {
                 if(!p.eliminated && p.connected !== false) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
-                else p.hand = [];
+                // Keep an exited player's last hand intact; they are excluded from this round until they rejoin.
             });
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
             roundActive = true;
             turnPhase = 'drop';
-            currentTurnIndex = players.findIndex(p => !p.eliminated);
+            currentTurnIndex = players.findIndex(p => !p.eliminated && p.connected !== false);
+            if (currentTurnIndex < 0) currentTurnIndex = 0;
 
             let startPayload = {
                 type: 'START_GAME',
