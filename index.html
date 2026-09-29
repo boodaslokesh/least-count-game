@@ -131,6 +131,23 @@
                 </div>
             </div>
 
+            <!-- LOBBY INSTRUCTIONS -->
+            <div class="pt-3 text-left border-t border-zinc-900 space-y-2">
+                <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider">📖 Game Instructions & Rules</h3>
+                <div class="text-[11px] text-zinc-400 space-y-1.5 leading-relaxed">
+                    <p>• <strong>Objective:</strong> Keep your hand total score as low as possible.</p>
+                    <p>• <strong>Card Values:</strong> Ace = 1, 2-10 = Face value, J/Q/K = 10 points each.</p>
+                    <p>• <strong>Turn Play:</strong> On your turn, drop a card (or multiple matching rank cards) to the Discard board, then click the Stock deck to draw a new card.</p>
+                    <p>• <strong>Board Matching:</strong> If you drop card(s) that match the rank of the current Discard board card, you don't need to draw!</p>
+                    <p>• <strong>Calling Show:</strong> When your total hand sum is <strong>5 or less</strong>, click <em>Call Show!</em> on your turn to end the round.</p>
+                    <p>• <strong>Scoring:</strong> 
+                        <br>&nbsp;&nbsp;- <strong>Good Show:</strong> Lowest sum wins round (0 pts). Opponents add their hand sum to their score.
+                        <br>&nbsp;&nbsp;- <strong>Failed Show:</strong> If an opponent has a equal or lower sum, caller receives <strong>+25 penalty points</strong>!
+                    </p>
+                    <p>• <strong>Rejoining:</strong> Left by mistake? Enter the same <strong>Nickname</strong> &amp; <strong>Room Code</strong> to rejoin seamlessly.</p>
+                </div>
+            </div>
+
             <p id="lobby-error" class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
@@ -189,6 +206,12 @@
                         <div class="text-[10px] self-end rotate-180" id="board-val-br">7</div>
                     </div>
                 </div>
+            </div>
+
+            <!-- IN-GAME INSTRUCTIONS DRAWER / BOTTOM BANNER -->
+            <div class="bg-black border border-zinc-800 px-3 py-1.5 rounded-xl text-[10px] sm:text-xs text-zinc-400 flex justify-between items-center shrink-0">
+                <span class="truncate"><strong>Quick Guide:</strong> Drop matching cards to skip draw. Sum ≤ 5 to Call Show.</span>
+                <button onclick="alert('🎮 INSTRUCTIONS:\n• Goal: Achieve lowest hand sum.\n• A=1, 2-10=Face value, J/Q/K=10.\n• Turn: Drop card(s) -> Draw from deck.\n• Board Match: Match current discard rank to skip drawing.\n• Call Show: Hand sum ≤ 5. Lowest sum wins (0 pts). Equal/Higher receives +25 penalty pts!')" class="text-emerald-400 font-semibold underline shrink-0 ml-2">Full Rules</button>
             </div>
 
             <!-- PLAYER'S HAND CONTAINER -->
@@ -752,11 +775,29 @@
             // HOST RECEIVES GUEST MESSAGES
             if (isHost) {
                 if (data.type === 'JOIN_REQUEST') {
-                    let existingPlayer = players.find(p => p.clientToken === data.clientToken);
+                    // REJOIN MATCH BY CLIENT TOKEN OR NAME
+                    let existingPlayer = players.find(p => p.clientToken === data.clientToken || p.name.toLowerCase() === (data.name || '').toLowerCase());
                     if (existingPlayer) {
                         existingPlayer.connected = true;
-                        broadcastPlayerList();
-                        updateWaitingRoomUI();
+                        existingPlayer.clientToken = data.clientToken;
+                        existingPlayer.id = data.clientToken;
+
+                        if (roundActive) {
+                            // IF GAME ACTIVE, SYNC REJOINED PLAYER IMMEDIATELY TO GAME SCREEN
+                            sendRealtimeMessage({
+                                type: 'START_GAME',
+                                players: players,
+                                deck: deck,
+                                discardPile: discardPile,
+                                currentTurnIndex: currentTurnIndex,
+                                targetPoints: targetEliminationPoints,
+                                cardsPerPlayer: cardsPerPlayer,
+                                gameHistory: gameHistory
+                            });
+                        } else {
+                            broadcastPlayerList();
+                            updateWaitingRoomUI();
+                        }
                         return;
                     }
 
@@ -816,6 +857,13 @@
                     cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints;
                     resetJoinButtonState(true);
+                    
+                    // REJOIN OR FRESH JOIN UPDATE
+                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
+                    if (myIndex !== -1) {
+                        myId = players[myIndex].id;
+                    }
+
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
@@ -832,6 +880,7 @@
                     gameHistory = data.gameHistory || gameHistory;
                     roundActive = true;
                     
+                    document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.add('hidden');
                     document.getElementById('round-over-modal').classList.add('hidden');
                     document.getElementById('game-board-screen').classList.remove('hidden');
@@ -840,7 +889,10 @@
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
                     
-                    myIndex = players.findIndex(p => p.id === myId);
+                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
+                    if (myIndex !== -1) {
+                        myId = players[myIndex].id;
+                    }
                     renderGameBoard();
                     break;
                 case 'GAME_STATE_UPDATE':
@@ -849,7 +901,10 @@
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
                     turnPhase = data.turnPhase;
-                    myIndex = players.findIndex(p => p.id === myId);
+                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
+                    if (myIndex !== -1) {
+                        myId = players[myIndex].id;
+                    }
                     renderGameBoard();
                     logTicker(data.message);
                     break;
@@ -991,7 +1046,7 @@
             if(!roundActive) return;
             if(currentTurnIndex !== myIndex) return;
             let me = players[myIndex];
-            if(me.eliminated) return;
+            if(!me || me.eliminated) return;
 
             if(turnPhase === 'drop') {
                 let cardIndex = me.hand.findIndex(c => c.uid === cardUid);
@@ -1023,7 +1078,7 @@
             if(!roundActive) return;
             if(currentTurnIndex !== myIndex) return;
             let me = players[myIndex];
-            if(turnPhase !== 'draw') return;
+            if(!me || turnPhase !== 'draw') return;
 
             if(deck.length === 0 && discardPile.length > 1) {
                 let top = discardPile.pop();
@@ -1064,20 +1119,9 @@
             }
         }
 
-        function handleHostAction(data) {
-            players = data.players;
-            deck = data.deck;
-            discardPile = data.discardPile;
-            currentTurnIndex = data.currentTurnIndex;
-            turnPhase = data.turnPhase;
-            broadcastGameState(data.message);
-            renderGameBoard();
-            logTicker(data.message);
-        }
-
         function callShow() {
             let me = players[myIndex];
-            if(currentTurnIndex !== myIndex || turnPhase !== 'drop') return;
+            if(!me || currentTurnIndex !== myIndex || turnPhase !== 'drop') return;
             let sum = calculateHandSum(me.hand);
             if(sum > 5) { alert("Sum must be 5 or less!"); return; }
 
@@ -1269,11 +1313,11 @@
 
             document.getElementById('deck-count').innerText = deck.length;
 
-            let me = players[myIndex];
+            let me = players[myIndex] || { name: myName, hand: [], eliminated: false };
             const myHandContainer = document.getElementById('my-hand-cards');
             myHandContainer.innerHTML = '';
 
-            let mySum = calculateHandSum(me.hand);
+            let mySum = calculateHandSum(me.hand || []);
             document.getElementById('my-hand-sum').innerText = mySum;
             document.getElementById('my-display-name').innerText = me.name + (me.eliminated ? ' (Out)' : '');
 
@@ -1286,7 +1330,7 @@
             document.getElementById('turn-announcement').innerText = isMyTurn ? "👉 YOUR TURN!" : `Turn: ${activePlayer ? activePlayer.name : 'Waiting'}`;
             document.getElementById('action-instruction').innerText = isMyTurn ? (turnPhase === 'drop' ? "Select card to drop." : "Click stock to draw.") : `Waiting...`;
 
-            me.hand.forEach((card) => {
+            (me.hand || []).forEach((card) => {
                 let isRed = ['♥', '♦'].includes(card.suit);
                 let cardEl = document.createElement('div');
                 cardEl.className = `w-12 h-20 sm:w-16 sm:h-24 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1 sm:p-1.5 font-bold cursor-pointer hover:-translate-y-1 transition transform select-none shrink-0 ${isRed ? 'text-rose-600' : 'text-slate-900'} ${!isMyTurn || me.eliminated ? 'opacity-80 cursor-not-allowed' : ''}`;
