@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Least Count</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -284,21 +284,20 @@
     </div>
 
     <script>
-        let peer = null;
-        let conn = null;
-        let connections = {};
-        let heartbeatInterval = null;
-        let connectionWatchdogInterval = null;
-        let guestReconnectTimer = null;
-        let guestReconnectAttempts = 0;
-        let hostPeerInitialized = false;
-        let intentionalDisconnect = false;
+        // SUPABASE CLIENT & REALTIME CHANNEL INITIALIZATION
+        const SUPABASE_BASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co';
+        const SUPABASE_URL = `${SUPABASE_BASE_URL}/rest/v1/least-count`;
+        const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
+
+        const supabaseClient = supabase.createClient(SUPABASE_BASE_URL, SUPABASE_APIKEY);
+        let roomChannel = null;
 
         let isHost = false;
         let isSoloMode = false;
         let myId = '';
         let myName = '';
         let myClientToken = '';
+
         try {
             myClientToken = sessionStorage.getItem('leastCountClientToken') || '';
             if(!myClientToken) {
@@ -308,6 +307,7 @@
         } catch(e) {
             myClientToken = 'client-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
         }
+
         let maxPlayersLimit = 4;
         let cardsPerPlayer = 7;
         let targetEliminationPoints = 100;
@@ -327,36 +327,43 @@
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
-        // SUPABASE CONFIGURATION ENDPOINTS & HEADERS
-        const SUPABASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co/rest/v1/least-count';
-        const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
-
-        // --- ENHANCED STUN/TURN CONFIGURATION FOR MAXIMUM COMPATIBILITY ---
-        // Optional TURN relays: define window.LEAST_COUNT_TURN_SERVERS before this
-        // script with your provider's TURN URLs and short-lived credentials.
-        // Example: [{ urls: 'turn:turn.example.com:3478', username: 'TEMP_USER', credential: 'TEMP_PASSWORD' }]
-        // Do not publish permanent TURN credentials in a public HTML file.
-        const DEFAULT_ICE_SERVERS = [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' }
-        ];
-        const peerConfig = {
-            debug: 1,
-            config: {
-                iceServers: DEFAULT_ICE_SERVERS.concat(
-                    Array.isArray(window.LEAST_COUNT_TURN_SERVERS) ? window.LEAST_COUNT_TURN_SERVERS : []
-                ),
-                iceCandidatePoolSize: 10,
-                iceTransportPolicy: 'all',
-                bundlePolicy: 'max-bundle',
-                rtcpMuxPolicy: 'require'
+        // --- REALTIME MESSAGING WRAPPER ---
+        function sendRealtimeMessage(payload) {
+            if (roomChannel) {
+                roomChannel.send({
+                    type: 'broadcast',
+                    event: 'game_event',
+                    payload: payload
+                });
             }
-        };
-        const JOIN_CONNECT_TIMEOUT_MS = 15000;
-        let guestConnectTimeout = null;
-        let peerInitTimeout = null;
+        }
+
+        function initRealtimeChannel(code) {
+            if (roomChannel) {
+                supabaseClient.removeChannel(roomChannel);
+            }
+
+            roomChannel = supabaseClient.channel(`room_${code}`, {
+                config: { broadcast: { self: true } }
+            });
+
+            roomChannel
+                .on('broadcast', { event: 'game_event' }, ({ payload }) => {
+                    handleIncomingNetworkData(payload);
+                })
+                .subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        if (!isHost && !isSoloMode) {
+                            sendRealtimeMessage({
+                                type: 'JOIN_REQUEST',
+                                name: myName,
+                                clientToken: myClientToken,
+                                senderId: myClientToken
+                            });
+                        }
+                    }
+                });
+        }
 
         // --- PULL TO REFRESH GESTURE HANDLER ---
         let touchStartY = 0;
@@ -394,7 +401,6 @@
             ptrIndicator.style.transform = `translateY(-100%)`;
             if (diff > 75) {
                 ptrText.innerText = "Refreshing...";
-                intentionalDisconnect = true;
                 setTimeout(() => location.reload(), 200);
             }
         });
@@ -494,7 +500,7 @@
                     created_at: new Date().toISOString()
                 };
 
-                const response = await fetch(SUPABASE_URL, {
+                await fetch(SUPABASE_URL, {
                     method: 'POST',
                     headers: {
                         'apikey': SUPABASE_APIKEY,
@@ -504,12 +510,7 @@
                     },
                     body: JSON.stringify(roomPayload)
                 });
-                if (!response.ok) {
-                    const detail = await response.text();
-                    console.error('Room registration failed:', response.status, detail);
-                    logTicker('Room is live, but public listing could not be updated.');
-                }
-            } catch(e) { console.error('Room registration error:', e); }
+            } catch(e) {}
         }
 
         async function updateRoomStartedStatus(startedValue = 'yes') {
@@ -534,19 +535,19 @@
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
-                intentionalDisconnect = true;
                 location.reload();
             }
         }
 
         function confirmRemovePlayer(targetPeerId, targetPlayerName) {
             if (confirm(`Are you sure you want to remove this player (${targetPlayerName})?`)) {
-                if (connections[targetPeerId]) {
-                    try { connections[targetPeerId].send({ type: 'KICKED' }); } catch(e) {}
-                    try { connections[targetPeerId].close(); } catch(e) {}
-                    delete connections[targetPeerId];
-                }
                 players = players.filter(p => p.id !== targetPeerId);
+                
+                sendRealtimeMessage({
+                    type: 'KICKED_PLAYER',
+                    kickedId: targetPeerId
+                });
+
                 broadcastPlayerList();
                 if(roundActive) {
                     if(currentTurnIndex >= players.length) currentTurnIndex = 0;
@@ -584,126 +585,6 @@
                 code += chars.charAt(Math.floor(Math.random() * chars.length));
             }
             return code;
-        }
-
-        function startHeartbeat() {
-            if(heartbeatInterval) clearInterval(heartbeatInterval);
-            heartbeatInterval = setInterval(() => {
-                if(intentionalDisconnect) return;
-                if(isHost) {
-                    for(let pId in connections) {
-                        const c = connections[pId];
-                        if(c && c.open) { try { c.send({ type: 'PING' }); } catch(e) {} }
-                    }
-                } else if(conn && conn.open) {
-                    try { conn.send({ type: 'PING' }); } catch(e) {}
-                }
-            }, 5000);
-        }
-
-        function startConnectionWatchdog() {
-            if(connectionWatchdogInterval) clearInterval(connectionWatchdogInterval);
-            connectionWatchdogInterval = setInterval(() => {
-                if(intentionalDisconnect || isSoloMode || !peer || peer.destroyed) return;
-                if(isHost) {
-                    if(peer.disconnected) { try { peer.reconnect(); } catch(e) {} }
-                } else if(!conn || !conn.open) {
-                    scheduleGuestReconnect();
-                }
-            }, 5000);
-        }
-
-        function stopConnectionWatchdog() {
-            if(connectionWatchdogInterval) { clearInterval(connectionWatchdogInterval); connectionWatchdogInterval = null; }
-            if(guestReconnectTimer) { clearTimeout(guestReconnectTimer); guestReconnectTimer = null; }
-        }
-
-        function scheduleGuestReconnect() {
-            if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
-            if(guestReconnectTimer) return;
-            const delay = Math.min(1000 * Math.pow(2, Math.min(guestReconnectAttempts, 3)), 8000) + Math.floor(Math.random() * 400);
-            guestReconnectTimer = setTimeout(() => {
-                guestReconnectTimer = null;
-                connectGuestToHost();
-            }, delay);
-        }
-
-        function clearGuestConnectTimeout() {
-            if (guestConnectTimeout) {
-                clearTimeout(guestConnectTimeout);
-                guestConnectTimeout = null;
-            }
-        }
-
-        function connectGuestToHost() {
-            if(intentionalDisconnect || isHost || isSoloMode || !peer || peer.destroyed || !roomCode) return;
-            if(conn && conn.open) return;
-
-            guestReconnectAttempts++;
-            const attemptConn = (() => {
-                try { return peer.connect(roomCode, { reliable: true, serialization: 'json' }); }
-                catch (e) { return null; }
-            })();
-
-            if(!attemptConn) {
-                resetJoinButtonState(false);
-                scheduleGuestReconnect();
-                return;
-            }
-            conn = attemptConn;
-            clearGuestConnectTimeout();
-
-            let joinAcknowledged = false;
-            const armJoinTimeout = () => {
-                clearGuestConnectTimeout();
-                guestConnectTimeout = setTimeout(() => {
-                    if (conn === attemptConn && !joinAcknowledged) {
-                        logTicker('Host did not respond. Retrying connection...');
-                        try { attemptConn.close(); } catch(e) {}
-                        if (conn === attemptConn) conn = null;
-                        resetJoinButtonState(false);
-                        scheduleGuestReconnect();
-                    }
-                }, JOIN_CONNECT_TIMEOUT_MS);
-            };
-            armJoinTimeout();
-
-            attemptConn.on('open', () => {
-                guestReconnectAttempts = 0;
-                try {
-                    attemptConn.send({ type: 'JOIN_REQUEST', name: myName, clientToken: myClientToken });
-                    logTicker('Connected to host; waiting for room response...');
-                    armJoinTimeout();
-                } catch(e) {
-                    try { attemptConn.close(); } catch(_) {}
-                }
-            });
-
-            attemptConn.on('data', (data) => {
-                if (conn !== attemptConn) return;
-                if (data && (data.type === 'UPDATE_PLAYERS' || data.type === 'START_GAME' ||
-                             data.type === 'GAME_STATE_UPDATE' || data.type === 'REJECT' || data.type === 'RECONNECTED')) {
-                    joinAcknowledged = true;
-                    clearGuestConnectTimeout();
-                    resetJoinButtonState(data.type !== 'REJECT');
-                }
-                handleGuestData(data);
-            });
-            attemptConn.on('error', (err) => {
-                if (conn !== attemptConn) return;
-                clearGuestConnectTimeout();
-                console.warn('PeerJS data connection error:', err);
-                resetJoinButtonState(false);
-                scheduleGuestReconnect();
-            });
-            attemptConn.on('close', () => {
-                clearGuestConnectTimeout();
-                if(conn === attemptConn) conn = null;
-                if(!intentionalDisconnect) {
-                    resetJoinButtonState(false);
-                    scheduleGuestReconnect();
-                }
-            });
         }
 
         function resetJoinButtonState(success) {
@@ -771,68 +652,8 @@
             checkBotTurn();
         }
 
-        function createHostPeer() {
-            if(intentionalDisconnect) return;
-
-            peer = new Peer(roomCode, peerConfig);
-
-            peer.on('open', (id) => {
-                myId = id;
-                if(!hostPeerInitialized) {
-                    hostPeerInitialized = true;
-                    players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
-                    myIndex = 0;
-                    gameHistory = [];
-                    roundCounter = 0;
-
-                    document.getElementById('lobby-screen').classList.add('hidden');
-                    document.getElementById('waiting-screen').classList.remove('hidden');
-                    document.getElementById('display-room-code').innerText = roomCode;
-                    document.getElementById('max-count').innerText = maxPlayersLimit;
-                    document.getElementById('display-cards-count').innerText = cardsPerPlayer;
-                    document.getElementById('display-target-pts').innerText = targetEliminationPoints;
-                    document.getElementById('host-controls').classList.remove('hidden');
-                    document.getElementById('waiting-msg').classList.add('hidden');
-
-                    updateWaitingRoomUI();
-                    registerPublicRoom('waiting', 'no');
-                    logTicker(`Room active! Code: ${roomCode}`);
-                }
-                startHeartbeat();
-                startConnectionWatchdog();
-            });
-
-            peer.on('connection', (c) => {
-                const previous = connections[c.peer];
-                if (previous && previous !== c) {
-                    try { previous.close(); } catch(e) {}
-                }
-                connections[c.peer] = c;
-                setupHostConnectionListeners(c);
-            });
-
-            peer.on('error', (err) => {
-                if(intentionalDisconnect) return;
-                if(err.type === 'unavailable-id') {
-                    // Release the colliding peer before retrying with a fresh room code.
-                    try { if (peer && !peer.destroyed) peer.destroy(); } catch(e) {}
-                    peer = null;
-                    hostPeerInitialized = false;
-                    roomCode = generateShortCode();
-                    logTicker('Room code collision; generating a new code...');
-                    setTimeout(() => { if (isHost && !intentionalDisconnect) createHostPeer(); }, 250);
-                } else {
-                    console.error('Host PeerJS error:', err);
-                    showLobbyError('Could not initialize room. Check connection and try again.');
-                }
-            });
-        }
-
         function createRoom() {
             isSoloMode = false;
-            intentionalDisconnect = false;
-            hostPeerInitialized = false;
-            guestReconnectAttempts = 0;
             myName = document.getElementById('nickname-input').value.trim();
             if(!myName) { showLobbyError("Please enter your nickname."); return; }
             maxPlayersLimit = parseInt(document.getElementById('max-players-select').value);
@@ -840,27 +661,33 @@
             targetEliminationPoints = parseInt(document.getElementById('target-points-select').value);
 
             isHost = true;
+            myId = myClientToken;
             roomCode = generateShortCode();
             roundActive = false;
-            connections = {};
-            players = [];
             gameHistory = [];
             roundCounter = 0;
 
-            stopConnectionWatchdog();
-            if(peer) {
-                intentionalDisconnect = true;
-                try { peer.destroy(); } catch(e) {}
-                peer = null;
-                intentionalDisconnect = false;
-            }
+            players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
+            myIndex = 0;
 
-            createHostPeer();
+            initRealtimeChannel(roomCode);
+
+            document.getElementById('lobby-screen').classList.add('hidden');
+            document.getElementById('waiting-screen').classList.remove('hidden');
+            document.getElementById('display-room-code').innerText = roomCode;
+            document.getElementById('max-count').innerText = maxPlayersLimit;
+            document.getElementById('display-cards-count').innerText = cardsPerPlayer;
+            document.getElementById('display-target-pts').innerText = targetEliminationPoints;
+            document.getElementById('host-controls').classList.remove('hidden');
+            document.getElementById('waiting-msg').classList.add('hidden');
+
+            updateWaitingRoomUI();
+            registerPublicRoom('waiting', 'no');
+            logTicker(`Room active! Code: ${roomCode}`);
         }
 
         function joinRoom() {
             isSoloMode = false;
-            intentionalDisconnect = false;
             myName = document.getElementById('nickname-input').value.trim();
             let codeInput = document.getElementById('join-room-input').value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
@@ -878,39 +705,11 @@
             }
 
             isHost = false;
+            myId = myClientToken;
             roomCode = codeInput;
-            guestReconnectAttempts = 0;
             gameHistory = [];
 
-            stopConnectionWatchdog();
-            if(peer) {
-                intentionalDisconnect = true;
-                try { peer.destroy(); } catch(e) {}
-                peer = null;
-                intentionalDisconnect = false;
-            }
-            conn = null;
-
-            peer = new Peer(peerConfig);
-
-            peer.on('open', (id) => {
-                myId = id;
-                startHeartbeat();
-                startConnectionWatchdog();
-                connectGuestToHost();
-            });
-
-            peer.on('error', (err) => {
-                if(!intentionalDisconnect) {
-                    console.warn('PeerJS peer error:', err);
-                    resetJoinButtonState(false);
-                    const msg = err && err.type === 'peer-unavailable'
-                        ? 'Host is not reachable yet. Retrying...'
-                        : 'Network/PeerJS error. Check internet, VPN or firewall; retrying...';
-                    showLobbyError(msg);
-                    scheduleGuestReconnect();
-                }
-            });
+            initRealtimeChannel(roomCode);
         }
 
         function showLobbyError(msg) {
@@ -920,114 +719,14 @@
             setTimeout(() => el.classList.add('hidden'), 4500);
         }
 
-        function sendCurrentStateToConnection(c) {
-            if(!c || !c.open) return;
-            try {
-                if(roundActive) {
-                    c.send({
-                        type: 'START_GAME',
-                        players: players,
-                        deck: deck,
-                        discardPile: discardPile,
-                        currentTurnIndex: currentTurnIndex,
-                        targetPoints: targetEliminationPoints,
-                        cardsPerPlayer: cardsPerPlayer,
-                        gameHistory: gameHistory
-                    });
-                } else {
-                    c.send({
-                        type: 'UPDATE_PLAYERS',
-                        players: players,
-                        maxPlayers: maxPlayersLimit,
-                        cardsPerPlayer: cardsPerPlayer,
-                        targetPoints: targetEliminationPoints
-                    });
-                }
-            } catch(e) {}
-        }
-
-        function setupHostConnectionListeners(c) {
-            c.on('data', (data) => {
-                if(data.type === 'PING') return;
-
-                if(data.type === 'JOIN_REQUEST') {
-                    const clientToken = data.clientToken || '';
-                    let existingPlayer = clientToken ? players.find(p => p.clientToken === clientToken) : null;
-
-                    if(existingPlayer) {
-                        existingPlayer.id = c.peer;
-                        existingPlayer.name = data.name || existingPlayer.name;
-                        existingPlayer.connected = true;
-                        connections[c.peer] = c;
-                        c.send({ type: 'RECONNECTED' });
-                        sendCurrentStateToConnection(c);
-                        broadcastPlayerList();
-                        updateWaitingRoomUI();
-                        return;
-                    }
-
-                    if(roundActive) {
-                        c.send({ type: 'REJECT', reason: 'Game already started.' });
-                        setTimeout(() => { try { c.close(); } catch(e) {} }, 500);
-                        return;
-                    }
-
-                    if(players.filter(p => p.connected !== false).length >= maxPlayersLimit) {
-                        c.send({ type: 'REJECT', reason: 'Room is full.' });
-                        setTimeout(() => { try { c.close(); } catch(e) {} }, 500);
-                        return;
-                    }
-
-                    let newPlayer = {
-                        id: c.peer,
-                        name: data.name || 'Player',
-                        clientToken: clientToken || ('guest-' + c.peer),
-                        connected: true,
-                        isHost: false,
-                        scores: 0,
-                        hand: [],
-                        eliminated: false,
-                        isBot: false
-                    };
-
-                    players.push(newPlayer);
-                    connections[c.peer] = c;
-                    broadcastPlayerList();
-                    updateWaitingRoomUI();
-                    logTicker(`${newPlayer.name} joined.`);
-                }
-                else if(data.type === 'PLAYER_ACTION') {
-                    handleHostAction(data);
-                }
-                else if(data.type === 'CALL_SHOW') {
-                    handleHostShowCall(data.peerId);
-                }
-            });
-
-            c.on('close', () => {
-                // Ignore a late close event from an older connection replaced by a reconnect.
-                if (connections[c.peer] !== c) return;
-                delete connections[c.peer];
-                let disconnectedPlayer = players.find(p => p.id === c.peer);
-                if(disconnectedPlayer && !disconnectedPlayer.isHost) {
-                    disconnectedPlayer.connected = false;
-                    broadcastPlayerList();
-                    updateWaitingRoomUI();
-                }
-            });
-        }
-
         function broadcastPlayerList() {
-            let payload = { 
+            sendRealtimeMessage({ 
                 type: 'UPDATE_PLAYERS', 
                 players: players, 
                 maxPlayers: maxPlayersLimit, 
                 cardsPerPlayer: cardsPerPlayer,
                 targetPoints: targetEliminationPoints 
-            };
-            for(let pId in connections) {
-                try { connections[pId].send(payload); } catch(e){}
-            }
+            });
         }
 
         function updateWaitingRoomUI() {
@@ -1048,30 +747,75 @@
             });
         }
 
-        function handleGuestData(data) {
-            if(data.type === 'PING') return;
+        // --- INCOMING NETWORK DATA SWITCH ---
+        function handleIncomingNetworkData(data) {
+            // HOST RECEIVES GUEST MESSAGES
+            if (isHost) {
+                if (data.type === 'JOIN_REQUEST') {
+                    let existingPlayer = players.find(p => p.clientToken === data.clientToken);
+                    if (existingPlayer) {
+                        existingPlayer.connected = true;
+                        broadcastPlayerList();
+                        updateWaitingRoomUI();
+                        return;
+                    }
+
+                    if (roundActive) {
+                        sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Game already started.' });
+                        return;
+                    }
+
+                    if (players.length >= maxPlayersLimit) {
+                        sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Room is full.' });
+                        return;
+                    }
+
+                    let newPlayer = {
+                        id: data.clientToken,
+                        name: data.name || 'Player',
+                        clientToken: data.clientToken,
+                        connected: true,
+                        isHost: false,
+                        scores: 0,
+                        hand: [],
+                        eliminated: false,
+                        isBot: false
+                    };
+
+                    players.push(newPlayer);
+                    broadcastPlayerList();
+                    updateWaitingRoomUI();
+                    logTicker(`${newPlayer.name} joined.`);
+                }
+                else if (data.type === 'PLAYER_ACTION') {
+                    handleHostAction(data);
+                }
+                else if (data.type === 'CALL_SHOW') {
+                    handleHostShowCall(data.peerId);
+                }
+                return;
+            }
+
+            // GUEST RECEIVES HOST BROADCASTS
             switch(data.type) {
                 case 'REJECT':
-                    clearGuestConnectTimeout();
-                    intentionalDisconnect = true;
-                    resetJoinButtonState(false);
-                    showLobbyError("Unable to join: " + (data.reason || 'Room rejected the request.'));
-                    if (conn) { try { conn.close(); } catch(e) {} }
-                    conn = null;
-                    stopConnectionWatchdog();
-                    if (peer) { try { peer.destroy(); } catch(e) {} peer = null; }
-                    intentionalDisconnect = false;
+                    if (data.targetToken === myClientToken) {
+                        resetJoinButtonState(false);
+                        showLobbyError("Rejected: " + data.reason);
+                    }
                     break;
-                case 'KICKED':
-                    alert("You were removed by host.");
-                    intentionalDisconnect = true;
-                    location.reload();
+                case 'KICKED_PLAYER':
+                    if (data.kickedId === myClientToken) {
+                        alert("You were removed by host.");
+                        location.reload();
+                    }
                     break;
                 case 'UPDATE_PLAYERS':
                     players = data.players;
                     maxPlayersLimit = data.maxPlayers;
                     cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints;
+                    resetJoinButtonState(true);
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
@@ -1167,9 +911,7 @@
                 gameHistory: gameHistory
             };
 
-            for(let pId in connections) {
-                try { connections[pId].send(startPayload); } catch(e){}
-            }
+            sendRealtimeMessage(startPayload);
 
             document.getElementById('waiting-screen').classList.add('hidden');
             document.getElementById('round-over-modal').classList.add('hidden');
@@ -1193,9 +935,7 @@
                 turnPhase: turnPhase,
                 message: msg
             };
-            for(let pId in connections) {
-                try { connections[pId].send(payload); } catch(e){}
-            }
+            sendRealtimeMessage(payload);
         }
 
         function checkBotTurn() {
@@ -1312,17 +1052,15 @@
                 renderGameBoard();
                 logTicker(msg);
             } else {
-                try {
-                    conn.send({
-                        type: 'PLAYER_ACTION',
-                        players: players,
-                        deck: deck,
-                        discardPile: discardPile,
-                        currentTurnIndex: currentTurnIndex,
-                        turnPhase: turnPhase,
-                        message: msg
-                    });
-                } catch(e){}
+                sendRealtimeMessage({
+                    type: 'PLAYER_ACTION',
+                    players: players,
+                    deck: deck,
+                    discardPile: discardPile,
+                    currentTurnIndex: currentTurnIndex,
+                    turnPhase: turnPhase,
+                    message: msg
+                });
             }
         }
 
@@ -1346,7 +1084,7 @@
             if(isHost || isSoloMode) {
                 executeShowRound(myId);
             } else {
-                try { conn.send({ type: 'CALL_SHOW', peerId: myId }); } catch(e){}
+                sendRealtimeMessage({ type: 'CALL_SHOW', peerId: myId });
             }
         }
 
@@ -1372,7 +1110,6 @@
                 details: []
             };
             
-            // Check Scenario 2: If any other player has strictly less than callerSum
             let lowerPlayers = summaries.filter(item => item.player.id !== caller.id && item.sum < callerSum);
 
             if (lowerPlayers.length > 0) {
@@ -1384,7 +1121,6 @@
                     roundRecord.details.push({ name: item.player.name, sum: item.sum, pointsAdded: ptsAdded });
                 });
             } else {
-                // Check Scenario 1: If any player has an equal count to callerSum
                 let equalPlayers = summaries.filter(item => item.player.id !== caller.id && item.sum === callerSum);
                 if (equalPlayers.length > 0) {
                     resultsText += `<span class="text-amber-400 font-bold">MATCHED SHOW!</span><br>`;
@@ -1431,7 +1167,7 @@
             renderGameBoard();
 
             if(isHost && !isSoloMode) {
-                for(let pId in connections) { try { connections[pId].send(payload); } catch(e){} }
+                sendRealtimeMessage(payload);
             }
         }
 
@@ -1481,7 +1217,7 @@
 
             document.getElementById('round-over-modal').classList.add('hidden');
             if(!isSoloMode) {
-                for(let pId in connections) { try { connections[pId].send(startPayload); } catch(e){} }
+                sendRealtimeMessage(startPayload);
             }
             renderGameBoard();
             logTicker("New round started!");
