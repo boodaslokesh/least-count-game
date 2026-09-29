@@ -387,7 +387,7 @@
                 })
                 .subscribe((status) => {
                     if (status === 'SUBSCRIBED') {
-                        if (!isSoloMode) {
+                        if (!isHost && !isSoloMode) {
                             sendRealtimeMessage({
                                 type: 'JOIN_REQUEST',
                                 name: myName,
@@ -569,25 +569,12 @@
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
-                let me = players.find(p => p.clientToken === myClientToken);
-                if (me) {
-                    me.connected = false;
-                    me.exitedManually = true;
-                    // If host leaves, make another active player host if available
-                    if (me.isHost) {
-                        isHost = false;
-                        let nextAvailable = players.find(p => p.clientToken !== myClientToken && !p.exitedManually);
-                        if (nextAvailable) {
-                            nextAvailable.isHost = true;
-                        }
-                    }
-                    if (roundActive && currentTurnIndex === myIndex) {
-                        advanceTurn();
-                    }
-                    broadcastPlayerList();
-                    if(roundActive) {
-                        broadcastGameState("A player exited the game.");
-                    }
+                // If exiting during an active game/room, notify others so fallback host takes over
+                if (!isSoloMode && roomCode && myClientToken) {
+                    sendRealtimeMessage({
+                        type: 'PLAYER_LEFT',
+                        leftToken: myClientToken
+                    });
                 }
                 location.reload();
             }
@@ -595,22 +582,14 @@
 
         function confirmRemovePlayer(targetPeerId, targetPlayerName) {
             if (confirm(`Are you sure you want to remove this player (${targetPlayerName})?`)) {
-                let targetPlayer = players.find(p => p.id === targetPeerId);
-                if (targetPlayer) {
-                    targetPlayer.exitedManually = true;
-                    targetPlayer.connected = false;
-                }
+                players = players.filter(p => p.id !== targetPeerId);
                 
                 sendRealtimeMessage({
                     type: 'KICKED_PLAYER',
                     kickedId: targetPeerId
                 });
 
-                broadcastPlayerList();
-                if(roundActive) {
-                    if(currentTurnIndex >= players.length) currentTurnIndex = 0;
-                    broadcastGameState("Player removed by host.");
-                }
+                broadcastOrSyncState("Player removed by host.");
                 updateWaitingRoomUI();
                 renderGameBoard();
                 logTicker(`Removed ${targetPlayerName} from the game.`);
@@ -674,19 +653,19 @@
             roundCounter = 0;
 
             players = [
-                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, exitedManually: false, connected: true }
+                { id: myId, name: myName, clientToken: myClientToken, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, connected: true }
             ];
 
             for (let i = 1; i < maxPlayersLimit; i++) {
                 players.push({
                     id: `bot-${i}`,
                     name: `Bot ${i}`,
+                    clientToken: `bot-token-${i}`,
                     isHost: false,
                     scores: 0,
                     hand: [],
                     eliminated: false,
                     isBot: true,
-                    exitedManually: false,
                     connected: true
                 });
             }
@@ -731,7 +710,7 @@
             gameHistory = [];
             roundCounter = 0;
 
-            players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, exitedManually: false }];
+            players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
             myIndex = 0;
 
             initRealtimeChannel(roomCode);
@@ -784,17 +763,6 @@
         }
 
         function broadcastPlayerList() {
-            let activeHost = players.find(p => p.isHost && !p.exitedManually);
-            if (!activeHost) {
-                let firstAvailable = players.find(p => !p.exitedManually);
-                if (firstAvailable) {
-                    firstAvailable.isHost = true;
-                    if (firstAvailable.clientToken === myClientToken) {
-                        isHost = true;
-                    }
-                }
-            }
-
             sendRealtimeMessage({ 
                 type: 'UPDATE_PLAYERS', 
                 players: players, 
@@ -805,19 +773,19 @@
         }
 
         function updateWaitingRoomUI() {
-            document.getElementById('connected-count').innerText = players.filter(p => p.connected !== false && !p.exitedManually).length;
+            document.getElementById('connected-count').innerText = players.filter(p => p.connected !== false).length;
             document.getElementById('display-cards-count').innerText = cardsPerPlayer;
             document.getElementById('display-target-pts').innerText = targetEliminationPoints;
             const ul = document.getElementById('player-list-ul');
             ul.innerHTML = '';
             players.forEach(p => {
-                if(p.exitedManually) return;
                 let li = document.createElement('li');
                 li.className = 'bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm flex justify-between items-center';
                 let removeBtnHtml = '';
-                let currentHost = players.find(x => x.isHost && !x.exitedManually);
-                let amIHost = currentHost && currentHost.clientToken === myClientToken;
-                if (amIHost && !p.isHost && p.id !== myId) {
+                // Any active connected player can remove others if host is gone, or original host
+                let activeHost = players.find(pl => pl.isHost && pl.connected !== false);
+                let amILeadHost = activeHost && activeHost.clientToken === myClientToken;
+                if ((isHost || amILeadHost) && !p.isHost && p.id !== myId) {
                     removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
                 }
                 li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
@@ -825,32 +793,49 @@
             });
         }
 
+        // --- AUTOMATIC HOST ELECTION & RESILIENCE ---
+        function checkAndElectHost() {
+            if (isSoloMode) return;
+            let connectedPlayers = players.filter(p => p.connected !== false);
+            if (connectedPlayers.length === 0) return;
+
+            let currentHostAlive = connectedPlayers.some(p => p.isHost);
+            if (!currentHostAlive) {
+                // Elect the first connected player as the new host
+                connectedPlayers.sort((a, b) => a.name.localeCompare(b.name));
+                players.forEach(p => p.isHost = false);
+                connectedPlayers[0].isHost = true;
+            }
+
+            let newHostObj = players.find(p => p.clientToken === myClientToken && p.isHost);
+            if (newHostObj) {
+                isHost = true;
+            }
+        }
+
         // --- INCOMING NETWORK DATA SWITCH ---
         function handleIncomingNetworkData(data) {
-            let currentHost = players.find(p => p.isHost && !p.exitedManually);
-            let amIHost = currentHost && currentHost.clientToken === myClientToken;
-            isHost = amIHost;
-
-            // HOST / LEADER RECEIVES GUEST MESSAGES
-            if (isHost || (data.type === 'JOIN_REQUEST' && !players.some(p => p.isHost && !p.exitedManually))) {
-                if (data.type === 'JOIN_REQUEST') {
+            if (data.type === 'JOIN_REQUEST') {
+                checkAndElectHost();
+                if (isHost) {
                     let existingPlayer = players.find(p => p.clientToken === data.clientToken || p.name.toLowerCase() === (data.name || '').toLowerCase());
                     if (existingPlayer) {
                         existingPlayer.connected = true;
-                        existingPlayer.exitedManually = false;
                         existingPlayer.clientToken = data.clientToken;
                         existingPlayer.id = data.clientToken;
 
                         if (roundActive) {
                             sendRealtimeMessage({
-                                type: 'START_GAME',
+                                type: 'SYNC_FULL_STATE',
                                 players: players,
                                 deck: deck,
                                 discardPile: discardPile,
                                 currentTurnIndex: currentTurnIndex,
+                                turnPhase: turnPhase,
                                 targetPoints: targetEliminationPoints,
                                 cardsPerPlayer: cardsPerPlayer,
-                                gameHistory: gameHistory
+                                gameHistory: gameHistory,
+                                roundActive: roundActive
                             });
                         } else {
                             broadcastPlayerList();
@@ -859,31 +844,7 @@
                         return;
                     }
 
-                    if (roundActive) {
-                        // Allow re-entry even if round active if they share the exact name/room code
-                        let matchingName = players.find(p => p.name.toLowerCase() === (data.name || '').toLowerCase());
-                        if (matchingName) {
-                            matchingName.connected = true;
-                            matchingName.exitedManually = false;
-                            matchingName.clientToken = data.clientToken;
-                            matchingName.id = data.clientToken;
-                            sendRealtimeMessage({
-                                type: 'START_GAME',
-                                players: players,
-                                deck: deck,
-                                discardPile: discardPile,
-                                currentTurnIndex: currentTurnIndex,
-                                targetPoints: targetEliminationPoints,
-                                cardsPerPlayer: cardsPerPlayer,
-                                gameHistory: gameHistory
-                            });
-                            return;
-                        }
-                        sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Game already started.' });
-                        return;
-                    }
-
-                    if (players.filter(p => !p.exitedManually).length >= maxPlayersLimit) {
+                    if (players.length >= maxPlayersLimit && !existingPlayer) {
                         sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Room is full.' });
                         return;
                     }
@@ -893,12 +854,11 @@
                         name: data.name || 'Player',
                         clientToken: data.clientToken,
                         connected: true,
-                        isHost: players.length === 0,
+                        isHost: false,
                         scores: 0,
                         hand: [],
                         eliminated: false,
-                        isBot: false,
-                        exitedManually: false
+                        isBot: false
                     };
 
                     players.push(newPlayer);
@@ -906,19 +866,26 @@
                     updateWaitingRoomUI();
                     logTicker(`${newPlayer.name} joined.`);
                 }
-                else if (data.type === 'PLAYER_ACTION') {
-                    handleHostAction(data);
-                }
-                else if (data.type === 'CALL_SHOW') {
-                    handleHostShowCall(data.peerId);
-                }
-                else if (data.type === 'START_NEXT_ROUND') {
-                    executeStartNextRound();
+                return;
+            }
+
+            if (data.type === 'PLAYER_LEFT') {
+                let leftP = players.find(p => p.clientToken === data.leftToken);
+                if (leftP) {
+                    leftP.connected = false;
+                    checkAndElectHost();
+                    updateWaitingRoomUI();
+                    if(roundActive) {
+                        renderGameBoard();
+                    }
                 }
                 return;
             }
 
-            // GUEST RECEIVES HOST BROADCASTS
+            // ALLOW ANY PLAYER TO HANDLE ACTIONS IF CURRENT HOST DROPS OUT
+            checkAndElectHost();
+
+            // GUEST OR PARTICIPANT INCOMING BROADCASTS
             switch(data.type) {
                 case 'REJECT':
                     if (data.targetToken === myClientToken) {
@@ -942,31 +909,25 @@
                     myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
                     if (myIndex !== -1) {
                         myId = players[myIndex].id;
-                        players[myIndex].connected = true;
-                        players[myIndex].exitedManually = false;
                     }
 
-                    let activeH = players.find(p => p.isHost && !p.exitedManually);
-                    isHost = activeH && activeH.clientToken === myClientToken;
-
-                    let lobbyScreenHidden = document.getElementById('lobby-screen').classList.contains('hidden');
-                    if (!lobbyScreenHidden && !roundActive) {
-                        document.getElementById('lobby-screen').classList.add('hidden');
-                        document.getElementById('waiting-screen').classList.remove('hidden');
-                        document.getElementById('display-room-code').innerText = roomCode;
-                        document.getElementById('max-count').innerText = maxPlayersLimit;
-                    }
+                    document.getElementById('lobby-screen').classList.add('hidden');
+                    document.getElementById('waiting-screen').classList.remove('hidden');
+                    document.getElementById('display-room-code').innerText = roomCode;
+                    document.getElementById('max-count').innerText = maxPlayersLimit;
                     updateWaitingRoomUI();
                     break;
                 case 'START_GAME':
+                case 'SYNC_FULL_STATE':
                     players = data.players;
                     deck = data.deck;
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
+                    turnPhase = data.turnPhase || 'drop';
                     cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints || targetEliminationPoints;
                     gameHistory = data.gameHistory || gameHistory;
-                    roundActive = true;
+                    roundActive = data.roundActive !== undefined ? data.roundActive : true;
                     
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.add('hidden');
@@ -980,13 +941,8 @@
                     myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
                     if (myIndex !== -1) {
                         myId = players[myIndex].id;
-                        players[myIndex].connected = true;
-                        players[myIndex].exitedManually = false;
                     }
-
-                    let activeH2 = players.find(p => p.isHost && !p.exitedManually);
-                    isHost = activeH2 && activeH2.clientToken === myClientToken;
-
+                    checkAndElectHost();
                     renderGameBoard();
                     break;
                 case 'GAME_STATE_UPDATE':
@@ -999,14 +955,30 @@
                     if (myIndex !== -1) {
                         myId = players[myIndex].id;
                     }
+                    checkAndElectHost();
                     renderGameBoard();
                     logTicker(data.message);
                     break;
                 case 'ROUND_OVER':
                     players = data.players;
                     gameHistory = data.gameHistory || gameHistory;
+                    roundActive = false;
                     showRoundOverModal(data.resultsData, data.callerName);
                     renderGameBoard();
+                    break;
+                case 'CALL_SHOW':
+                    if (isHost || players.some(p => p.clientToken === myClientToken && p.isHost)) {
+                        executeShowRound(data.peerId);
+                    }
+                    break;
+                case 'PLAYER_ACTION':
+                    players = data.players;
+                    deck = data.deck;
+                    discardPile = data.discardPile;
+                    currentTurnIndex = data.currentTurnIndex;
+                    turnPhase = data.turnPhase;
+                    renderGameBoard();
+                    logTicker(data.message);
                     break;
             }
         }
@@ -1033,24 +1005,19 @@
         }
 
         function startHostGame() {
-            let activePlayersList = players.filter(p => p.connected !== false && !p.exitedManually);
-            if(activePlayersList.length < 2) { alert("Need at least 2 players to start!"); return; }
+            if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 players to start!"); return; }
             
             roundCounter = 1;
             gameHistory = [];
             let fullDeck = createDeck();
             players.forEach(p => {
-                if(!p.exitedManually) {
-                    p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
-                    p.eliminated = false;
-                } else {
-                    p.hand = [];
-                }
+                p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
+                p.eliminated = false;
             });
             
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
-            currentTurnIndex = players.findIndex(p => !p.exitedManually);
+            currentTurnIndex = 0;
             turnPhase = 'drop';
             roundActive = true;
 
@@ -1064,7 +1031,8 @@
                 currentTurnIndex: currentTurnIndex,
                 targetPoints: targetEliminationPoints,
                 cardsPerPlayer: cardsPerPlayer,
-                gameHistory: gameHistory
+                gameHistory: gameHistory,
+                roundActive: true
             };
 
             sendRealtimeMessage(startPayload);
@@ -1081,7 +1049,7 @@
             logTicker("Game started!");
         }
 
-        function broadcastGameState(msg) {
+        function broadcastOrSyncState(msg) {
             let payload = {
                 type: 'GAME_STATE_UPDATE',
                 players: players,
@@ -1097,7 +1065,7 @@
         function checkBotTurn() {
             if(!isSoloMode || !roundActive) return;
             let currentP = players[currentTurnIndex];
-            if(currentP && currentP.isBot && !currentP.eliminated && !currentP.exitedManually) {
+            if(currentP && currentP.isBot && !currentP.eliminated) {
                 setTimeout(() => { executeBotTurn(currentP); }, 1200);
             }
         }
@@ -1147,7 +1115,7 @@
             if(!roundActive) return;
             if(currentTurnIndex !== myIndex) return;
             let me = players[myIndex];
-            if(!me || me.eliminated || me.exitedManually) return;
+            if(!me || me.eliminated) return;
 
             if(turnPhase === 'drop') {
                 let cardIndex = me.hand.findIndex(c => c.uid === cardUid);
@@ -1199,14 +1167,12 @@
             do {
                 currentTurnIndex = (currentTurnIndex + 1) % players.length;
                 attempts++;
-            } while ((players[currentTurnIndex].eliminated || players[currentTurnIndex].exitedManually) && attempts < players.length);
+            } while (players[currentTurnIndex].eliminated && attempts < players.length);
         }
 
         function syncActionComplete(msg) {
-            let activeH = players.find(p => p.isHost && !p.exitedManually);
-            let amIHost = activeH && activeH.clientToken === myClientToken;
-            if(amIHost || isSoloMode) {
-                if(!isSoloMode) broadcastGameState(msg);
+            if(isHost || isSoloMode) {
+                if(!isSoloMode) broadcastOrSyncState(msg);
                 renderGameBoard();
                 logTicker(msg);
             } else {
@@ -1228,28 +1194,21 @@
             let sum = calculateHandSum(me.hand);
             if(sum > 5) { alert("Sum must be 5 or less!"); return; }
 
-            let activeH = players.find(p => p.isHost && !p.exitedManually);
-            let amIHost = activeH && activeH.clientToken === myClientToken;
-
-            if(amIHost || isSoloMode) {
+            if(isHost || isSoloMode) {
                 executeShowRound(myId);
             } else {
                 sendRealtimeMessage({ type: 'CALL_SHOW', peerId: myId });
             }
         }
 
-        function handleHostShowCall(callerPeerId) {
-            executeShowRound(callerPeerId);
-        }
-
         function executeShowRound(callerPeerId) {
-            let caller = players.find(p => p.id === callerPeerId);
+            let caller = players.find(p => p.id === callerPeerId || p.clientToken === callerPeerId);
             if(!caller) return;
             let callerSum = calculateHandSum(caller.hand);
 
             let summaries = [];
             players.forEach(p => {
-                if(!p.eliminated && !p.exitedManually) summaries.push({ player: p, sum: calculateHandSum(p.hand) });
+                if(!p.eliminated) summaries.push({ player: p, sum: calculateHandSum(p.hand) });
             });
 
             let resultsText = `<strong>${caller.name}</strong> called SHOW with sum: <strong>${callerSum}</strong>!<br><br>`;
@@ -1316,10 +1275,7 @@
             showRoundOverModal(resultsText, caller.name);
             renderGameBoard();
 
-            let activeH = players.find(p => p.isHost && !p.exitedManually);
-            let amIHost = activeH && activeH.clientToken === myClientToken;
-
-            if(amIHost && !isSoloMode) {
+            if(!isSoloMode) {
                 sendRealtimeMessage(payload);
             }
         }
@@ -1331,18 +1287,7 @@
         }
 
         function startNextRound() {
-            let activeH = players.find(p => p.isHost && !p.exitedManually);
-            let amIHost = activeH && activeH.clientToken === myClientToken;
-
-            if (amIHost || isSoloMode) {
-                executeStartNextRound();
-            } else {
-                sendRealtimeMessage({ type: 'START_NEXT_ROUND' });
-            }
-        }
-
-        function executeStartNextRound() {
-            let activePlayers = players.filter(p => !p.eliminated && !p.exitedManually);
+            let activePlayers = players.filter(p => !p.eliminated);
             if(activePlayers.length <= 1) {
                 alert(`Tournament Over! Winner is ${activePlayers[0] ? activePlayers[0].name : 'Nobody'}!`);
                 location.reload();
@@ -1351,14 +1296,14 @@
 
             let fullDeck = createDeck();
             players.forEach(p => {
-                if(!p.eliminated && !p.exitedManually) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
+                if(!p.eliminated) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
                 else p.hand = [];
             });
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
             roundActive = true;
             turnPhase = 'drop';
-            currentTurnIndex = players.findIndex(p => !p.eliminated && !p.exitedManually);
+            currentTurnIndex = players.findIndex(p => !p.eliminated);
 
             let startPayload = {
                 type: 'START_GAME',
@@ -1368,14 +1313,12 @@
                 currentTurnIndex: currentTurnIndex,
                 targetPoints: targetEliminationPoints,
                 cardsPerPlayer: cardsPerPlayer,
-                gameHistory: gameHistory
+                gameHistory: gameHistory,
+                roundActive: true
             };
 
             document.getElementById('round-over-modal').classList.add('hidden');
-            let activeH = players.find(p => p.isHost && !p.exitedManually);
-            let amIHost = activeH && activeH.clientToken === myClientToken;
-
-            if(amIHost && !isSoloMode) {
+            if(!isSoloMode) {
                 sendRealtimeMessage(startPayload);
             }
             renderGameBoard();
@@ -1387,7 +1330,6 @@
             const topScoresContainer = document.getElementById('top-scores-container');
             topScoresContainer.innerHTML = '';
             players.forEach(p => {
-                if(p.exitedManually) return;
                 let badge = document.createElement('div');
                 badge.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-zinc-900 border ${p.eliminated ? 'border-zinc-900 opacity-50' : 'border-zinc-800'} text-[11px]`;
                 badge.innerHTML = `<span class="font-bold text-zinc-300">${p.name}:</span> <span class="font-mono text-amber-300 font-bold">${p.scores}</span>`;
@@ -1398,14 +1340,14 @@
             hudContainer.innerHTML = '';
             
             players.forEach((p, idx) => {
-                if(idx === myIndex || p.exitedManually) return;
+                if(idx === myIndex) return;
                 let isTurn = (idx === currentTurnIndex);
                 let div = document.createElement('div');
                 div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
                 
-                let activeH = players.find(x => x.isHost && !x.exitedManually);
-                let amIHost = activeH && activeH.clientToken === myClientToken;
-                let removeBtnHtml = (amIHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
+                let activeHost = players.find(pl => pl.isHost && pl.connected !== false);
+                let amILeadHost = activeHost && activeHost.clientToken === myClientToken;
+                let removeBtnHtml = ((isHost || amILeadHost) && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
@@ -1470,7 +1412,6 @@
             const tbody = document.getElementById('scoreboard-table-body');
             tbody.innerHTML = '';
             players.forEach(p => {
-                if(p.exitedManually) return;
                 let tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td class="py-2 font-medium">${p.name}</td>
