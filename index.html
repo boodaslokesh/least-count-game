@@ -539,9 +539,25 @@
             if (!isSoloMode && roomCode && roomChannel) {
                 try {
                     if (isHost) {
-                        const successor = players.find(p => p.id !== myId && p.connected !== false && !p.eliminated);
+                        const leaving = players.find(p => (p.clientToken === myClientToken || p.id === myId));
+                        if (leaving) {
+                            leaving.connected = false;
+                        }
+                        if (roundActive && players[currentTurnIndex] && (players[currentTurnIndex].clientToken === myClientToken || players[currentTurnIndex].id === myId)) {
+                            advanceTurn();
+                        }
+                        const successor = players.find(p => (p.clientToken || p.id) !== myClientToken && p.connected !== false && !p.eliminated);
                         if (successor) {
-                            await sendRealtimeMessage({ type: 'HOST_LEFT', newHostToken: successor.clientToken || successor.id, players: players });
+                            await sendRealtimeMessage({ 
+                                type: 'HOST_LEFT', 
+                                newHostToken: successor.clientToken || successor.id, 
+                                players: players,
+                                currentTurnIndex: currentTurnIndex,
+                                turnPhase: turnPhase,
+                                deck: deck,
+                                discardPile: discardPile,
+                                roundActive: roundActive
+                            });
                         }
                     } else {
                         await sendRealtimeMessage({ type: 'PLAYER_LEFT', clientToken: myClientToken });
@@ -819,7 +835,9 @@
                     const leaving = players.find(p => p.clientToken === data.clientToken || p.id === data.clientToken);
                     if (leaving) {
                         leaving.connected = false;
-                        if (roundActive && players[currentTurnIndex] && players[currentTurnIndex].id === leaving.id) advanceTurn();
+                        if (roundActive && players[currentTurnIndex] && (players[currentTurnIndex].clientToken === data.clientToken || players[currentTurnIndex].id === data.clientToken)) {
+                            advanceTurn();
+                        }
                         broadcastPlayerList();
                         if (roundActive) broadcastGameState(`${leaving.name} exited. Continuing without them.`);
                         updateWaitingRoomUI();
@@ -848,12 +866,18 @@
                     break;
                 case 'HOST_LEFT':
                     players = data.players || players;
+                    if (data.currentTurnIndex !== undefined) currentTurnIndex = data.currentTurnIndex;
+                    if (data.turnPhase !== undefined) turnPhase = data.turnPhase;
+                    if (data.deck) deck = data.deck;
+                    if (data.discardPile) discardPile = data.discardPile;
+                    if (data.roundActive !== undefined) roundActive = data.roundActive;
+
                     players.forEach(p => { p.isHost = (p.clientToken || p.id) === data.newHostToken; });
                     isHost = data.newHostToken === myClientToken;
                     if (isHost) {
-                        const me = players.find(p => p.id === myId);
+                        const me = players.find(p => p.clientToken === myClientToken || p.id === myId);
                         if (me) { me.isHost = true; me.connected = true; }
-                        logTicker("You are now managing this room.");
+                        logTicker("Host exited. You are now managing this room.");
                     } else {
                         logTicker("Host exited. Room host transferred.");
                     }
