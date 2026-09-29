@@ -721,15 +721,16 @@
         }
 
         function ensureHostRoleAssignment() {
+            if (players.length === 0) return;
             let activeHost = players.find(p => p.isHost && p.connected !== false);
-            if (!activeHost && players.length > 0) {
+            if (!activeHost) {
                 let fallbackHost = players.find(p => p.connected !== false) || players[0];
                 if (fallbackHost) {
                     players.forEach(p => p.isHost = false);
                     fallbackHost.isHost = true;
                 }
             }
-            let meObj = players.find(p => p.id === myId || p.clientToken === myClientToken);
+            let meObj = players.find(p => p.clientToken === myClientToken || p.id === myId);
             if (meObj && meObj.isHost) {
                 isHost = true;
             } else {
@@ -764,14 +765,14 @@
                 let li = document.createElement('li');
                 li.className = 'bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm flex justify-between items-center';
                 let removeBtnHtml = '';
-                if (isHost && !p.isHost && p.id !== myId && p.clientToken !== myClientToken) {
+                if (isHost && !p.isHost && p.clientToken !== myClientToken && p.id !== myId) {
                     removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.clientToken || p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
                 }
                 li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
                 ul.appendChild(li);
             });
             
-            // Allow any player to start or assume host controls if current host is gone
+            // Allow active host or self-promoted peer to start game
             if (isHost) {
                 document.getElementById('host-controls').classList.remove('hidden');
                 document.getElementById('waiting-msg').classList.add('hidden');
@@ -783,7 +784,6 @@
 
         // --- INCOMING NETWORK DATA SWITCH ---
         function handleIncomingNetworkData(data) {
-            // ALWAYS EVALUATE HOST RESILIENCE FIRST
             if (data.players && Array.isArray(data.players)) {
                 players = data.players;
             }
@@ -796,8 +796,9 @@
                     if (existingPlayer) {
                         existingPlayer.id = data.clientToken;
                         existingPlayer.clientToken = data.clientToken;
+                        existingPlayer.name = data.name || existingPlayer.name;
                         existingPlayer.connected = true;
-                        myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
+                        myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
                         broadcastPlayerList();
                         if (roundActive) {
                             sendRealtimeMessage({
@@ -817,6 +818,25 @@
                     }
 
                     if (roundActive) {
+                        // Allow late join/rejoin if player name matches an existing table slot
+                        let matchingSlot = players.find(p => p.name.toLowerCase() === data.name.toLowerCase());
+                        if(matchingSlot) {
+                            matchingSlot.clientToken = data.clientToken;
+                            matchingSlot.id = data.clientToken;
+                            matchingSlot.connected = true;
+                            broadcastPlayerList();
+                            sendRealtimeMessage({
+                                type: 'START_GAME',
+                                players: players,
+                                deck: deck,
+                                discardPile: discardPile,
+                                currentTurnIndex: currentTurnIndex,
+                                targetPoints: targetEliminationPoints,
+                                cardsPerPlayer: cardsPerPlayer,
+                                gameHistory: gameHistory
+                            });
+                            return;
+                        }
                         sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Game already started.' });
                         return;
                     }
@@ -894,7 +914,7 @@
                         document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                         document.getElementById('current-room-id').innerText = roomCode;
                         document.getElementById('game-status-banner').classList.remove('hidden');
-                        myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
+                        myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
                         renderGameBoard();
                     } else {
                         document.getElementById('lobby-screen').classList.add('hidden');
@@ -923,7 +943,7 @@
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
                     
-                    myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
+                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
                     renderGameBoard();
                     break;
                 case 'GAME_STATE_UPDATE':
@@ -932,7 +952,7 @@
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
                     turnPhase = data.turnPhase;
-                    myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
+                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
                     renderGameBoard();
                     logTicker(data.message);
                     break;
@@ -1320,7 +1340,7 @@
 
         function renderGameBoard() {
             ensureHostRoleAssignment();
-            myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
+            myIndex = players.findIndex(p => p.clientToken === myClientToken || p.id === myId);
             if (myIndex === -1) myIndex = 0;
 
             const topScoresContainer = document.getElementById('top-scores-container');
@@ -1341,7 +1361,7 @@
                 let div = document.createElement('div');
                 div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
                 
-                let removeBtnHtml = (isHost && !p.isHost && p.id !== myId && p.clientToken !== myClientToken) ? `<button onclick="confirmRemovePlayer('${p.clientToken || p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
+                let removeBtnHtml = (isHost && !p.isHost && p.clientToken !== myClientToken && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.clientToken || p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
@@ -1367,7 +1387,7 @@
 
             document.getElementById('deck-count').innerText = deck.length;
 
-            let me = players[myIndex];
+            let me = players[myIndex] || players[0];
             const myHandContainer = document.getElementById('my-hand-cards');
             myHandContainer.innerHTML = '';
 
