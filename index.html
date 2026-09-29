@@ -132,23 +132,6 @@
                 </div>
             </div>
 
-            <!-- LOBBY INSTRUCTIONS -->
-            <div class="pt-3 text-left border-t border-zinc-900 space-y-2">
-                <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider">📖 Game Instructions & Rules</h3>
-                <div class="text-[11px] text-zinc-400 space-y-1.5 leading-relaxed">
-                    <p>• <strong>Objective:</strong> Keep your hand total score as low as possible.</p>
-                    <p>• <strong>Card Values:</strong> Ace = 1, 2-10 = Face value, J/Q/K = 10 points each.</p>
-                    <p>• <strong>Turn Play:</strong> On your turn, drop a card (or multiple matching rank cards) to the Discard board, then click the Stock deck to draw a new card.</p>
-                    <p>• <strong>Board Matching:</strong> If you drop card(s) that match the rank of the current Discard board card, you don't need to draw!</p>
-                    <p>• <strong>Calling Show:</strong> When your total hand sum is <strong>5 or less</strong>, click <em>Call Show!</em> on your turn to end the round.</p>
-                    <p>• <strong>Scoring:</strong> 
-                        <br>&nbsp;&nbsp;- <strong>Good Show:</strong> Lowest sum wins round (0 pts). Opponents add their hand sum to their score.
-                        <br>&nbsp;&nbsp;- <strong>Failed Show:</strong> If an opponent has an equal or lower sum, caller receives <strong>+25 penalty points</strong>!
-                    </p>
-                    <p>• <strong>Rejoining:</strong> Left by mistake? Enter the same <strong>Nickname</strong> &amp; <strong>Room Code</strong> to rejoin seamlessly.</p>
-                </div>
-            </div>
-
             <p id="lobby-error" class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
@@ -190,11 +173,15 @@
                     </div>
                 </div>
 
-                <!-- Instruction Box -->
-                <div class="text-center max-w-[180px] sm:max-w-xs px-2">
-                    <div id="turn-indicator-box" class="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-xl shadow">
+                <!-- Instruction Box & Timer -->
+                <div class="text-center max-w-[180px] sm:max-w-xs px-2 flex flex-col items-center space-y-1.5">
+                    <div id="turn-indicator-box" class="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-xl shadow w-full">
                         <p id="turn-announcement" class="text-xs sm:text-sm font-bold text-amber-300 truncate">Turn: Name</p>
                         <p id="action-instruction" class="text-[10px] sm:text-xs text-zinc-400 mt-0.5">Drop card</p>
+                    </div>
+                    <!-- Small Circle Timer (15s) -->
+                    <div id="timer-circle-container" class="relative w-8 h-8 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center hidden">
+                        <span id="timer-seconds" class="text-[11px] font-mono font-bold text-amber-400">15</span>
                     </div>
                 </div>
 
@@ -207,12 +194,6 @@
                         <div class="text-[10px] self-end rotate-180" id="board-val-br">7</div>
                     </div>
                 </div>
-            </div>
-
-            <!-- IN-GAME INSTRUCTIONS DRAWER / BOTTOM BANNER -->
-            <div class="bg-black border border-zinc-800 px-3 py-1.5 rounded-xl text-[10px] sm:text-xs text-zinc-400 flex justify-between items-center shrink-0">
-                <span class="truncate"><strong>Quick Guide:</strong> Drop matching cards to skip draw. Sum ≤ 5 to Call Show.</span>
-                <button onclick="toggleInstructionsModal(true)" class="text-emerald-400 font-semibold underline shrink-0 ml-2">Full Rules</button>
             </div>
 
             <!-- PLAYER'S HAND CONTAINER -->
@@ -277,6 +258,32 @@
         </div>
     </div>
 
+    <!-- VIEW PERMISSION MODAL -->
+    <div id="view-permission-modal" class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-black border border-zinc-800 w-full max-w-sm rounded-2xl p-5 shadow-2xl text-center space-y-3">
+            <h3 class="text-base font-bold text-amber-300">View Permission Request</h3>
+            <p id="view-permission-text" class="text-xs text-zinc-300">Player wants to view your game cards.</p>
+            <div class="flex space-x-2 pt-2">
+                <button onclick="respondViewPermission(false)" class="w-1/2 py-2 bg-zinc-800 hover:bg-zinc-700 font-semibold text-white rounded-xl text-xs">Decline</button>
+                <button onclick="respondViewPermission(true)" class="w-1/2 py-2 bg-emerald-500 hover:bg-emerald-400 font-bold text-black rounded-xl text-xs">Allow</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW CARDS MODAL -->
+    <div id="view-cards-modal" class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-black border border-zinc-800 w-full max-w-md rounded-2xl p-5 shadow-2xl space-y-3">
+            <div class="flex justify-between items-center border-b border-zinc-900 pb-2">
+                <h3 id="view-cards-title" class="text-base font-bold text-emerald-300">Player Cards</h3>
+                <button onclick="document.getElementById('view-cards-modal').classList.add('hidden')" class="text-zinc-400 hover:text-white font-bold text-lg px-2">&times;</button>
+            </div>
+            <div id="view-cards-container" class="flex flex-wrap gap-2 justify-center py-3 min-h-[100px] items-center"></div>
+            <div class="pt-1 flex justify-end">
+                <button onclick="document.getElementById('view-cards-modal').classList.add('hidden')" class="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 font-semibold text-white rounded-xl text-xs">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- HISTORY MODAL -->
     <div id="history-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
         <div class="bg-black border border-zinc-800 w-full max-w-md rounded-2xl p-5 shadow-2xl space-y-3 max-h-[80vh] overflow-y-auto">
@@ -326,12 +333,12 @@
             <h2 id="round-over-title" class="text-xl sm:text-2xl font-black text-amber-400 text-center">SHOW CALLED!</h2>
             <div id="round-over-content" class="text-xs sm:text-sm text-zinc-300 space-y-2 max-h-48 overflow-y-auto p-2 bg-zinc-950 rounded-xl border border-zinc-900"></div>
             
-            <div id="host-next-round-container" class="hidden pt-1">
+            <div id="next-round-btn-container" class="hidden pt-1">
                 <button onclick="startNextRound()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition text-sm">
                     Start Next Round
                 </button>
             </div>
-            <p id="waiting-next-round-msg" class="text-xs text-zinc-400 text-center animate-pulse">Waiting for host to start next round...</p>
+            <p id="waiting-next-round-msg" class="text-xs text-zinc-400 text-center animate-pulse">Waiting for someone to start next round...</p>
         </div>
     </div>
 
@@ -375,6 +382,13 @@
         let currentTurnIndex = 0;
         let roundActive = false;
         let turnPhase = 'drop'; // 'drop' or 'draw'
+
+        // Turn Timer variables
+        let turnTimerInterval = null;
+        let turnTimeLeft = 15;
+
+        // View permission request target
+        let pendingViewRequesterId = '';
 
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -587,6 +601,13 @@
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
+                let me = players.find(p => p.clientToken === myClientToken || p.id === myId);
+                if (me) {
+                    me.connected = false;
+                }
+                if (isHost && !isSoloMode) {
+                    broadcastPlayerList();
+                }
                 location.reload();
             }
         }
@@ -668,7 +689,7 @@
             roundCounter = 0;
 
             players = [
-                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
+                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, clientToken: myClientToken }
             ];
 
             for (let i = 1; i < maxPlayersLimit; i++) {
@@ -679,7 +700,8 @@
                     scores: 0,
                     hand: [],
                     eliminated: false,
-                    isBot: true
+                    isBot: true,
+                    clientToken: `bot-token-${i}`
                 });
             }
 
@@ -705,6 +727,7 @@
 
             renderGameBoard();
             logTicker("Solo game started against Computer bots!");
+            startTurnTimer();
             checkBotTurn();
         }
 
@@ -798,7 +821,7 @@
                 if (isHost && !p.isHost && p.id !== myId) {
                     removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
                 }
-                li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
+                li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(offline)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
                 ul.appendChild(li);
             });
         }
@@ -865,6 +888,29 @@
                 else if (data.type === 'CALL_SHOW') {
                     handleHostShowCall(data.peerId);
                 }
+                else if (data.type === 'START_NEXT_ROUND') {
+                    startNextRound();
+                }
+                else if (data.type === 'REQUEST_VIEW_CARDS') {
+                    // Forward view request to target player
+                    sendRealtimeMessage({
+                        type: 'FORWARD_VIEW_REQUEST',
+                        targetId: data.targetId,
+                        requesterId: data.requesterId,
+                        requesterName: data.requesterName
+                    });
+                }
+                else if (data.type === 'VIEW_RESPONSE') {
+                    // Broadcast view response back to requester
+                    sendRealtimeMessage({
+                        type: 'NOTIFY_VIEW_RESPONSE',
+                        requesterId: data.requesterId,
+                        targetId: data.targetId,
+                        targetName: data.targetName,
+                        allowed: data.allowed,
+                        targetHand: data.targetHand
+                    });
+                }
                 return;
             }
 
@@ -909,6 +955,7 @@
                     targetEliminationPoints = data.targetPoints || targetEliminationPoints;
                     gameHistory = data.gameHistory || gameHistory;
                     roundActive = true;
+                    turnPhase = 'drop';
                     
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.add('hidden');
@@ -924,6 +971,7 @@
                         myId = players[myIndex].id;
                     }
                     renderGameBoard();
+                    startTurnTimer();
                     break;
                 case 'GAME_STATE_UPDATE':
                     players = data.players;
@@ -936,13 +984,31 @@
                         myId = players[myIndex].id;
                     }
                     renderGameBoard();
+                    startTurnTimer();
                     logTicker(data.message);
                     break;
                 case 'ROUND_OVER':
-                    players = data.players; // <--- Fixed: ensures players score updates sync immediately for guests
+                    stopTurnTimer();
+                    players = data.players;
                     gameHistory = data.gameHistory || gameHistory;
                     showRoundOverModal(data.resultsData, data.callerName);
-                    renderGameBoard(); // Refresh scores on UI
+                    renderGameBoard();
+                    break;
+                case 'FORWARD_VIEW_REQUEST':
+                    if (data.targetId === myId || data.targetId === myClientToken) {
+                        pendingViewRequesterId = data.requesterId;
+                        document.getElementById('view-permission-text').innerText = `${data.requesterName} has requested to view your game cards. Do you allow?`;
+                        document.getElementById('view-permission-modal').classList.remove('hidden');
+                    }
+                    break;
+                case 'NOTIFY_VIEW_RESPONSE':
+                    if (data.requesterId === myId || data.requesterId === myClientToken) {
+                        if (data.allowed) {
+                            showViewedCardsModal(data.targetName, data.targetHand);
+                        } else {
+                            alert(`${data.targetName} declined your request to view cards.`);
+                        }
+                    }
                     break;
             }
         }
@@ -1009,6 +1075,7 @@
             document.getElementById('game-status-banner').classList.remove('hidden');
 
             renderGameBoard();
+            startTurnTimer();
             logTicker("Game started!");
         }
 
@@ -1025,6 +1092,84 @@
             sendRealtimeMessage(payload);
         }
 
+        // --- TURN TIMER FUNCTIONS (15 SECONDS) ---
+        function startTurnTimer() {
+            stopTurnTimer();
+            if (!roundActive) return;
+
+            let currentP = players[currentTurnIndex];
+            if (!currentP || currentP.eliminated) return;
+
+            turnTimeLeft = 15;
+            const timerContainer = document.getElementById('timer-circle-container');
+            const timerSecEl = document.getElementById('timer-seconds');
+            if(timerContainer) timerContainer.classList.remove('hidden');
+            if(timerSecEl) timerSecEl.innerText = turnTimeLeft;
+
+            turnTimerInterval = setInterval(() => {
+                turnTimeLeft--;
+                if(timerSecEl) timerSecEl.innerText = turnTimeLeft;
+
+                if (turnTimeLeft <= 0) {
+                    stopTurnTimer();
+                    handleTimerExpiry();
+                }
+            }, 1000);
+        }
+
+        function stopTurnTimer() {
+            if (turnTimerInterval) {
+                clearInterval(turnTimerInterval);
+                turnTimerInterval = null;
+            }
+            const timerContainer = document.getElementById('timer-circle-container');
+            if(timerContainer) timerContainer.classList.add('hidden');
+        }
+
+        function handleTimerExpiry() {
+            if (!roundActive) return;
+            let currentP = players[currentTurnIndex];
+            if (!currentP) return;
+
+            // If current player is local or if we are host managing the game
+            if (currentTurnIndex === myIndex || isHost || isSoloMode) {
+                autoPlayExpiredTurn(currentP);
+            }
+        }
+
+        function autoPlayExpiredTurn(player) {
+            if (!roundActive) return;
+            if (player.hand.length === 0) {
+                advanceTurn();
+                syncActionComplete(`${player.name}'s turn timed out.`);
+                startTurnTimer();
+                checkBotTurn();
+                return;
+            }
+
+            // Automatically push highest card in his cards and draw a card
+            player.hand.sort((a,b) => b.points - a.points);
+            let highestCard = player.hand[0];
+            player.hand = player.hand.filter(c => c.uid !== highestCard.uid);
+            discardPile.push(highestCard);
+
+            if(deck.length === 0 && discardPile.length > 1) {
+                let top = discardPile.pop();
+                deck = discardPile;
+                discardPile = [top];
+            }
+            if(deck.length > 0) {
+                player.hand.push(deck.pop());
+            }
+            player.hand = sortHandCards(player.hand);
+
+            turnPhase = 'drop';
+            advanceTurn();
+            syncActionComplete(`${player.name}'s turn timed out. Auto-played highest card.`);
+            startTurnTimer();
+            checkBotTurn();
+        }
+
         function checkBotTurn() {
             if(!isSoloMode || !roundActive) return;
             let currentP = players[currentTurnIndex];
@@ -1035,6 +1180,7 @@
 
         function executeBotTurn(bot) {
             if(!roundActive || currentTurnIndex !== players.findIndex(p => p.id === bot.id)) return;
+            stopTurnTimer();
             let botSum = calculateHandSum(bot.hand);
             if(botSum <= 5 && Math.random() < 0.7) {
                 executeShowRound(bot.id);
@@ -1060,6 +1206,7 @@
             if(matchesBoard) {
                 advanceTurn();
                 syncActionComplete(`${bot.name} matched board drop.`);
+                startTurnTimer();
                 checkBotTurn();
             } else {
                 if(deck.length === 0 && discardPile.length > 1) {
@@ -1070,6 +1217,7 @@
                 if(deck.length > 0) bot.hand.push(deck.pop());
                 advanceTurn();
                 syncActionComplete(`${bot.name} completed turn.`);
+                startTurnTimer();
                 checkBotTurn();
             }
         }
@@ -1094,9 +1242,11 @@
                 let matchesBoard = previousTopCard && (selectedCard.val === previousTopCard.val);
 
                 if(matchesBoard) {
+                    stopTurnTimer();
                     turnPhase = 'drop';
                     advanceTurn();
                     syncActionComplete(`${me.name} dropped matching board card.`);
+                    startTurnTimer();
                     checkBotTurn();
                 } else {
                     turnPhase = 'draw';
@@ -1119,9 +1269,11 @@
             }
             if(deck.length > 0) me.hand.push(deck.pop());
             
+            stopTurnTimer();
             turnPhase = 'drop';
             advanceTurn();
             syncActionComplete(`${me.name} drew a card.`);
+            startTurnTimer();
             checkBotTurn();
         }
 
@@ -1157,6 +1309,7 @@
             let sum = calculateHandSum(me.hand);
             if(sum > 5) { alert("Sum must be 5 or less!"); return; }
 
+            stopTurnTimer();
             if(isHost || isSoloMode) {
                 executeShowRound(myId);
             } else {
@@ -1169,6 +1322,7 @@
         }
 
         function executeShowRound(callerPeerId) {
+            stopTurnTimer();
             let caller = players.find(p => p.id === callerPeerId);
             if(!caller) return;
             let callerSum = calculateHandSum(caller.hand);
@@ -1252,13 +1406,8 @@
             document.getElementById('round-over-content').innerHTML = htmlContent;
             document.getElementById('round-over-modal').classList.remove('hidden');
 
-            if(isHost || isSoloMode) {
-                document.getElementById('host-next-round-container').classList.remove('hidden');
-                document.getElementById('waiting-next-round-msg').classList.add('hidden');
-            } else {
-                document.getElementById('host-next-round-container').classList.add('hidden');
-                document.getElementById('waiting-next-round-msg').classList.remove('hidden');
-            }
+            document.getElementById('next-round-btn-container').classList.remove('hidden');
+            document.getElementById('waiting-next-round-msg').classList.add('hidden');
         }
 
         function startNextRound() {
@@ -1269,6 +1418,14 @@
                 return;
             }
 
+            if (isHost || isSoloMode) {
+                executeStartNextRound();
+            } else {
+                sendRealtimeMessage({ type: 'START_NEXT_ROUND' });
+            }
+        }
+
+        function executeStartNextRound() {
             let fullDeck = createDeck();
             players.forEach(p => {
                 if(!p.eliminated) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
@@ -1296,8 +1453,78 @@
                 sendRealtimeMessage(startPayload);
             }
             renderGameBoard();
+            startTurnTimer();
             logTicker("New round started!");
             checkBotTurn();
+        }
+
+        // --- VIEW ELIMINATED/OTHER PLAYER CARDS FEATURE ---
+        function requestViewCards(targetPlayerId, targetPlayerName) {
+            if (isHost || isSoloMode) {
+                let targetP = players.find(p => p.id === targetPlayerId);
+                if (targetP) {
+                    showViewedCardsModal(targetP.name, targetP.hand);
+                }
+            } else {
+                sendRealtimeMessage({
+                    type: 'REQUEST_VIEW_CARDS',
+                    targetId: targetPlayerId,
+                    requesterId: myId,
+                    requesterName: myName
+                });
+                alert(`Requested view permission from ${targetPlayerName}. Waiting for approval...`);
+            }
+        }
+
+        function respondViewPermission(allowed) {
+            document.getElementById('view-permission-modal').classList.add('hidden');
+            let requesterId = pendingViewRequesterId;
+            let me = players[myIndex];
+
+            if (isHost || isSoloMode) {
+                if (allowed && me) {
+                    let reqPlayer = players.find(p => p.id === requesterId);
+                    if(reqPlayer) {
+                        sendRealtimeMessage({
+                            type: 'NOTIFY_VIEW_RESPONSE',
+                            requesterId: requesterId,
+                            targetId: me.id,
+                            targetName: me.name,
+                            allowed: true,
+                            targetHand: me.hand
+                        });
+                    }
+                }
+            } else {
+                sendRealtimeMessage({
+                    type: 'VIEW_RESPONSE',
+                    requesterId: requesterId,
+                    targetId: myId,
+                    targetName: me.name,
+                    allowed: allowed,
+                    targetHand: me.hand
+                });
+            }
+        }
+
+        function showViewedCardsModal(targetName, handCards) {
+            document.getElementById('view-cards-title').innerText = `${targetName}'s Cards`;
+            const container = document.getElementById('view-cards-container');
+            container.innerHTML = '';
+
+            (handCards || []).forEach(card => {
+                let isRed = ['♥', '♦'].includes(card.suit);
+                let cardEl = document.createElement('div');
+                cardEl.className = `w-12 h-20 sm:w-16 sm:h-24 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1 sm:p-1.5 font-bold select-none shrink-0 ${isRed ? 'text-rose-600' : 'text-slate-900'}`;
+                cardEl.innerHTML = `
+                    <div class="text-[10px] sm:text-xs">${card.val}</div>
+                    <div class="text-sm sm:text-lg self-center">${card.suit}</div>
+                    <div class="text-[10px] sm:text-xs self-end rotate-180">${card.val}</div>
+                `;
+                container.appendChild(cardEl);
+            });
+
+            document.getElementById('view-cards-modal').classList.remove('hidden');
         }
 
         function renderGameBoard() {
@@ -1317,18 +1544,21 @@
                 if(idx === myIndex) return;
                 let isTurn = (idx === currentTurnIndex);
                 let div = document.createElement('div');
-                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
+                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-50' : ''}`;
                 
                 let removeBtnHtml = (isHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
+                let viewCardsBtnHtml = `<button onclick="requestViewCards('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="mt-1 bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded text-[10px] font-semibold w-full transition">View Cards</button>`;
+
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
-                        <span class="font-bold truncate max-w-[65px]">${p.name}</span>
+                        <span class="font-bold truncate max-w-[65px]">${p.name} ${p.eliminated ? '(Out)' : ''}</span>
                         ${removeBtnHtml}
                     </div>
                     <div class="flex justify-between items-center text-[10px] mt-1 text-zinc-400">
                         <span>Cards:</span><span class="font-bold text-white">${p.hand ? p.hand.length : 0}</span>
                     </div>
+                    ${viewCardsBtnHtml}
                 `;
                 hudContainer.appendChild(div);
             });
