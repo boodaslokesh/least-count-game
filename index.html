@@ -540,7 +540,7 @@
 
         function confirmRemovePlayer(targetPeerId, targetPlayerName) {
             if (confirm(`Are you sure you want to remove this player (${targetPlayerName})?`)) {
-                players = players.filter(p => p.id !== targetPeerId);
+                players = players.filter(p => p.id !== targetPeerId && p.clientToken !== targetPeerId);
                 
                 sendRealtimeMessage({
                     type: 'KICKED_PLAYER',
@@ -611,13 +611,15 @@
             roundCounter = 0;
 
             players = [
-                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
+                { id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
             ];
 
             for (let i = 1; i < maxPlayersLimit; i++) {
                 players.push({
                     id: `bot-${i}`,
+                    clientToken: `bot-${i}`,
                     name: `Bot ${i}`,
+                    connected: true,
                     isHost: false,
                     scores: 0,
                     hand: [],
@@ -718,7 +720,25 @@
             setTimeout(() => el.classList.add('hidden'), 4500);
         }
 
+        function ensureHostRoleAssignment() {
+            let activeHost = players.find(p => p.isHost && p.connected !== false);
+            if (!activeHost && players.length > 0) {
+                let fallbackHost = players.find(p => p.connected !== false) || players[0];
+                if (fallbackHost) {
+                    players.forEach(p => p.isHost = false);
+                    fallbackHost.isHost = true;
+                }
+            }
+            let meObj = players.find(p => p.id === myId || p.clientToken === myClientToken);
+            if (meObj && meObj.isHost) {
+                isHost = true;
+            } else {
+                isHost = false;
+            }
+        }
+
         function broadcastPlayerList() {
+            ensureHostRoleAssignment();
             sendRealtimeMessage({ 
                 type: 'UPDATE_PLAYERS', 
                 players: players, 
@@ -744,38 +764,40 @@
                 let li = document.createElement('li');
                 li.className = 'bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm flex justify-between items-center';
                 let removeBtnHtml = '';
-                if (isHost && !p.isHost && p.id !== myId) {
-                    removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
+                if (isHost && !p.isHost && p.id !== myId && p.clientToken !== myClientToken) {
+                    removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.clientToken || p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
                 }
                 li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
                 ul.appendChild(li);
             });
+            
+            // Allow any player to start or assume host controls if current host is gone
+            if (isHost) {
+                document.getElementById('host-controls').classList.remove('hidden');
+                document.getElementById('waiting-msg').classList.add('hidden');
+            } else {
+                document.getElementById('host-controls').classList.add('hidden');
+                document.getElementById('waiting-msg').classList.remove('hidden');
+            }
         }
 
         // --- INCOMING NETWORK DATA SWITCH ---
         function handleIncomingNetworkData(data) {
-            // AUTOMATED HOST FAILOVER RESILIENCE CHECK
-            let currentHost = players.find(p => p.isHost && p.connected !== false);
-            if (!currentHost && players.length > 0) {
-                let nextHost = players.find(p => p.connected !== false) || players[0];
-                if (nextHost) {
-                    players.forEach(p => p.isHost = false);
-                    nextHost.isHost = true;
-                    if (nextHost.id === myId || nextHost.clientToken === myClientToken) {
-                        isHost = true;
-                    }
-                }
+            // ALWAYS EVALUATE HOST RESILIENCE FIRST
+            if (data.players && Array.isArray(data.players)) {
+                players = data.players;
             }
+            ensureHostRoleAssignment();
 
-            // HOST RECEIVES GUEST MESSAGES
+            // HOST / LEADER NODE PROCESSING
             if (isHost) {
                 if (data.type === 'JOIN_REQUEST') {
-                    let existingPlayer = players.find(p => p.clientToken === data.clientToken || (p.name.toLowerCase() === data.name.toLowerCase()));
+                    let existingPlayer = players.find(p => p.clientToken === data.clientToken || p.id === data.clientToken || (p.name.toLowerCase() === data.name.toLowerCase()));
                     if (existingPlayer) {
                         existingPlayer.id = data.clientToken;
                         existingPlayer.clientToken = data.clientToken;
                         existingPlayer.connected = true;
-                        myIndex = players.findIndex(p => p.id === myId);
+                        myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
                         broadcastPlayerList();
                         if (roundActive) {
                             sendRealtimeMessage({
@@ -799,7 +821,8 @@
                         return;
                     }
 
-                    if (players.length >= maxPlayersLimit) {
+                    let activeCount = players.filter(p => p.connected !== false).length;
+                    if (activeCount >= maxPlayersLimit) {
                         sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Room is full.' });
                         return;
                     }
@@ -833,7 +856,7 @@
                 return;
             }
 
-            // GUEST RECEIVES HOST BROADCASTS
+            // GUEST RECEIVES BROADCASTS
             switch(data.type) {
                 case 'REJECT':
                     if (data.targetToken === myClientToken) {
@@ -842,7 +865,7 @@
                     }
                     break;
                 case 'KICKED_PLAYER':
-                    if (data.kickedId === myClientToken) {
+                    if (data.kickedId === myClientToken || data.kickedId === myId) {
                         alert("You were removed by host.");
                         location.reload();
                     }
@@ -854,12 +877,9 @@
                     targetEliminationPoints = data.targetPoints;
                     gameHistory = data.gameHistory || gameHistory;
                     
-                    let meObj = players.find(p => p.id === myId || p.clientToken === myClientToken);
-                    if (meObj && meObj.isHost) {
-                        isHost = true;
-                    }
-
+                    ensureHostRoleAssignment();
                     resetJoinButtonState(true);
+
                     if (data.roundActive) {
                         deck = data.deck;
                         discardPile = data.discardPile;
@@ -894,6 +914,7 @@
                     gameHistory = data.gameHistory || gameHistory;
                     roundActive = true;
                     
+                    ensureHostRoleAssignment();
                     document.getElementById('waiting-screen').classList.add('hidden');
                     document.getElementById('round-over-modal').classList.add('hidden');
                     document.getElementById('game-board-screen').classList.remove('hidden');
@@ -944,6 +965,11 @@
         }
 
         function startHostGame() {
+            ensureHostRoleAssignment();
+            if(!isHost) {
+                alert("Only the room host or active peer can start the game!");
+                return;
+            }
             if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 players to start!"); return; }
             
             roundCounter = 1;
@@ -1109,7 +1135,8 @@
         }
 
         function syncActionComplete(msg) {
-            if(isHost) {
+            ensureHostRoleAssignment();
+            if(isHost || isSoloMode) {
                 if(!isSoloMode) broadcastGameState(msg);
                 renderGameBoard();
                 logTicker(msg);
@@ -1143,20 +1170,8 @@
             let sum = calculateHandSum(me.hand);
             if(sum > 5) { alert("Sum must be 5 or less!"); return; }
 
-            // Ensure current active peer or fallback host handles show call execution
-            let currentHost = players.find(p => p.isHost && p.connected !== false);
-            if (!currentHost && players.length > 0) {
-                let nextHost = players.find(p => p.connected !== false) || players[0];
-                if (nextHost) {
-                    players.forEach(p => p.isHost = false);
-                    nextHost.isHost = true;
-                    if (nextHost.id === myId || nextHost.clientToken === myClientToken) {
-                        isHost = true;
-                    }
-                }
-            }
-
-            if(isHost || isSoloMode || (currentHost && currentHost.id === myId)) {
+            ensureHostRoleAssignment();
+            if(isHost || isSoloMode) {
                 executeShowRound(myId);
             } else {
                 sendRealtimeMessage({ type: 'CALL_SHOW', peerId: myId });
@@ -1241,8 +1256,8 @@
             showRoundOverModal(resultsText, caller.name);
             renderGameBoard();
 
-            let currentHost = players.find(p => p.isHost && p.connected !== false);
-            if (!currentHost || currentHost.id === myId || currentHost.clientToken === myClientToken || isHost) {
+            ensureHostRoleAssignment();
+            if(isHost || isSoloMode) {
                 if(!isSoloMode) {
                     sendRealtimeMessage(payload);
                 }
@@ -1256,19 +1271,8 @@
         }
 
         function startNextRound() {
-            let currentHost = players.find(p => p.isHost && p.connected !== false);
-            if (!currentHost && players.length > 0) {
-                let nextHost = players.find(p => p.connected !== false) || players[0];
-                if (nextHost) {
-                    players.forEach(p => p.isHost = false);
-                    nextHost.isHost = true;
-                    if (nextHost.id === myId || nextHost.clientToken === myClientToken) {
-                        isHost = true;
-                    }
-                }
-            }
-
-            if (isHost || isSoloMode || (currentHost && currentHost.id === myId)) {
+            ensureHostRoleAssignment();
+            if(isHost || isSoloMode) {
                 executeStartNextRound();
             } else {
                 sendRealtimeMessage({ type: 'REQUEST_NEXT_ROUND' });
@@ -1315,6 +1319,10 @@
         }
 
         function renderGameBoard() {
+            ensureHostRoleAssignment();
+            myIndex = players.findIndex(p => p.id === myId || p.clientToken === myClientToken);
+            if (myIndex === -1) myIndex = 0;
+
             const topScoresContainer = document.getElementById('top-scores-container');
             topScoresContainer.innerHTML = '';
             players.forEach(p => {
@@ -1333,7 +1341,7 @@
                 let div = document.createElement('div');
                 div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
                 
-                let removeBtnHtml = (isHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
+                let removeBtnHtml = (isHost && !p.isHost && p.id !== myId && p.clientToken !== myClientToken) ? `<button onclick="confirmRemovePlayer('${p.clientToken || p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
