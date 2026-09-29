@@ -90,7 +90,7 @@
                     <div>
                         <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Eliminate Pts</label>
                         <select id="target-points-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
-                            <option value="15">15 Pts</option>
+                            <option value="10">50 Pts</option>
                             <option value="50">50 Pts</option>
                             <option value="75">75 Pts</option>
                             <option value="100" selected>100 Pts</option>
@@ -275,11 +275,12 @@
             <h2 id="round-over-title" class="text-xl sm:text-2xl font-black text-amber-400 text-center">SHOW CALLED!</h2>
             <div id="round-over-content" class="text-xs sm:text-sm text-zinc-300 space-y-2 max-h-48 overflow-y-auto p-2 bg-zinc-950 rounded-xl border border-zinc-900"></div>
             
-            <div id="host-next-round-container" class="pt-1">
+            <div id="host-next-round-container" class="hidden pt-1">
                 <button onclick="startNextRound()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition text-sm">
                     Start Next Round
                 </button>
             </div>
+            <p id="waiting-next-round-msg" class="text-xs text-zinc-400 text-center animate-pulse">Waiting for a player to start next round...</p>
         </div>
     </div>
 
@@ -308,6 +309,28 @@
             myClientToken = 'client-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
         }
 
+        /*
+         * NEW:
+         * Keep the same player identity across refresh/rejoin.
+         *
+         * sessionStorage is kept as the primary identity because your
+         * existing implementation already uses it.
+         *
+         * localStorage is used as a fallback so that closing/reopening
+         * the page can still identify the same browser/player.
+         */
+        try {
+            const savedPermanentToken = localStorage.getItem('leastCountPermanentToken');
+
+            if (savedPermanentToken) {
+                myClientToken = savedPermanentToken;
+            } else {
+                localStorage.setItem('leastCountPermanentToken', myClientToken);
+            }
+
+            sessionStorage.setItem('leastCountClientToken', myClientToken);
+        } catch(e) {}
+
         let maxPlayersLimit = 4;
         let cardsPerPlayer = 7;
         let targetEliminationPoints = 100;
@@ -324,6 +347,13 @@
         let roundActive = false;
         let turnPhase = 'drop'; // 'drop' or 'draw'
 
+        /*
+         * NEW:
+         * Prevent duplicate host elections / next-round starts.
+         */
+        let hostElectionInProgress = false;
+        let nextRoundStarting = false;
+
         const suits = ['♠', '♣', '♥', '♦'];
         const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
@@ -336,6 +366,178 @@
                     payload: payload
                 });
             }
+        }
+
+        /*
+         * NEW:
+         * Determine the active host.
+         *
+         * The first connected player in the existing player order
+         * becomes host. This means the original host is NOT required
+         * for the game to continue.
+         */
+        function getActiveHost() {
+            return players.find(p => p.connected !== false && !p.eliminated);
+        }
+
+        /*
+         * NEW:
+         * Elect another connected player when the current host leaves.
+         */
+        function electNewHost(broadcast = true) {
+            if (isSoloMode) return;
+
+            const activeHost = getActiveHost();
+
+            if (!activeHost) {
+                isHost = false;
+                return;
+            }
+
+            const wasHost = isHost;
+
+            players.forEach(p => {
+                p.isHost = (p.id === activeHost.id);
+            });
+
+            isHost = (activeHost.id === myId);
+
+            updateWaitingRoomUI();
+            renderGameBoard();
+
+            if (isHost && !wasHost && broadcast) {
+                sendRealtimeMessage({
+                    type: 'HOST_CHANGED',
+                    hostId: activeHost.id,
+                    hostName: activeHost.name,
+                    players: players,
+                    deck: deck,
+                    discardPile: discardPile,
+                    currentTurnIndex: currentTurnIndex,
+                    turnPhase: turnPhase,
+                    roundActive: roundActive,
+                    gameHistory: gameHistory,
+                    roundCounter: roundCounter,
+                    targetPoints: targetEliminationPoints,
+                    cardsPerPlayer: cardsPerPlayer,
+                    maxPlayers: maxPlayersLimit
+                });
+
+                logTicker(`${activeHost.name} is now the host.`);
+            }
+        }
+
+        /*
+         * NEW:
+         * Apply host election data received from another player.
+         */
+        function applyHostChange(data) {
+            if (data.players) players = data.players;
+
+            if (typeof data.maxPlayers !== 'undefined') {
+                maxPlayersLimit = data.maxPlayers;
+            }
+
+            if (typeof data.cardsPerPlayer !== 'undefined') {
+                cardsPerPlayer = data.cardsPerPlayer;
+            }
+
+            if (typeof data.targetPoints !== 'undefined') {
+                targetEliminationPoints = data.targetPoints;
+            }
+
+            if (data.deck) deck = data.deck;
+            if (data.discardPile) discardPile = data.discardPile;
+
+            if (typeof data.currentTurnIndex !== 'undefined') {
+                currentTurnIndex = data.currentTurnIndex;
+            }
+
+            if (typeof data.turnPhase !== 'undefined') {
+                turnPhase = data.turnPhase;
+            }
+
+            if (typeof data.roundActive !== 'undefined') {
+                roundActive = data.roundActive;
+            }
+
+            if (data.gameHistory) {
+                gameHistory = data.gameHistory;
+            }
+
+            if (typeof data.roundCounter !== 'undefined') {
+                roundCounter = data.roundCounter;
+            }
+
+            players.forEach(p => {
+                p.isHost = (p.id === data.hostId);
+            });
+
+            isHost = data.hostId === myId;
+
+            myIndex = players.findIndex(p => p.id === myId);
+
+            updateWaitingRoomUI();
+            renderGameBoard();
+
+            if (isHost) {
+                document.getElementById('host-controls').classList.remove('hidden');
+                document.getElementById('waiting-msg').classList.add('hidden');
+            } else {
+                document.getElementById('host-controls').classList.add('hidden');
+                document.getElementById('waiting-msg').classList.remove('hidden');
+            }
+
+            logTicker(`${data.hostName || 'Another player'} is now host.`);
+        }
+
+        /*
+         * NEW:
+         * Mark a player as disconnected without deleting them.
+         *
+         * This is important because the same player can reconnect later.
+         */
+        function markPlayerDisconnected(playerId) {
+            const player = players.find(p => p.id === playerId);
+
+            if (!player) return;
+
+            player.connected = false;
+
+            /*
+             * If the disconnected player was the current player whose turn
+             * it is, move the turn to the next connected active player.
+             */
+            if (roundActive && currentTurnIndex === players.findIndex(p => p.id === playerId)) {
+                advanceTurn();
+            }
+
+            updateWaitingRoomUI();
+            renderGameBoard();
+        }
+
+        /*
+         * NEW:
+         * Reactivate an existing player after they rejoin.
+         */
+        function reactivatePlayer(clientToken, name) {
+            const existingPlayer = players.find(p => p.id === clientToken || p.clientToken === clientToken);
+
+            if (!existingPlayer) return null;
+
+            existingPlayer.connected = true;
+            existingPlayer.clientToken = clientToken;
+
+            if (name) {
+                existingPlayer.name = name;
+            }
+
+            /*
+             * Do NOT reset their score or hand.
+             * This allows the same player to reconnect to the
+             * existing game.
+             */
+            return existingPlayer;
         }
 
         function initRealtimeChannel(code) {
@@ -406,6 +608,7 @@
         });
 
         const cardValueWeight = {'A':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13};
+
         function sortHandCards(hand) {
             const counts = {};
             hand.forEach(c => {
@@ -533,15 +736,76 @@
             refreshPublicRoomsList();
         });
 
+        /*
+         * UPDATED:
+         * Exit now notifies everyone first.
+         */
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
+                exitCurrentGame();
+            }
+        }
+
+        function exitCurrentGame() {
+            if (isSoloMode) {
+                location.reload();
+                return;
+            }
+
+            if (roomChannel && myId) {
+                sendRealtimeMessage({
+                    type: 'PLAYER_EXIT',
+                    playerId: myId,
+                    clientToken: myClientToken,
+                    playerName: myName
+                });
+
+                /*
+                 * Give Supabase broadcast a small amount of time to
+                 * deliver the exit event before closing the page.
+                 */
+                setTimeout(() => {
+                    if (roomChannel) {
+                        supabaseClient.removeChannel(roomChannel);
+                    }
+                    location.reload();
+                }, 250);
+            } else {
                 location.reload();
             }
         }
 
+        /*
+         * NEW:
+         * Handle browser refresh / tab close.
+         *
+         * This is best-effort because browsers do not guarantee
+         * asynchronous network delivery during unload.
+         */
+        window.addEventListener('beforeunload', () => {
+            if (!isSoloMode && roomChannel && myId) {
+                try {
+                    roomChannel.send({
+                        type: 'broadcast',
+                        event: 'game_event',
+                        payload: {
+                            type: 'PLAYER_EXIT',
+                            playerId: myId,
+                            clientToken: myClientToken,
+                            playerName: myName
+                        }
+                    });
+                } catch(e) {}
+            }
+        });
+
         function confirmRemovePlayer(targetPeerId, targetPlayerName) {
             if (confirm(`Are you sure you want to remove this player (${targetPlayerName})?`)) {
-                players = players.filter(p => p.id !== targetPeerId);
+                const targetPlayer = players.find(p => p.id === targetPeerId);
+
+                if (targetPlayer) {
+                    targetPlayer.connected = false;
+                }
                 
                 sendRealtimeMessage({
                     type: 'KICKED_PLAYER',
@@ -549,10 +813,15 @@
                 });
 
                 broadcastPlayerList();
+
                 if(roundActive) {
                     if(currentTurnIndex >= players.length) currentTurnIndex = 0;
+                    if(players[currentTurnIndex] && players[currentTurnIndex].connected === false) {
+                        advanceTurn();
+                    }
                     broadcastGameState("Player removed by host.");
                 }
+
                 updateWaitingRoomUI();
                 renderGameBoard();
                 logTicker(`Removed ${targetPlayerName} from the game.`);
@@ -612,7 +881,7 @@
             roundCounter = 0;
 
             players = [
-                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
+                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, connected: true }
             ];
 
             for (let i = 1; i < maxPlayersLimit; i++) {
@@ -623,7 +892,8 @@
                     scores: 0,
                     hand: [],
                     eliminated: false,
-                    isBot: true
+                    isBot: true,
+                    connected: true
                 });
             }
 
@@ -689,6 +959,7 @@
         function joinRoom() {
             isSoloMode = false;
             myName = document.getElementById('nickname-input').value.trim();
+
             let codeInput = document.getElementById('join-room-input').value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
             if(!myName || !codeInput) {
@@ -725,13 +996,7 @@
                 players: players, 
                 maxPlayers: maxPlayersLimit, 
                 cardsPerPlayer: cardsPerPlayer,
-                targetPoints: targetEliminationPoints,
-                roundActive: roundActive,
-                deck: deck,
-                discardPile: discardPile,
-                currentTurnIndex: currentTurnIndex,
-                turnPhase: turnPhase,
-                gameHistory: gameHistory
+                targetPoints: targetEliminationPoints 
             });
         }
 
@@ -739,45 +1004,133 @@
             document.getElementById('connected-count').innerText = players.filter(p => p.connected !== false).length;
             document.getElementById('display-cards-count').innerText = cardsPerPlayer;
             document.getElementById('display-target-pts').innerText = targetEliminationPoints;
+
             const ul = document.getElementById('player-list-ul');
             ul.innerHTML = '';
+
             players.forEach(p => {
                 let li = document.createElement('li');
-                li.className = 'bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm flex justify-between items-center';
+
+                li.className = `bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm flex justify-between items-center ${p.connected === false ? 'opacity-50' : ''}`;
+
                 let removeBtnHtml = '';
-                if (isHost && !p.isHost && p.id !== myId) {
+
+                if (isHost && !p.isHost && p.id !== myId && p.connected !== false) {
                     removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
                 }
-                li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
+
+                li.innerHTML = `
+                    <div class="flex items-center space-x-2">
+                        <span>
+                            👤 ${p.name}
+                            ${p.connected === false ? ' <span class="text-rose-400">(exited)</span>' : ''}
+                        </span>
+                        ${p.isHost && p.connected !== false ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}
+                    </div>
+                    ${removeBtnHtml}
+                `;
+
                 ul.appendChild(li);
             });
         }
 
         // --- INCOMING NETWORK DATA SWITCH ---
         function handleIncomingNetworkData(data) {
-            // CHECK IF ANY HOST IS PRESENT, ELSE AUTO-PROMOTE FIRST CONNECTED PLAYER
-            let currentHost = players.find(p => p.isHost && p.connected !== false);
-            if (!currentHost && players.length > 0) {
-                let nextHost = players.find(p => p.connected !== false) || players[0];
-                if (nextHost) {
-                    players.forEach(p => p.isHost = false);
-                    nextHost.isHost = true;
-                    if (nextHost.id === myId) {
-                        isHost = true;
+
+            /*
+             * NEW:
+             * Player exit must be processed by EVERY client.
+             */
+            if (data.type === 'PLAYER_EXIT') {
+                const exitingPlayer = players.find(
+                    p => p.id === data.playerId || p.clientToken === data.clientToken
+                );
+
+                if (exitingPlayer) {
+                    const wasHost = exitingPlayer.isHost;
+
+                    exitingPlayer.connected = false;
+
+                    /*
+                     * If their turn was active, immediately skip them.
+                     */
+                    if (roundActive) {
+                        const exitingIndex = players.findIndex(p => p.id === exitingPlayer.id);
+
+                        if (currentTurnIndex === exitingIndex) {
+                            advanceTurn();
+                        }
+                    }
+
+                    /*
+                     * If the old host exited, elect a new host.
+                     */
+                    if (wasHost) {
+                        exitingPlayer.isHost = false;
+                        electNewHost(true);
+                    }
+
+                    updateWaitingRoomUI();
+                    renderGameBoard();
+
+                    logTicker(`${exitingPlayer.name} exited the game.`);
+
+                    /*
+                     * The new host broadcasts the authoritative player list.
+                     */
+                    if (isHost && !isSoloMode) {
+                        broadcastPlayerList();
+
+                        if (roundActive) {
+                            broadcastGameState(`${exitingPlayer.name} exited. Game continues.`);
+                        }
                     }
                 }
+
+                return;
+            }
+
+            /*
+             * NEW:
+             * Host change is processed by all players.
+             */
+            if (data.type === 'HOST_CHANGED') {
+                applyHostChange(data);
+                return;
             }
 
             // HOST RECEIVES GUEST MESSAGES
             if (isHost) {
                 if (data.type === 'JOIN_REQUEST') {
-                    let existingPlayer = players.find(p => p.clientToken === data.clientToken || (p.name.toLowerCase() === data.name.toLowerCase()));
+
+                    /*
+                     * First check whether this player already exists.
+                     *
+                     * This is what allows a player who refreshed/exited
+                     * to come back with the same identity.
+                     */
+                    let existingPlayer = players.find(
+                        p => p.id === data.clientToken || p.clientToken === data.clientToken
+                    );
+
                     if (existingPlayer) {
-                        existingPlayer.id = data.clientToken;
-                        existingPlayer.clientToken = data.clientToken;
                         existingPlayer.connected = true;
-                        myIndex = players.findIndex(p => p.id === myId);
-                        broadcastPlayerList();
+                        existingPlayer.clientToken = data.clientToken;
+
+                        if (data.name) {
+                            existingPlayer.name = data.name;
+                        }
+
+                        existingPlayer.isHost = existingPlayer.id === myId;
+
+                        /*
+                         * Send the complete current state to the reconnecting
+                         * player through the normal broadcast mechanism.
+                         *
+                         * Because broadcast is public to the room, all clients
+                         * receive it, which is harmless because they already
+                         * have the same state.
+                         */
                         if (roundActive) {
                             sendRealtimeMessage({
                                 type: 'START_GAME',
@@ -790,18 +1143,41 @@
                                 gameHistory: gameHistory
                             });
                         } else {
-                            updateWaitingRoomUI();
+                            broadcastPlayerList();
                         }
+
+                        updateWaitingRoomUI();
+                        renderGameBoard();
+
+                        logTicker(`${existingPlayer.name} rejoined the game.`);
                         return;
                     }
 
+                    /*
+                     * Do not add a brand-new player if the game is already
+                     * running.
+                     */
                     if (roundActive) {
-                        sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Game already started.' });
+                        sendRealtimeMessage({
+                            type: 'REJECT',
+                            targetToken: data.clientToken,
+                            reason: 'Game already started. Only previously connected players can rejoin.'
+                        });
                         return;
                     }
 
-                    if (players.length >= maxPlayersLimit) {
-                        sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Room is full.' });
+                    /*
+                     * Only count connected players toward room capacity.
+                     * Exited players do not block a new player.
+                     */
+                    const connectedCount = players.filter(p => p.connected !== false).length;
+
+                    if (connectedCount >= maxPlayersLimit) {
+                        sendRealtimeMessage({
+                            type: 'REJECT',
+                            targetToken: data.clientToken,
+                            reason: 'Room is full.'
+                        });
                         return;
                     }
 
@@ -818,83 +1194,138 @@
                     };
 
                     players.push(newPlayer);
+
+                    /*
+                     * Make sure only the actual active host is marked as host.
+                     */
+                    players.forEach(p => {
+                        p.isHost = p.id === myId;
+                    });
+
                     broadcastPlayerList();
                     updateWaitingRoomUI();
                     logTicker(`${newPlayer.name} joined.`);
+
+                    return;
                 }
+
                 else if (data.type === 'PLAYER_ACTION') {
-                    handleHostAction(data);
+                    /*
+                     * Ignore actions from players that are currently
+                     * disconnected.
+                     */
+                    const actionPlayer = players.find(p => p.id === data.playerId);
+
+                    if (actionPlayer && actionPlayer.connected !== false) {
+                        handleHostAction(data);
+                    }
+
+                    return;
                 }
+
                 else if (data.type === 'CALL_SHOW') {
-                    handleHostShowCall(data.peerId);
+                    const caller = players.find(p => p.id === data.peerId);
+
+                    if (caller && caller.connected !== false) {
+                        handleHostShowCall(data.peerId);
+                    }
+
+                    return;
                 }
-                else if (data.type === 'REQUEST_NEXT_ROUND') {
+
+                /*
+                 * NEW:
+                 * Any player can request the next round.
+                 */
+                else if (data.type === 'NEXT_ROUND_REQUEST') {
+                    if (nextRoundStarting) return;
+
+                    const requester = players.find(p => p.id === data.playerId);
+
+                    if (!requester || requester.connected === false) return;
+
                     startNextRound();
+                    return;
                 }
+
                 return;
             }
 
             // GUEST RECEIVES HOST BROADCASTS
             switch(data.type) {
+
                 case 'REJECT':
                     if (data.targetToken === myClientToken) {
                         resetJoinButtonState(false);
                         showLobbyError("Rejected: " + data.reason);
                     }
                     break;
+
                 case 'KICKED_PLAYER':
                     if (data.kickedId === myClientToken) {
                         alert("You were removed by host.");
                         location.reload();
                     }
                     break;
+
                 case 'UPDATE_PLAYERS':
                     players = data.players;
+
                     maxPlayersLimit = data.maxPlayers;
                     cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints;
-                    gameHistory = data.gameHistory || gameHistory;
-                    
-                    let meObj = players.find(p => p.id === myId);
-                    if (meObj && meObj.isHost) {
-                        isHost = true;
-                    }
+
+                    /*
+                     * Recalculate host status from the synchronized
+                     * player list.
+                     */
+                    const activeHostFromList = players.find(p => p.isHost && p.connected !== false);
+
+                    isHost = !!activeHostFromList && activeHostFromList.id === myId;
 
                     resetJoinButtonState(true);
-                    if (data.roundActive) {
-                        deck = data.deck;
-                        discardPile = data.discardPile;
-                        currentTurnIndex = data.currentTurnIndex;
-                        turnPhase = data.turnPhase;
-                        roundActive = true;
-                        document.getElementById('lobby-screen').classList.add('hidden');
-                        document.getElementById('waiting-screen').classList.add('hidden');
-                        document.getElementById('round-over-modal').classList.add('hidden');
-                        document.getElementById('game-board-screen').classList.remove('hidden');
-                        document.getElementById('room-badge').classList.remove('hidden');
-                        document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
-                        document.getElementById('current-room-id').innerText = roomCode;
-                        document.getElementById('game-status-banner').classList.remove('hidden');
-                        myIndex = players.findIndex(p => p.id === myId);
-                        renderGameBoard();
-                    } else {
+
+                    /*
+                     * If we are already in a running game, don't move
+                     * the user back to the waiting screen.
+                     */
+                    if (!roundActive) {
                         document.getElementById('lobby-screen').classList.add('hidden');
                         document.getElementById('waiting-screen').classList.remove('hidden');
-                        document.getElementById('display-room-code').innerText = roomCode;
-                        document.getElementById('max-count').innerText = maxPlayersLimit;
-                        updateWaitingRoomUI();
                     }
+
+                    document.getElementById('display-room-code').innerText = roomCode;
+                    document.getElementById('max-count').innerText = maxPlayersLimit;
+
+                    if (isHost) {
+                        document.getElementById('host-controls').classList.remove('hidden');
+                        document.getElementById('waiting-msg').classList.add('hidden');
+                    } else {
+                        document.getElementById('host-controls').classList.add('hidden');
+                        document.getElementById('waiting-msg').classList.remove('hidden');
+                    }
+
+                    updateWaitingRoomUI();
                     break;
+
                 case 'START_GAME':
                     players = data.players;
                     deck = data.deck;
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
+
                     cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints || targetEliminationPoints;
                     gameHistory = data.gameHistory || gameHistory;
+
                     roundActive = true;
-                    
+
+                    /*
+                     * Recalculate current host from synchronized state.
+                     */
+                    const startHost = players.find(p => p.isHost && p.connected !== false);
+                    isHost = !!startHost && startHost.id === myId;
+
                     document.getElementById('waiting-screen').classList.add('hidden');
                     document.getElementById('round-over-modal').classList.add('hidden');
                     document.getElementById('game-board-screen').classList.remove('hidden');
@@ -902,23 +1333,45 @@
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
-                    
+
                     myIndex = players.findIndex(p => p.id === myId);
+
                     renderGameBoard();
                     break;
+
                 case 'GAME_STATE_UPDATE':
                     players = data.players;
                     deck = data.deck;
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
                     turnPhase = data.turnPhase;
+
+                    /*
+                     * Keep host status synchronized.
+                     */
+                    const stateHost = players.find(p => p.isHost && p.connected !== false);
+                    isHost = !!stateHost && stateHost.id === myId;
+
                     myIndex = players.findIndex(p => p.id === myId);
+
                     renderGameBoard();
                     logTicker(data.message);
                     break;
+
                 case 'ROUND_OVER':
+                    players = data.players || players;
                     gameHistory = data.gameHistory || gameHistory;
+
+                    myIndex = players.findIndex(p => p.id === myId);
+
+                    /*
+                     * Host status may have changed before the round ended.
+                     */
+                    const roundHost = players.find(p => p.isHost && p.connected !== false);
+                    isHost = !!roundHost && roundHost.id === myId;
+
                     showRoundOverModal(data.resultsData, data.callerName);
+                    renderGameBoard();
                     break;
             }
         }
@@ -933,10 +1386,12 @@
                     d.push({ suit: s, val: v, points: pts, uid: Math.random().toString(36).substring(2) });
                 }
             }
+
             for (let i = d.length - 1; i > 0; i--) {
                 let j = Math.floor(Math.random() * (i + 1));
                 [d[i], d[j]] = [d[j], d[i]];
             }
+
             return d;
         }
 
@@ -945,19 +1400,50 @@
         }
 
         function startHostGame() {
-            if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 players to start!"); return; }
+            /*
+             * Any currently connected player can become host.
+             */
+            if (!isHost) {
+                /*
+                 * If another player became host, allow them to start.
+                 */
+                const activeHost = getActiveHost();
+
+                if (activeHost && activeHost.id !== myId) {
+                    return;
+                }
+
+                electNewHost(false);
+
+                if (!isHost) return;
+            }
+
+            if(players.filter(p => p.connected !== false && !p.eliminated).length < 2) {
+                alert("Need at least 2 players to start!");
+                return;
+            }
             
             roundCounter = 1;
             gameHistory = [];
+
             let fullDeck = createDeck();
+
             players.forEach(p => {
-                p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
-                p.eliminated = false;
+                if (p.connected !== false && !p.eliminated) {
+                    p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
+                    p.eliminated = false;
+                } else {
+                    p.hand = [];
+                }
             });
             
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
-            currentTurnIndex = 0;
+
+            currentTurnIndex = players.findIndex(
+                p => p.connected !== false && !p.eliminated
+            );
+
             turnPhase = 'drop';
             roundActive = true;
 
@@ -998,20 +1484,27 @@
                 turnPhase: turnPhase,
                 message: msg
             };
+
             sendRealtimeMessage(payload);
         }
 
         function checkBotTurn() {
             if(!isSoloMode || !roundActive) return;
+
             let currentP = players[currentTurnIndex];
+
             if(currentP && currentP.isBot && !currentP.eliminated) {
-                setTimeout(() => { executeBotTurn(currentP); }, 1200);
+                setTimeout(() => {
+                    executeBotTurn(currentP);
+                }, 1200);
             }
         }
 
         function executeBotTurn(bot) {
             if(!roundActive || currentTurnIndex !== players.findIndex(p => p.id === bot.id)) return;
+
             let botSum = calculateHandSum(bot.hand);
+
             if(botSum <= 5 && Math.random() < 0.7) {
                 executeShowRound(bot.id);
                 return;
@@ -1043,7 +1536,9 @@
                     deck = discardPile;
                     discardPile = [top];
                 }
+
                 if(deck.length > 0) bot.hand.push(deck.pop());
+
                 advanceTurn();
                 syncActionComplete(`${bot.name} completed turn.`);
                 checkBotTurn();
@@ -1053,18 +1548,24 @@
         function handleCardClick(cardUid) {
             if(!roundActive) return;
             if(currentTurnIndex !== myIndex) return;
+
             let me = players[myIndex];
-            if(me.eliminated) return;
+
+            if(!me || me.connected === false || me.eliminated) return;
 
             if(turnPhase === 'drop') {
                 let cardIndex = me.hand.findIndex(c => c.uid === cardUid);
+
                 if(cardIndex === -1) return;
+
                 let selectedCard = me.hand[cardIndex];
 
                 let droppedCards = me.hand.filter(c => c.val === selectedCard.val);
+
                 me.hand = sortHandCards(me.hand.filter(c => c.val !== selectedCard.val));
                 
                 let previousTopCard = discardPile[discardPile.length - 1];
+
                 droppedCards.forEach(c => discardPile.push(c));
 
                 let matchesBoard = previousTopCard && (selectedCard.val === previousTopCard.val);
@@ -1085,7 +1586,10 @@
         function drawFromDeck() {
             if(!roundActive) return;
             if(currentTurnIndex !== myIndex) return;
+
             let me = players[myIndex];
+
+            if(!me || me.connected === false || me.eliminated) return;
             if(turnPhase !== 'draw') return;
 
             if(deck.length === 0 && discardPile.length > 1) {
@@ -1093,30 +1597,58 @@
                 deck = discardPile;
                 discardPile = [top];
             }
+
             if(deck.length > 0) me.hand.push(deck.pop());
             
             turnPhase = 'drop';
             advanceTurn();
+
             syncActionComplete(`${me.name} drew a card.`);
             checkBotTurn();
         }
 
+        /*
+         * UPDATED:
+         * advanceTurn now skips disconnected players as well as eliminated
+         * players.
+         */
         function advanceTurn() {
+            if (!players.length) return;
+
             let attempts = 0;
+
             do {
                 currentTurnIndex = (currentTurnIndex + 1) % players.length;
                 attempts++;
-            } while (players[currentTurnIndex].eliminated && attempts < players.length);
+
+            } while (
+                (
+                    players[currentTurnIndex].eliminated ||
+                    players[currentTurnIndex].connected === false
+                ) &&
+                attempts < players.length
+            );
         }
 
         function syncActionComplete(msg) {
             if(isHost) {
-                if(!isSoloMode) broadcastGameState(msg);
+
+                if(!isSoloMode) {
+                    broadcastGameState(msg);
+                }
+
                 renderGameBoard();
                 logTicker(msg);
+
             } else {
+
+                /*
+                 * Send the player ID so the current host can verify
+                 * that the action comes from an active player.
+                 */
                 sendRealtimeMessage({
                     type: 'PLAYER_ACTION',
+                    playerId: myId,
                     players: players,
                     deck: deck,
                     discardPile: discardPile,
@@ -1133,6 +1665,14 @@
             discardPile = data.discardPile;
             currentTurnIndex = data.currentTurnIndex;
             turnPhase = data.turnPhase;
+
+            /*
+             * Keep the current host.
+             */
+            players.forEach(p => {
+                p.isHost = p.id === myId;
+            });
+
             broadcastGameState(data.message);
             renderGameBoard();
             logTicker(data.message);
@@ -1140,14 +1680,24 @@
 
         function callShow() {
             let me = players[myIndex];
+
+            if(!me || me.connected === false) return;
             if(currentTurnIndex !== myIndex || turnPhase !== 'drop') return;
+
             let sum = calculateHandSum(me.hand);
-            if(sum > 5) { alert("Sum must be 5 or less!"); return; }
+
+            if(sum > 5) {
+                alert("Sum must be 5 or less!");
+                return;
+            }
 
             if(isHost || isSoloMode) {
                 executeShowRound(myId);
             } else {
-                sendRealtimeMessage({ type: 'CALL_SHOW', peerId: myId });
+                sendRealtimeMessage({
+                    type: 'CALL_SHOW',
+                    peerId: myId
+                });
             }
         }
 
@@ -1157,15 +1707,27 @@
 
         function executeShowRound(callerPeerId) {
             let caller = players.find(p => p.id === callerPeerId);
-            if(!caller) return;
+
+            if(!caller || caller.connected === false) return;
+
             let callerSum = calculateHandSum(caller.hand);
 
             let summaries = [];
+
+            /*
+             * Only currently connected, active players participate.
+             */
             players.forEach(p => {
-                if(!p.eliminated) summaries.push({ player: p, sum: calculateHandSum(p.hand) });
+                if(!p.eliminated && p.connected !== false) {
+                    summaries.push({
+                        player: p,
+                        sum: calculateHandSum(p.hand)
+                    });
+                }
             });
 
             let resultsText = `<strong>${caller.name}</strong> called SHOW with sum: <strong>${callerSum}</strong>!<br><br>`;
+
             let roundRecord = {
                 roundNumber: roundCounter++,
                 callerName: caller.name,
@@ -1173,40 +1735,78 @@
                 details: []
             };
             
-            let lowerPlayers = summaries.filter(item => item.player.id !== caller.id && item.sum < callerSum);
+            let lowerPlayers = summaries.filter(
+                item => item.player.id !== caller.id && item.sum < callerSum
+            );
 
             if (lowerPlayers.length > 0) {
                 resultsText += `<span class="text-rose-400 font-bold">FAILED SHOW! Someone had a lower count.</span><br>`;
+
                 caller.scores += 25;
+
                 roundRecord.outcome = "Failed Show (+25 penalty)";
+
                 summaries.forEach(item => {
                     let ptsAdded = (item.player.id === caller.id) ? 25 : 0;
-                    roundRecord.details.push({ name: item.player.name, sum: item.sum, pointsAdded: ptsAdded });
+
+                    roundRecord.details.push({
+                        name: item.player.name,
+                        sum: item.sum,
+                        pointsAdded: ptsAdded
+                    });
                 });
+
             } else {
-                let equalPlayers = summaries.filter(item => item.player.id !== caller.id && item.sum === callerSum);
+
+                let equalPlayers = summaries.filter(
+                    item => item.player.id !== caller.id && item.sum === callerSum
+                );
+
                 if (equalPlayers.length > 0) {
+
                     resultsText += `<span class="text-amber-400 font-bold">MATCHED SHOW!</span><br>`;
-                    let matchedIds = [caller.id, ...equalPlayers.map(m => m.player.id)];
+
+                    let matchedIds = [
+                        caller.id,
+                        ...equalPlayers.map(m => m.player.id)
+                    ];
+
                     roundRecord.outcome = "Matched Show";
+
                     summaries.forEach(item => {
                         let ptsAdded = 0;
+
                         if (!matchedIds.includes(item.player.id)) {
                             item.player.scores += item.sum;
                             ptsAdded = item.sum;
                         }
-                        roundRecord.details.push({ name: item.player.name, sum: item.sum, pointsAdded: ptsAdded });
+
+                        roundRecord.details.push({
+                            name: item.player.name,
+                            sum: item.sum,
+                            pointsAdded: ptsAdded
+                        });
                     });
+
                 } else {
+
                     resultsText += `<span class="text-emerald-400 font-bold">GOOD SHOW!</span><br>`;
+
                     roundRecord.outcome = "Good Show";
+
                     summaries.forEach(item => {
                         let ptsAdded = 0;
+
                         if (item.player.id !== caller.id) {
                             item.player.scores += item.sum;
                             ptsAdded = item.sum;
                         }
-                        roundRecord.details.push({ name: item.player.name, sum: item.sum, pointsAdded: ptsAdded });
+
+                        roundRecord.details.push({
+                            name: item.player.name,
+                            sum: item.sum,
+                            pointsAdded: ptsAdded
+                        });
                     });
                 }
             }
@@ -1214,17 +1814,28 @@
             gameHistory.push(roundRecord);
 
             resultsText += `<hr class="border-zinc-800 my-2"><div class="text-xs space-y-1">`;
+
             summaries.forEach(item => {
-                resultsText += `<div>${item.player.name}: Sum = <strong>${item.sum}</strong> | Total = <strong>${item.scores}</strong></div>`;
+                resultsText += `<div>${item.player.name}: Sum = <strong>${item.sum}</strong> | Total = <strong>${item.player.scores}</strong></div>`;
             });
+
             resultsText += `</div>`;
 
             players.forEach(p => {
-                if(p.scores >= targetEliminationPoints) p.eliminated = true;
+                if(p.scores >= targetEliminationPoints) {
+                    p.eliminated = true;
+                }
             });
 
             roundActive = false;
-            let payload = { type: 'ROUND_OVER', resultsData: resultsText, callerName: caller.name, players: players, gameHistory: gameHistory };
+
+            let payload = {
+                type: 'ROUND_OVER',
+                resultsData: resultsText,
+                callerName: caller.name,
+                players: players,
+                gameHistory: gameHistory
+            };
 
             showRoundOverModal(resultsText, caller.name);
             renderGameBoard();
@@ -1238,18 +1849,76 @@
             document.getElementById('round-over-title').innerText = `${callerName.toUpperCase()} CALLED SHOW!`;
             document.getElementById('round-over-content').innerHTML = htmlContent;
             document.getElementById('round-over-modal').classList.remove('hidden');
-        }
 
-        function startNextRound() {
-            if (isHost || isSoloMode) {
-                executeStartNextRound();
+            /*
+             * UPDATED:
+             * Every connected player can start the next round.
+             */
+            const me = players.find(p => p.id === myId);
+
+            if(me && me.connected !== false && !me.eliminated) {
+                document.getElementById('host-next-round-container').classList.remove('hidden');
+                document.getElementById('waiting-next-round-msg').classList.add('hidden');
             } else {
-                sendRealtimeMessage({ type: 'REQUEST_NEXT_ROUND' });
+                document.getElementById('host-next-round-container').classList.add('hidden');
+                document.getElementById('waiting-next-round-msg').classList.remove('hidden');
             }
         }
 
-        function executeStartNextRound() {
-            let activePlayers = players.filter(p => !p.eliminated);
+        /*
+         * UPDATED:
+         * Any connected player can start the next round.
+         *
+         * If the player is already the active host, they start directly.
+         *
+         * If another player is host, this player sends a request.
+         *
+         * If the old host has exited and no active host exists locally,
+         * this player elects themselves/another connected player first.
+         */
+        function startNextRound() {
+            if (nextRoundStarting) return;
+
+            const me = players.find(p => p.id === myId);
+
+            if (!me || me.connected === false || me.eliminated) {
+                return;
+            }
+
+            /*
+             * If we are not host, ask the current host to start.
+             */
+            if (!isHost && !isSoloMode) {
+
+                const activeHost = getActiveHost();
+
+                if (activeHost && activeHost.id !== myId) {
+                    sendRealtimeMessage({
+                        type: 'NEXT_ROUND_REQUEST',
+                        playerId: myId,
+                        playerName: myName
+                    });
+
+                    logTicker(`${myName} requested the next round.`);
+                    return;
+                }
+
+                /*
+                 * No active host exists, so elect one.
+                 */
+                electNewHost(true);
+
+                if (!isHost) {
+                    return;
+                }
+            }
+
+            nextRoundStarting = true;
+
+            let activePlayers = players.filter(
+                p => p.connected !== false && !p.eliminated
+            );
+
             if(activePlayers.length <= 1) {
                 alert(`Tournament Over! Winner is ${activePlayers[0] ? activePlayers[0].name : 'Nobody'}!`);
                 location.reload();
@@ -1257,15 +1926,33 @@
             }
 
             let fullDeck = createDeck();
+
             players.forEach(p => {
-                if(!p.eliminated) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
-                else p.hand = [];
+                if(!p.eliminated && p.connected !== false) {
+                    p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
+                } else {
+                    p.hand = [];
+                }
             });
+
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
+
             roundActive = true;
             turnPhase = 'drop';
-            currentTurnIndex = players.findIndex(p => !p.eliminated);
+
+            /*
+             * Start with the first connected, non-eliminated player.
+             */
+            currentTurnIndex = players.findIndex(
+                p => p.connected !== false && !p.eliminated
+            );
+
+            /*
+             * Increment round number here because the next round
+             * has actually started.
+             */
+            roundCounter++;
 
             let startPayload = {
                 type: 'START_GAME',
@@ -1279,52 +1966,93 @@
             };
 
             document.getElementById('round-over-modal').classList.add('hidden');
+
             if(!isSoloMode) {
                 sendRealtimeMessage(startPayload);
             }
+
             renderGameBoard();
             logTicker("New round started!");
             checkBotTurn();
+
+            /*
+             * Allow another next-round action after the state has propagated.
+             */
+            setTimeout(() => {
+                nextRoundStarting = false;
+            }, 500);
         }
 
         function renderGameBoard() {
             const topScoresContainer = document.getElementById('top-scores-container');
+
             topScoresContainer.innerHTML = '';
+
             players.forEach(p => {
                 let badge = document.createElement('div');
+
                 badge.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-zinc-900 border ${p.eliminated ? 'border-zinc-900 opacity-50' : 'border-zinc-800'} text-[11px]`;
-                badge.innerHTML = `<span class="font-bold text-zinc-300">${p.name}:</span> <span class="font-mono text-amber-300 font-bold">${p.scores}</span>`;
+
+                badge.innerHTML = `
+                    <span class="font-bold text-zinc-300">${p.name}:</span>
+                    <span class="font-mono text-amber-300 font-bold">${p.scores}</span>
+                    ${p.connected === false ? '<span class="text-[9px] text-rose-400">(out)</span>' : ''}
+                `;
+
                 topScoresContainer.appendChild(badge);
             });
 
             const hudContainer = document.getElementById('opponents-hud');
+
             hudContainer.innerHTML = '';
             
             players.forEach((p, idx) => {
+
                 if(idx === myIndex) return;
-                let isTurn = (idx === currentTurnIndex);
+
+                let isTurn = (
+                    idx === currentTurnIndex &&
+                    p.connected !== false &&
+                    !p.eliminated
+                );
+
                 let div = document.createElement('div');
-                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
+
+                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated || p.connected === false ? 'opacity-40' : ''}`;
                 
-                let removeBtnHtml = (isHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
+                let removeBtnHtml = (
+                    isHost &&
+                    !p.isHost &&
+                    p.id !== myId &&
+                    p.connected !== false
+                )
+                    ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>`
+                    : '';
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
                         <span class="font-bold truncate max-w-[65px]">${p.name}</span>
                         ${removeBtnHtml}
                     </div>
+
                     <div class="flex justify-between items-center text-[10px] mt-1 text-zinc-400">
-                        <span>Cards:</span><span class="font-bold text-white">${p.hand ? p.hand.length : 0}</span>
+                        <span>Cards:</span>
+                        <span class="font-bold text-white">${p.hand ? p.hand.length : 0}</span>
                     </div>
                 `;
+
                 hudContainer.appendChild(div);
             });
 
             if(discardPile.length > 0) {
                 let topCard = discardPile[discardPile.length - 1];
+
                 let isRed = ['♥', '♦'].includes(topCard.suit);
+
                 let boardEl = document.getElementById('board-card-container');
+
                 boardEl.className = `w-14 h-20 sm:w-18 sm:h-26 bg-white border-2 border-slate-300 rounded-lg shadow-lg flex flex-col justify-between p-1.5 font-bold transition ${isRed ? 'text-rose-600' : 'text-slate-900'}`;
+
                 document.getElementById('board-val-tl').innerText = topCard.val;
                 document.getElementById('board-suit-mid').innerText = topCard.suit;
                 document.getElementById('board-val-br').innerText = topCard.val;
@@ -1333,26 +2061,63 @@
             document.getElementById('deck-count').innerText = deck.length;
 
             let me = players[myIndex];
+
+            /*
+             * If this browser is temporarily not represented in the
+             * synchronized state, avoid breaking the UI.
+             */
+            if (!me) {
+                return;
+            }
+
             const myHandContainer = document.getElementById('my-hand-cards');
+
             myHandContainer.innerHTML = '';
 
             let mySum = calculateHandSum(me.hand);
-            document.getElementById('my-hand-sum').innerText = mySum;
-            document.getElementById('my-display-name').innerText = me.name + (me.eliminated ? ' (Out)' : '');
 
-            let canShow = (currentTurnIndex === myIndex && turnPhase === 'drop' && mySum <= 5 && !me.eliminated);
+            document.getElementById('my-hand-sum').innerText = mySum;
+
+            document.getElementById('my-display-name').innerText =
+                me.name +
+                (me.eliminated ? ' (Out)' : '') +
+                (me.connected === false ? ' (Exited)' : '');
+
+            let canShow = (
+                currentTurnIndex === myIndex &&
+                turnPhase === 'drop' &&
+                mySum <= 5 &&
+                !me.eliminated &&
+                me.connected !== false
+            );
+
             document.getElementById('call-show-btn').disabled = !canShow;
 
             let activePlayer = players[currentTurnIndex];
-            let isMyTurn = (currentTurnIndex === myIndex);
+
+            let isMyTurn = (
+                currentTurnIndex === myIndex &&
+                me.connected !== false &&
+                !me.eliminated
+            );
             
-            document.getElementById('turn-announcement').innerText = isMyTurn ? "👉 YOUR TURN!" : `Turn: ${activePlayer ? activePlayer.name : 'Waiting'}`;
-            document.getElementById('action-instruction').innerText = isMyTurn ? (turnPhase === 'drop' ? "Select card to drop." : "Click stock to draw.") : `Waiting...`;
+            document.getElementById('turn-announcement').innerText =
+                isMyTurn
+                    ? "👉 YOUR TURN!"
+                    : `Turn: ${activePlayer ? activePlayer.name : 'Waiting'}`;
+
+            document.getElementById('action-instruction').innerText =
+                isMyTurn
+                    ? (turnPhase === 'drop' ? "Select card to drop." : "Click stock to draw.")
+                    : `Waiting...`;
 
             me.hand.forEach((card) => {
+
                 let isRed = ['♥', '♦'].includes(card.suit);
+
                 let cardEl = document.createElement('div');
-                cardEl.className = `w-12 h-20 sm:w-16 sm:h-24 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1 sm:p-1.5 font-bold cursor-pointer hover:-translate-y-1 transition transform select-none shrink-0 ${isRed ? 'text-rose-600' : 'text-slate-900'} ${!isMyTurn || me.eliminated ? 'opacity-80 cursor-not-allowed' : ''}`;
+
+                cardEl.className = `w-12 h-20 sm:w-16 sm:h-24 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1 sm:p-1.5 font-bold cursor-pointer hover:-translate-y-1 transition transform select-none shrink-0 ${isRed ? 'text-rose-600' : 'text-slate-900'} ${!isMyTurn || me.eliminated || me.connected === false ? 'opacity-80 cursor-not-allowed' : ''}`;
                 
                 cardEl.innerHTML = `
                     <div class="text-[10px] sm:text-xs">${card.val}</div>
@@ -1360,43 +2125,75 @@
                     <div class="text-[10px] sm:text-xs self-end rotate-180">${card.val}</div>
                 `;
 
-                if(isMyTurn && !me.eliminated) {
+                if(isMyTurn && !me.eliminated && me.connected !== false) {
                     cardEl.onclick = () => handleCardClick(card.uid);
                 }
+
                 myHandContainer.appendChild(cardEl);
             });
         }
 
         function updateScoreboardTable() {
             const tbody = document.getElementById('scoreboard-table-body');
+
             tbody.innerHTML = '';
+
             players.forEach(p => {
                 let tr = document.createElement('tr');
+
                 tr.innerHTML = `
                     <td class="py-2 font-medium">${p.name}</td>
                     <td class="py-2 text-right font-mono font-bold">${p.scores} / ${targetEliminationPoints}</td>
-                    <td class="py-2 text-right text-[11px]"><span class="px-2 py-0.5 rounded ${p.eliminated ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'}">${p.eliminated ? 'Eliminated' : 'Active'}</span></td>
+                    <td class="py-2 text-right text-[11px]">
+                        <span class="px-2 py-0.5 rounded ${
+                            p.eliminated
+                                ? 'bg-rose-500/20 text-rose-400'
+                                : p.connected === false
+                                    ? 'bg-zinc-500/20 text-zinc-400'
+                                    : 'bg-emerald-500/20 text-emerald-400'
+                        }">
+                            ${
+                                p.eliminated
+                                    ? 'Eliminated'
+                                    : p.connected === false
+                                        ? 'Exited'
+                                        : 'Active'
+                            }
+                        </span>
+                    </td>
                 `;
+
                 tbody.appendChild(tr);
             });
         }
 
         function updateHistoryContainer() {
             const container = document.getElementById('history-container');
+
             if(!container) return;
+
             if(!gameHistory || gameHistory.length === 0) {
                 container.innerHTML = `<p class="text-zinc-500 italic text-center py-4">No completed rounds yet.</p>`;
                 return;
             }
 
             container.innerHTML = '';
+
             gameHistory.forEach((round) => {
+
                 let div = document.createElement('div');
+
                 div.className = 'bg-zinc-900 border border-zinc-800 p-3 rounded-xl space-y-1.5';
                 
                 let detailsHtml = '';
+
                 round.details.forEach(d => {
-                    detailsHtml += `<div class="flex justify-between text-zinc-300"><span>${d.name} (Sum: ${d.sum})</span><span class="font-mono text-amber-400">+${d.pointsAdded} pts</span></div>`;
+                    detailsHtml += `
+                        <div class="flex justify-between text-zinc-300">
+                            <span>${d.name} (Sum: ${d.sum})</span>
+                            <span class="font-mono text-amber-400">+${d.pointsAdded} pts</span>
+                        </div>
+                    `;
                 });
 
                 div.innerHTML = `
@@ -1404,10 +2201,12 @@
                         <span>Round ${round.roundNumber} (${round.callerName}'s Show)</span>
                         <span class="text-[10px] text-zinc-400 font-normal">${round.outcome}</span>
                     </div>
+
                     <div class="space-y-1 text-xs pt-1">
                         ${detailsHtml}
                     </div>
                 `;
+
                 container.appendChild(div);
             });
         }
