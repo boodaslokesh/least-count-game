@@ -43,6 +43,9 @@
         </div>
 
         <div class="flex items-center space-x-2">
+            <button id="header-share-btn" onclick="shareRoomLink()" class="hidden bg-amber-500 hover:bg-amber-400 text-black px-2.5 py-1 rounded-lg font-bold transition text-[11px]">
+                🔗 Share Link
+            </button>
             <div id="game-status-banner" class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden">
                 Waiting...
             </div>
@@ -137,9 +140,12 @@
         <!-- WAITING ROOM SCREEN -->
         <div id="waiting-screen" class="hidden bg-black p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-zinc-800 text-center space-y-4">
             <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">Waiting for Players</h2>
-            <div class="bg-zinc-900 p-3 rounded-xl border border-zinc-800">
-                <p class="text-[11px] text-zinc-400 uppercase tracking-wider mb-1">Room Code</p>
+            <div class="bg-zinc-900 p-3 rounded-xl border border-zinc-800 flex flex-col items-center justify-center space-y-2">
+                <p class="text-[11px] text-zinc-400 uppercase tracking-wider">Room Code</p>
                 <p id="display-room-code" class="text-2xl sm:text-3xl font-mono font-black text-amber-400 tracking-widest select-all"></p>
+                <button onclick="shareRoomLink()" class="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded-lg shadow transition flex items-center space-x-1">
+                    <span>🔗 Share Game Link</span>
+                </button>
             </div>
             <div>
                 <h3 class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Connected (<span id="connected-count">1</span>/<span id="max-count">4</span>) • Cards: <span id="display-cards-count">7</span> • Target: <span id="display-target-pts">100</span> pts</h3>
@@ -331,7 +337,7 @@
         const SUPABASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co/rest/v1/least-count';
         const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
 
-        // --- ENHANCED STUN/TURN CONFIGURATION FOR MAXIMUM COMPATIBILITY ---
+        // --- ENHANCED STUN/TURN CONFIGURATION FOR MAXIMUM MOBILE COMPATIBILITY ---
         const peerConfig = {
             debug: 1,
             config: {
@@ -346,6 +352,39 @@
                 iceCandidatePoolSize: 10
             }
         };
+
+        // --- SHARE LINK FEATURE ---
+        function shareRoomLink() {
+            if(!roomCode) return;
+            const link = `${window.location.origin}${window.location.pathname}#${roomCode}`;
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Join Least Count Game',
+                    text: `Join my Least Count room code: ${roomCode}`,
+                    url: link
+                }).catch(() => {
+                    copyLinkToClipboard(link);
+                });
+            } else {
+                copyLinkToClipboard(link);
+            }
+        }
+
+        function copyLinkToClipboard(link) {
+            navigator.clipboard.writeText(link).then(() => {
+                alert('Room Link copied to clipboard!');
+            }).catch(() => {
+                prompt('Copy this join link:', link);
+            });
+        }
+
+        function checkUrlHashForRoom() {
+            const hash = window.location.hash.replace('#', '').trim().toUpperCase();
+            if(hash && hash.length >= 4) {
+                const joinInput = document.getElementById('join-room-input');
+                if(joinInput) joinInput.value = hash;
+            }
+        }
 
         // --- PULL TO REFRESH GESTURE HANDLER ---
         let touchStartY = 0;
@@ -514,11 +553,13 @@
 
         window.addEventListener('load', () => {
             refreshPublicRoomsList();
+            checkUrlHashForRoom();
         });
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
                 intentionalDisconnect = true;
+                location.hash = '';
                 location.reload();
             }
         }
@@ -703,6 +744,7 @@
             document.getElementById('lobby-screen').classList.add('hidden');
             document.getElementById('game-board-screen').classList.remove('hidden');
             document.getElementById('room-badge').classList.add('hidden');
+            document.getElementById('header-share-btn').classList.add('hidden');
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('game-status-banner').classList.remove('hidden');
             document.getElementById('game-status-banner').innerText = "Solo vs Computer Mode";
@@ -726,6 +768,8 @@
                     gameHistory = [];
                     roundCounter = 0;
 
+                    window.location.hash = roomCode;
+
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
@@ -733,6 +777,7 @@
                     document.getElementById('display-cards-count').innerText = cardsPerPlayer;
                     document.getElementById('display-target-pts').innerText = targetEliminationPoints;
                     document.getElementById('host-controls').classList.remove('hidden');
+                    document.getElementById('header-share-btn').classList.remove('hidden');
                     document.getElementById('waiting-msg').classList.add('hidden');
 
                     updateWaitingRoomUI();
@@ -808,6 +853,7 @@
 
             isHost = false;
             roomCode = codeInput;
+            window.location.hash = roomCode;
             guestReconnectAttempts = 0;
             gameHistory = [];
 
@@ -990,6 +1036,7 @@
                     targetEliminationPoints = data.targetPoints;
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.remove('hidden');
+                    document.getElementById('header-share-btn').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
                     document.getElementById('max-count').innerText = maxPlayersLimit;
                     updateWaitingRoomUI();
@@ -1008,6 +1055,7 @@
                     document.getElementById('round-over-modal').classList.add('hidden');
                     document.getElementById('game-board-screen').classList.remove('hidden');
                     document.getElementById('room-badge').classList.remove('hidden');
+                    document.getElementById('header-share-btn').classList.remove('hidden');
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
@@ -1091,6 +1139,7 @@
             document.getElementById('round-over-modal').classList.add('hidden');
             document.getElementById('game-board-screen').classList.remove('hidden');
             document.getElementById('room-badge').classList.remove('hidden');
+            document.getElementById('header-share-btn').classList.remove('hidden');
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('current-room-id').innerText = roomCode;
             document.getElementById('game-status-banner').classList.remove('hidden');
