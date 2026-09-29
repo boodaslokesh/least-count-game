@@ -159,9 +159,10 @@
             <!-- OPPONENTS HUD BAR -->
             <div id="opponents-hud" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 shrink-0"></div>
 
-            <!-- CHAT MESSAGES DISPLAY BAR (DIRECTLY BELOW OPPONENTS HUD - SHOWING AT LEAST LAST 3 MESSAGES) -->
-            <div id="chat-messages-banner" class="w-full bg-zinc-900/90 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs text-emerald-300 hidden shrink-0 flex flex-col space-y-1 max-h-24 overflow-y-auto">
-                <div id="chat-messages-list" class="space-y-1"></div>
+            <!-- CHAT MESSAGES DISPLAY BAR (DIRECTLY BELOW OPPONENTS HUD) -->
+            <div id="chat-messages-banner" class="w-full bg-zinc-900/90 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs hidden shrink-0 flex-col space-y-1">
+                <div class="font-bold text-amber-400 whitespace-nowrap">💬 Room Chat <span class="text-[10px] text-zinc-500 font-normal">• Latest 3 messages</span></div>
+                <div id="chat-history-list" class="flex flex-col-reverse gap-1 max-h-16 overflow-y-auto"></div>
             </div>
 
             <!-- CENTER PLAY AREA -->
@@ -813,8 +814,9 @@
             });
         }
 
-        // --- CHAT SYSTEM LOGIC (MODIFIED FOR LAST 3 MESSAGES & NO BLINKING) ---
-        let chatMessagesHistory = [];
+        // --- CHAT SYSTEM LOGIC ---
+        const roomChatMessages = [];
+        const seenChatMessageIds = new Set();
 
         function sendRoomChatMessage() {
             const inputEl = document.getElementById('room-chat-input');
@@ -825,12 +827,16 @@
 
             const senderName = myName || "Player";
             const senderToken = myClientToken || myId;
+            const messageId = `${senderToken}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
             if (isSoloMode) {
-                displayChatMessageLocally(senderName, text);
+                displayChatMessageLocally(senderName, text, messageId);
             } else {
+                // Display immediately for the sender; incoming echoes are deduplicated.
+                displayChatMessageLocally(senderName, text, messageId);
                 sendRealtimeMessage({
                     type: 'ROOM_CHAT_MESSAGE',
+                    messageId: messageId,
                     senderToken: senderToken,
                     senderName: senderName,
                     text: text
@@ -838,23 +844,31 @@
             }
         }
 
-        function displayChatMessageLocally(senderName, text) {
+        function displayChatMessageLocally(senderName, text, messageId) {
             const chatBanner = document.getElementById('chat-messages-banner');
-            const chatList = document.getElementById('chat-messages-list');
+            const historyList = document.getElementById('chat-history-list');
+            if(!chatBanner || !historyList) return;
 
-            if(!chatBanner || !chatList) return;
+            const safeId = messageId || `${senderName}-${text}-${Date.now()}`;
+            if (seenChatMessageIds.has(safeId)) return;
+            seenChatMessageIds.add(safeId);
 
-            chatMessagesHistory.push({ sender: senderName, text: text });
-            if (chatMessagesHistory.length > 3) {
-                chatMessagesHistory.shift(); // Keep at least the last 3 messages
-            }
+            roomChatMessages.push({ senderName: senderName || 'Player', text: text || '', id: safeId });
+            if (roomChatMessages.length > 3) roomChatMessages.shift();
 
-            chatList.innerHTML = '';
-            chatMessagesHistory.forEach(msg => {
-                let div = document.createElement('div');
-                div.className = 'truncate';
-                div.innerHTML = `<span class="font-bold text-amber-400">💬 ${msg.sender}:</span> <span class="text-white">${msg.text}</span>`;
-                chatList.appendChild(div);
+            historyList.innerHTML = '';
+            [...roomChatMessages].reverse().forEach(message => {
+                const row = document.createElement('div');
+                row.className = 'leading-4 break-words';
+                const sender = document.createElement('span');
+                sender.className = 'font-bold text-amber-300 mr-1';
+                sender.textContent = `${message.senderName}:`;
+                const body = document.createElement('span');
+                body.className = 'text-white';
+                body.textContent = message.text;
+                row.appendChild(sender);
+                row.appendChild(body);
+                historyList.appendChild(row);
             });
 
             chatBanner.classList.remove('hidden');
@@ -917,8 +931,14 @@
                     handleHostShowCall(data.peerId);
                 }
                 else if (data.type === 'ROOM_CHAT_MESSAGE') {
-                    sendRealtimeMessage(data);
-                    displayChatMessageLocally(data.senderName, data.text);
+                    // Ignore the host's own relay echo to prevent repeated broadcasts.
+                    if (data.forwardedByHost) return;
+                    displayChatMessageLocally(data.senderName, data.text, data.messageId);
+
+                    // The host relays guest messages once so every room member receives them.
+                    if (data.senderToken !== myClientToken) {
+                        sendRealtimeMessage({ ...data, forwardedByHost: true });
+                    }
                 }
                 else if (data.type === 'PLAYER_LEFT') {
                     const leaving = players.find(p => p.clientToken === data.clientToken || p.id === data.clientToken);
@@ -1042,7 +1062,7 @@
                     logTicker(data.message);
                     break;
                 case 'ROOM_CHAT_MESSAGE':
-                    displayChatMessageLocally(data.senderName, data.text);
+                    displayChatMessageLocally(data.senderName, data.text, data.messageId);
                     break;
                 case 'ROUND_OVER':
                     players = data.players || players;
