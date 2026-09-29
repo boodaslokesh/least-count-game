@@ -1124,7 +1124,7 @@
             
             roundCounter = 1;
             gameHistory = [];
-            roundStarterIndex = 0; // First round starts with player 0
+            roundStarterIndex = 0;
             
             dealNewRoundCards();
         }
@@ -1144,7 +1144,6 @@
                 return;
             }
 
-            // Round-robin increment for who starts the next round/turn
             roundStarterIndex = (roundStarterIndex + 1) % players.length;
             while (players[roundStarterIndex].eliminated || players[roundStarterIndex].connected === false) {
                 roundStarterIndex = (roundStarterIndex + 1) % players.length;
@@ -1163,7 +1162,7 @@
             
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
-            currentTurnIndex = roundStarterIndex; // Round-robin starter turn
+            currentTurnIndex = roundStarterIndex;
             turnPhase = 'drop';
             roundActive = true;
 
@@ -1243,6 +1242,7 @@
 
             if(matchesBoard) {
                 advanceTurn();
+                turnPhase = 'drop';
                 syncActionComplete(`${bot.name} matched board drop.`);
                 checkBotTurn();
             } else {
@@ -1253,6 +1253,7 @@
                 }
                 if(deck.length > 0) bot.hand.push(deck.pop());
                 advanceTurn();
+                turnPhase = 'drop';
                 syncActionComplete(`${bot.name} completed turn.`);
                 checkBotTurn();
             }
@@ -1316,7 +1317,7 @@
                 currentTurnIndex = (currentTurnIndex + 1) % players.length;
                 attempts++;
             } while (attempts < players.length &&
-                (!players[currentTurnIndex] || players[currentIndex].eliminated || players[currentIndex].connected === false));
+                (!players[currentTurnIndex] || players[currentTurnIndex].eliminated || players[currentTurnIndex].connected === false));
         }
 
         function syncActionComplete(msg) {
@@ -1483,7 +1484,6 @@
                     `;
                 }
 
-                // Filter last 3 chat messages for this opponent (or any messages sent by them)
                 let playerMessages = chatHistory.filter(msg => msg.senderToken === p.clientToken || msg.sender === p.name).slice(-3);
                 let chatSnippetHtml = '';
                 if (playerMessages.length > 0) {
@@ -1535,7 +1535,7 @@
             let isMyTurn = (currentTurnIndex === myIndex);
             
             document.getElementById('turn-announcement').innerText = isMyTurn ? "👉 YOUR TURN!" : `Turn: ${activePlayer ? activePlayer.name : 'Waiting'}`;
-            document.getElementById('action-instruction').innerText = isMyTurn ? (turnPhase === 'drop' ? "Select card to drop." : "Click stock to draw.") : `Waiting...`;
+            document.getElementById('action-instruction').innerText = isMyTurn ? (turnPhase === 'drop' ? "Select card to drop." : "Click stock deck to draw.") : `Waiting...`;
 
             me.hand.forEach((card) => {
                 let isRed = ['♥', '♦'].includes(card.suit);
@@ -1555,11 +1555,9 @@
             });
         }
 
-        // Automatic timer to purge/hide chat snippets after 15 seconds
         setInterval(() => {
             let now = Date.now();
             let initialLen = chatHistory.length;
-            // Filter out messages older than 15 seconds (15000ms)
             chatHistory = chatHistory.filter(m => (now - m.time) < 15000);
             if (chatHistory.length !== initialLen) {
                 renderGameBoard();
