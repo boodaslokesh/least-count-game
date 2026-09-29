@@ -132,6 +132,23 @@
                 </div>
             </div>
 
+            <!-- LOBBY INSTRUCTIONS -->
+            <div class="pt-3 text-left border-t border-zinc-900 space-y-2">
+                <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider">📖 Game Instructions & Rules</h3>
+                <div class="text-[11px] text-zinc-400 space-y-1.5 leading-relaxed">
+                    <p>• <strong>Objective:</strong> Keep your hand total score as low as possible.</p>
+                    <p>• <strong>Card Values:</strong> Ace = 1, 2-10 = Face value, J/Q/K = 10 points each.</p>
+                    <p>• <strong>Turn Play:</strong> On your turn, drop a card (or multiple matching rank cards) to the Discard board, then click the Stock deck to draw a new card.</p>
+                    <p>• <strong>Board Matching:</strong> If you drop card(s) that match the rank of the current Discard board card, you don't need to draw!</p>
+                    <p>• <strong>Calling Show:</strong> When your total hand sum is <strong>5 or less</strong>, click <em>Call Show!</em> on your turn to end the round.</p>
+                    <p>• <strong>Scoring:</strong> 
+                        <br>&nbsp;&nbsp;- <strong>Good Show:</strong> Lowest sum wins round (0 pts). Opponents add their hand sum to their score.
+                        <br>&nbsp;&nbsp;- <strong>Failed Show:</strong> If an opponent has an equal or lower sum, caller receives <strong>+25 penalty points</strong>!
+                    </p>
+                    <p>• <strong>Rejoining:</strong> Left by mistake? Enter the same <strong>Nickname</strong> &amp; <strong>Room Code</strong> to rejoin seamlessly.</p>
+                </div>
+            </div>
+
             <p id="lobby-error" class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
@@ -174,8 +191,8 @@
                 </div>
 
                 <!-- Instruction Box -->
-                <div class="text-center max-w-[180px] sm:max-w-xs px-2 flex flex-col items-center space-y-1.5">
-                    <div id="turn-indicator-box" class="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-xl shadow w-full">
+                <div class="text-center max-w-[180px] sm:max-w-xs px-2">
+                    <div id="turn-indicator-box" class="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-xl shadow">
                         <p id="turn-announcement" class="text-xs sm:text-sm font-bold text-amber-300 truncate">Turn: Name</p>
                         <p id="action-instruction" class="text-[10px] sm:text-xs text-zinc-400 mt-0.5">Drop card</p>
                     </div>
@@ -192,8 +209,14 @@
                 </div>
             </div>
 
+            <!-- IN-GAME INSTRUCTIONS DRAWER / BOTTOM BANNER -->
+            <div class="bg-black border border-zinc-800 px-3 py-1.5 rounded-xl text-[10px] sm:text-xs text-zinc-400 flex justify-between items-center shrink-0">
+                <span class="truncate"><strong>Quick Guide:</strong> Drop matching cards to skip draw. Sum ≤ 5 to Call Show.</span>
+                <button onclick="toggleInstructionsModal(true)" class="text-emerald-400 font-semibold underline shrink-0 ml-2">Full Rules</button>
+            </div>
+
             <!-- PLAYER'S HAND CONTAINER -->
-            <div id="my-player-card-division" class="p-2 rounded-lg border flex flex-col justify-between transition bg-black border-zinc-800 shrink-0 space-y-2">
+            <div class="bg-black border border-zinc-800 p-2 sm:p-3 rounded-xl flex flex-col space-y-2 shrink-0">
                 <div class="flex justify-between items-center px-1">
                     <div class="flex items-center space-x-2">
                         <span class="font-bold text-xs sm:text-sm text-zinc-200 truncate max-w-[120px]" id="my-display-name">You</span>
@@ -303,12 +326,12 @@
             <h2 id="round-over-title" class="text-xl sm:text-2xl font-black text-amber-400 text-center">SHOW CALLED!</h2>
             <div id="round-over-content" class="text-xs sm:text-sm text-zinc-300 space-y-2 max-h-48 overflow-y-auto p-2 bg-zinc-950 rounded-xl border border-zinc-900"></div>
             
-            <div id="next-round-btn-container" class="hidden pt-1">
+            <div id="host-next-round-container" class="hidden pt-1">
                 <button onclick="startNextRound()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition text-sm">
                     Start Next Round
                 </button>
             </div>
-            <p id="waiting-next-round-msg" class="text-xs text-zinc-400 text-center animate-pulse">Waiting for someone to start next round...</p>
+            <p id="waiting-next-round-msg" class="text-xs text-zinc-400 text-center animate-pulse">Waiting for host to start next round...</p>
         </div>
     </div>
 
@@ -564,13 +587,6 @@
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
-                let me = players.find(p => p.clientToken === myClientToken || p.id === myId);
-                if (me) {
-                    me.connected = false;
-                }
-                if (isHost && !isSoloMode) {
-                    broadcastPlayerList();
-                }
                 location.reload();
             }
         }
@@ -652,7 +668,7 @@
             roundCounter = 0;
 
             players = [
-                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, clientToken: myClientToken }
+                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
             ];
 
             for (let i = 1; i < maxPlayersLimit; i++) {
@@ -663,8 +679,7 @@
                     scores: 0,
                     hand: [],
                     eliminated: false,
-                    isBot: true,
-                    clientToken: `bot-token-${i}`
+                    isBot: true
                 });
             }
 
@@ -783,7 +798,7 @@
                 if (isHost && !p.isHost && p.id !== myId) {
                     removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
                 }
-                li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(offline)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
+                li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
                 ul.appendChild(li);
             });
         }
@@ -850,9 +865,6 @@
                 else if (data.type === 'CALL_SHOW') {
                     handleHostShowCall(data.peerId);
                 }
-                else if (data.type === 'START_NEXT_ROUND') {
-                    startNextRound();
-                }
                 return;
             }
 
@@ -897,7 +909,6 @@
                     targetEliminationPoints = data.targetPoints || targetEliminationPoints;
                     gameHistory = data.gameHistory || gameHistory;
                     roundActive = true;
-                    turnPhase = 'drop';
                     
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.add('hidden');
@@ -928,10 +939,10 @@
                     logTicker(data.message);
                     break;
                 case 'ROUND_OVER':
-                    players = data.players;
+                    players = data.players; // <--- Fixed: ensures players score updates sync immediately for guests
                     gameHistory = data.gameHistory || gameHistory;
                     showRoundOverModal(data.resultsData, data.callerName);
-                    renderGameBoard();
+                    renderGameBoard(); // Refresh scores on UI
                     break;
             }
         }
@@ -1140,17 +1151,6 @@
             }
         }
 
-        function handleHostAction(data) {
-            players = data.players;
-            deck = data.deck;
-            discardPile = data.discardPile;
-            currentTurnIndex = data.currentTurnIndex;
-            turnPhase = data.turnPhase;
-            broadcastGameState(data.message);
-            renderGameBoard();
-            logTicker(data.message);
-        }
-
         function callShow() {
             let me = players[myIndex];
             if(!me || currentTurnIndex !== myIndex || turnPhase !== 'drop') return;
@@ -1252,8 +1252,13 @@
             document.getElementById('round-over-content').innerHTML = htmlContent;
             document.getElementById('round-over-modal').classList.remove('hidden');
 
-            document.getElementById('next-round-btn-container').classList.remove('hidden');
-            document.getElementById('waiting-next-round-msg').classList.add('hidden');
+            if(isHost || isSoloMode) {
+                document.getElementById('host-next-round-container').classList.remove('hidden');
+                document.getElementById('waiting-next-round-msg').classList.add('hidden');
+            } else {
+                document.getElementById('host-next-round-container').classList.add('hidden');
+                document.getElementById('waiting-next-round-msg').classList.remove('hidden');
+            }
         }
 
         function startNextRound() {
@@ -1264,14 +1269,6 @@
                 return;
             }
 
-            if (isHost || isSoloMode) {
-                executeStartNextRound();
-            } else {
-                sendRealtimeMessage({ type: 'START_NEXT_ROUND' });
-            }
-        }
-
-        function executeStartNextRound() {
             let fullDeck = createDeck();
             players.forEach(p => {
                 if(!p.eliminated) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
@@ -1320,16 +1317,14 @@
                 if(idx === myIndex) return;
                 let isTurn = (idx === currentTurnIndex);
                 let div = document.createElement('div');
-                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-50' : ''}`;
+                div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
                 
                 let removeBtnHtml = (isHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
-                        <span class="font-bold truncate max-w-[65px]">${p.name} ${p.eliminated ? '(Out)' : ''}</span>
-                        <div class="flex items-center space-x-1">
-                            ${removeBtnHtml}
-                        </div>
+                        <span class="font-bold truncate max-w-[65px]">${p.name}</span>
+                        ${removeBtnHtml}
                     </div>
                     <div class="flex justify-between items-center text-[10px] mt-1 text-zinc-400">
                         <span>Cards:</span><span class="font-bold text-white">${p.hand ? p.hand.length : 0}</span>
