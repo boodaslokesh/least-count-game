@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Least Count</title>
+    <meta name="keywords" content="least-count, leastcount, leastcount game, least count games, leastcountgame, least count playying cards, least count card game, least count online, play least count">
+    <meta name="description" content="Play Least Count card game online with friends or vs computer bot.">
+    <title>Least Count Card Game</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
@@ -216,14 +218,71 @@
     <footer class="p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
         <div class="text-zinc-400 truncate max-w-[50vw]" id="activity-log-ticker">Ready</div>
         <div class="flex space-x-2">
-            <button onclick="toggleHistoryModal(true)" class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+            <button id="instructions-btn" onclick="toggleInstructionsModal(true)" class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-emerald-500/30">
+                Game Instructions
+            </button>
+            <button id="history-btn" onclick="toggleHistoryModal(true)" class="hidden bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
                 History
             </button>
-            <button onclick="toggleScoreboardModal(true)" class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+            <button id="scoreboard-btn" onclick="toggleScoreboardModal(true)" class="hidden bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
                 Scores
             </button>
         </div>
     </footer>
+
+    <!-- INSTRUCTIONS MODAL -->
+    <div id="instructions-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-black border border-zinc-800 w-full max-w-lg rounded-2xl p-5 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-zinc-800 pb-2">
+                <h3 class="text-base font-bold text-emerald-300">📖 How to Play Least Count</h3>
+                <button onclick="toggleInstructionsModal(false)" class="text-zinc-400 hover:text-white font-bold text-lg px-2">&times;</button>
+            </div>
+            
+            <div class="space-y-3 text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                <div>
+                    <h4 class="font-bold text-amber-400 uppercase text-[11px] tracking-wider">Objective</h4>
+                    <p>Keep your total hand card count as low as possible. The player with the lowest score when someone calls a "SHOW" wins the round.</p>
+                </div>
+
+                <div>
+                    <h4 class="font-bold text-amber-400 uppercase text-[11px] tracking-wider">Card Values</h4>
+                    <ul class="list-disc list-inside space-y-0.5 text-zinc-400 pl-1">
+                        <li><strong>Ace (A):</strong> 1 Point</li>
+                        <li><strong>Numbered Cards (2–10):</strong> Face value (e.g. 7 = 7 points)</li>
+                        <li><strong>Jack (J), Queen (Q), King (K):</strong> 10 Points each</li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="font-bold text-amber-400 uppercase text-[11px] tracking-wider">Turn Rules</h4>
+                    <ol class="list-decimal list-inside space-y-1 text-zinc-400 pl-1">
+                        <li><strong>Drop:</strong> On your turn, click a card to drop it onto the discard pile. All identical matching cards in your hand will drop together automatically!</li>
+                        <li><strong>Matching Board Card:</strong> If your dropped card value matches the current board top card, your turn ends immediately without drawing!</li>
+                        <li><strong>Draw Card:</strong> If your dropped card does not match the board card, click the Stock deck to draw 1 new card.</li>
+                    </ol>
+                </div>
+
+                <div>
+                    <h4 class="font-bold text-amber-400 uppercase text-[11px] tracking-wider">Calling SHOW (≤ 5 Points)</h4>
+                    <p class="text-zinc-400">At the start of your turn (before dropping a card), if your total hand sum is <strong>5 points or less</strong>, you can click <strong>Call Show!</strong>.</p>
+                    <div class="bg-zinc-900 border border-zinc-800 p-2.5 rounded-xl space-y-1 text-[11px] text-zinc-300 mt-1">
+                        <p><strong class="text-emerald-400">Good Show:</strong> If your hand sum is lower than everyone else's, you get 0 points, and opponents get points equal to their hand sum.</p>
+                        <p><strong class="text-amber-400">Matched Show:</strong> If another player ties your sum, you get 0 points, and other non-matching players add their sum to their totals.</p>
+                        <p><strong class="text-rose-400">Failed Show:</strong> If any opponent has a strictly lower sum than you, you suffer a <strong>+25 penalty points</strong>, and others add 0 points.</p>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="font-bold text-amber-400 uppercase text-[11px] tracking-wider">Elimination & Winning</h4>
+                    <p class="text-zinc-400">Points accumulate over rounds. When a player reaches or exceeds the target elimination score (e.g., 100 pts), they are eliminated. The last remaining player wins!</p>
+                </div>
+            </div>
+
+            <div class="pt-2 flex justify-end">
+                <button onclick="toggleInstructionsModal(false)" class="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 font-bold text-black rounded-xl text-xs shadow">Got It!</button>
+            </div>
+        </div>
+    </div>
 
     <!-- HISTORY MODAL -->
     <div id="history-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
@@ -388,7 +447,7 @@
             }
         });
 
-        const cardValueWeight = {'A':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13};
+        const cardValueWeight = {'A':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':10, 'Q':10, 'K':10};
         function sortHandCards(hand) {
             const counts = {};
             hand.forEach(c => {
@@ -540,6 +599,10 @@
                 renderGameBoard();
                 logTicker(`Removed ${targetPlayerName} from the game.`);
             }
+        }
+
+        function toggleInstructionsModal(show) {
+            document.getElementById('instructions-modal').classList.toggle('hidden', !show);
         }
 
         function toggleScoreboardModal(show) {
@@ -706,6 +769,9 @@
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('game-status-banner').classList.remove('hidden');
             document.getElementById('game-status-banner').innerText = "Solo vs Computer Mode";
+
+            document.getElementById('history-btn').classList.remove('hidden');
+            document.getElementById('scoreboard-btn').classList.remove('hidden');
 
             renderGameBoard();
             logTicker("Solo game started against Computer bots!");
@@ -1011,6 +1077,9 @@
                     document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
+
+                    document.getElementById('history-btn').classList.remove('hidden');
+                    document.getElementById('scoreboard-btn').classList.remove('hidden');
                     
                     myIndex = players.findIndex(p => p.id === myId);
                     renderGameBoard();
@@ -1039,6 +1108,7 @@
                     let pts = 10;
                     if (v === 'A') pts = 1;
                     else if (!isNaN(v)) pts = parseInt(v);
+                    else if (['J', 'Q', 'K'].includes(v)) pts = 10;
                     d.push({ suit: s, val: v, points: pts, uid: Math.random().toString(36).substring(2) });
                 }
             }
@@ -1094,6 +1164,9 @@
             document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
             document.getElementById('current-room-id').innerText = roomCode;
             document.getElementById('game-status-banner').classList.remove('hidden');
+
+            document.getElementById('history-btn').classList.remove('hidden');
+            document.getElementById('scoreboard-btn').classList.remove('hidden');
 
             renderGameBoard();
             logTicker("Game started!");
@@ -1469,63 +1542,56 @@
             me.hand.forEach((card) => {
                 let isRed = ['♥', '♦'].includes(card.suit);
                 let cardEl = document.createElement('div');
-                cardEl.className = `w-12 h-20 sm:w-16 sm:h-24 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1 sm:p-1.5 font-bold cursor-pointer hover:-translate-y-1 transition transform select-none shrink-0 ${isRed ? 'text-rose-600' : 'text-slate-900'} ${!isMyTurn || me.eliminated ? 'opacity-80 cursor-not-allowed' : ''}`;
+                let clickableClass = (isMyTurn && turnPhase === 'drop' && !me.eliminated) ? 'cursor-pointer hover:-translate-y-2 active:scale-95' : 'opacity-85';
                 
-                cardEl.innerHTML = `
-                    <div class="text-[10px] sm:text-xs">${card.val}</div>
-                    <div class="text-sm sm:text-lg self-center">${card.suit}</div>
-                    <div class="text-[10px] sm:text-xs self-end rotate-180">${card.val}</div>
-                `;
+                cardEl.className = `w-12 h-18 sm:w-16 sm:h-24 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1 sm:p-1.5 font-bold transition transform shrink-0 select-none ${isRed ? 'text-rose-600' : 'text-slate-900'} ${clickableClass}`;
+                cardEl.onclick = () => { if(isMyTurn && turnPhase === 'drop') handleCardClick(card.uid); };
 
-                if(isMyTurn && !me.eliminated) {
-                    cardEl.onclick = () => handleCardClick(card.uid);
-                }
+                cardEl.innerHTML = `
+                    <div class="text-[10px] leading-none">${card.val}</div>
+                    <div class="text-sm sm:text-base self-center leading-none">${card.suit}</div>
+                    <div class="text-[10px] self-end rotate-180 leading-none">${card.val}</div>
+                `;
                 myHandContainer.appendChild(cardEl);
             });
         }
 
         function updateScoreboardTable() {
-            const tbody = document.getElementById('scoreboard-table-body');
+            let tbody = document.getElementById('scoreboard-table-body');
             tbody.innerHTML = '';
-            players.forEach(p => {
+            let sorted = [...players].sort((a,b) => a.scores - b.scores);
+            sorted.forEach(p => {
                 let tr = document.createElement('tr');
+                tr.className = 'border-b border-zinc-900 text-xs sm:text-sm';
                 tr.innerHTML = `
-                    <td class="py-2 font-medium">${p.name}</td>
-                    <td class="py-2 text-right font-mono font-bold">${p.scores} / ${targetEliminationPoints}</td>
-                    <td class="py-2 text-right text-[11px]"><span class="px-2 py-0.5 rounded ${p.eliminated ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'}">${p.eliminated ? 'Eliminated' : 'Active'}</span></td>
+                    <td class="py-2 font-semibold text-zinc-200">${p.name} ${p.id === myId ? '<span class="text-emerald-400 font-normal">(You)</span>' : ''}</td>
+                    <td class="py-2 text-right font-mono font-bold text-amber-400">${p.scores}</td>
+                    <td class="py-2 text-right">${p.eliminated ? '<span class="text-rose-400 font-bold">Eliminated</span>' : '<span class="text-emerald-400">Active</span>'}</td>
                 `;
                 tbody.appendChild(tr);
             });
         }
 
         function updateHistoryContainer() {
-            const container = document.getElementById('history-container');
-            if(!container) return;
+            let container = document.getElementById('history-container');
             if(!gameHistory || gameHistory.length === 0) {
                 container.innerHTML = `<p class="text-zinc-500 italic text-center py-4">No completed rounds yet.</p>`;
                 return;
             }
-
             container.innerHTML = '';
-            gameHistory.forEach((round) => {
-                let div = document.createElement('div');
-                div.className = 'bg-zinc-900 border border-zinc-800 p-3 rounded-xl space-y-1.5';
+            [...gameHistory].reverse().forEach(h => {
+                let card = document.createElement('div');
+                card.className = 'bg-zinc-900 border border-zinc-800 p-3 rounded-xl space-y-1.5';
+                let detailsHtml = h.details.map(d => `<div class="flex justify-between text-[11px] text-zinc-400"><span>${d.name} (Sum: ${d.sum})</span><span class="font-mono text-zinc-200">+${d.pointsAdded} pts</span></div>`).join('');
                 
-                let detailsHtml = '';
-                round.details.forEach(d => {
-                    detailsHtml += `<div class="flex justify-between text-zinc-300"><span>${d.name} (Sum: ${d.sum})</span><span class="font-mono text-amber-400">+${d.pointsAdded} pts</span></div>`;
-                });
-
-                div.innerHTML = `
-                    <div class="flex justify-between items-center font-bold text-emerald-300 border-b border-zinc-800 pb-1">
-                        <span>Round ${round.roundNumber} (${round.callerName}'s Show)</span>
-                        <span class="text-[10px] text-zinc-400 font-normal">${round.outcome}</span>
+                card.innerHTML = `
+                    <div class="flex justify-between items-center text-xs font-bold border-b border-zinc-800 pb-1">
+                        <span class="text-amber-400">Round ${h.roundNumber} - ${h.callerName} Called</span>
+                        <span class="text-emerald-400 text-[10px] uppercase">${h.outcome}</span>
                     </div>
-                    <div class="space-y-1 text-xs pt-1">
-                        ${detailsHtml}
-                    </div>
+                    <div class="space-y-0.5 pt-1">${detailsHtml}</div>
                 `;
-                container.appendChild(div);
+                container.appendChild(card);
             });
         }
     </script>
