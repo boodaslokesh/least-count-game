@@ -432,16 +432,19 @@
                 heartbeat_at: new Date().toISOString()
             };
 
-            const data = await roomDbFetch(ROOM_DB_URL, {
+            // Do not request the inserted row back. With Supabase RLS, an INSERT
+            // may be permitted while SELECT is not; return=representation would
+            // then fail even though the row could be inserted. This app only needs
+            // the room code and host peer id, both already known here.
+            await roomDbFetch(ROOM_DB_URL, {
                 method: 'POST',
-                headers: { 'Prefer': 'return=representation' },
+                headers: { 'Prefer': 'return=minimal' },
                 body: JSON.stringify(payload)
             });
 
-            const row = Array.isArray(data) ? data[0] : data;
-            roomDbId = row?.id || null;
-            hostPeerId = row?.host_peer_id || roomCode;
-            return row;
+            roomDbId = null;
+            hostPeerId = roomCode;
+            return { join_code: roomCode, host_peer_id: hostPeerId };
         }
 
         async function updateRoomRecord(fields) {
@@ -856,19 +859,26 @@
             // Reserve the room in Supabase BEFORE creating the PeerJS host.
             // This makes the room visible to every phone/browser, not just this browser.
             let created = false;
+            let lastCreateError = null;
             for(let attempt = 0; attempt < 5 && !created; attempt++) {
                 roomCode = generateShortCode();
                 try {
                     await createRoomRecord();
                     created = true;
                 } catch(e) {
+                    lastCreateError = e;
                     console.error('Could not create room record:', e);
-                    // A duplicate join_code is the normal reason to retry.
+                    const message = String(e?.message || e);
+                    // Retry only a possible duplicate-code conflict. RLS, missing
+                    // columns, invalid keys, and network errors will not improve
+                    // by generating another room code.
+                    if(!/23505|duplicate key|unique constraint/i.test(message)) break;
                 }
             }
 
             if(!created) {
-                showLobbyError('Could not create the room in the database. Check Supabase RLS/table columns.');
+                const detail = String(lastCreateError?.message || lastCreateError || 'Unknown database error');
+                showLobbyError(`Room creation failed: ${detail}`);
                 return;
             }
 
