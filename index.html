@@ -90,7 +90,6 @@
                     <div>
                         <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Eliminate Pts</label>
                         <select id="target-points-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
-                            <option value="10">10 Pts</option>
                             <option value="50">50 Pts</option>
                             <option value="75">75 Pts</option>
                             <option value="100" selected>100 Pts</option>
@@ -131,9 +130,6 @@
                     <p class="text-[11px] text-zinc-500 italic text-center py-2">Searching public registry...</p>
                 </div>
             </div>
-
-            <!-- LOBBY INSTRUCTIONS -->
-
 
             <p id="lobby-error" class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
@@ -195,12 +191,6 @@
                 </div>
             </div>
 
-            <!-- IN-GAME INSTRUCTIONS DRAWER / BOTTOM BANNER -->
-            <div class="bg-black border border-zinc-800 px-3 py-1.5 rounded-xl text-[10px] sm:text-xs text-zinc-400 flex justify-between items-center shrink-0">
-                <span class="truncate"><strong>Quick Guide:</strong> Drop matching cards to skip draw. Sum ≤ 5 to Call Show.</span>
-                <button onclick="toggleInstructionsModal(true)" class="text-emerald-400 font-semibold underline shrink-0 ml-2">Full Rules</button>
-            </div>
-
             <!-- PLAYER'S HAND CONTAINER -->
             <div class="bg-black border border-zinc-800 p-2 sm:p-3 rounded-xl flex flex-col space-y-2 shrink-0">
                 <div class="flex justify-between items-center px-1">
@@ -224,11 +214,8 @@
 
     <!-- FOOTER -->
     <footer class="p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
-        <div class="text-zinc-400 truncate max-w-[40vw]" id="activity-log-ticker">Ready</div>
+        <div class="text-zinc-400 truncate max-w-[50vw]" id="activity-log-ticker">Ready</div>
         <div class="flex space-x-2">
-            <button onclick="toggleInstructionsModal(true)" class="bg-emerald-600/80 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-emerald-500/50">
-                Instructions
-            </button>
             <button onclick="toggleHistoryModal(true)" class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
                 History
             </button>
@@ -237,31 +224,6 @@
             </button>
         </div>
     </footer>
-
-    <!-- GAME INSTRUCTIONS MODAL -->
-    <div id="instructions-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-black border border-zinc-800 w-full max-w-md rounded-2xl p-5 shadow-2xl space-y-3 max-h-[85vh] overflow-y-auto">
-            <div class="flex justify-between items-center border-b border-zinc-900 pb-2">
-                <h3 class="text-base font-bold text-emerald-300">📖 Game Instructions & Rules</h3>
-                <button onclick="toggleInstructionsModal(false)" class="text-zinc-400 hover:text-white font-bold text-lg px-2">&times;</button>
-            </div>
-            <div class="text-xs sm:text-sm text-zinc-300 space-y-2 leading-relaxed">
-                <p>• <strong>Objective:</strong> Keep your hand total score as low as possible.</p>
-                <p>• <strong>Card Values:</strong> Ace = 1, 2-10 = Face value, J/Q/K = 10 points each.</p>
-                <p>• <strong>Turn Play:</strong> On your turn, drop a card (or multiple matching rank cards) to the Discard board, then click the Stock deck to draw a new card.</p>
-                <p>• <strong>Board Matching:</strong> If you drop card(s) that match the rank of the current Discard board card, you don't need to draw!</p>
-                <p>• <strong>Calling Show:</strong> When your total hand sum is <strong>5 or less</strong>, click <em>Call Show!</em> on your turn to end the round.</p>
-                <p>• <strong>Scoring:</strong> 
-                    <br>&nbsp;&nbsp;- <strong>Good Show:</strong> Lowest sum wins round (0 pts). Opponents add their hand sum to their score.
-                    <br>&nbsp;&nbsp;- <strong>Failed Show:</strong> If an opponent has an equal or lower sum, caller receives <strong>+25 penalty points</strong>!
-                </p>
-                <p>• <strong>Rejoining:</strong> Left by mistake? Enter the same <strong>Nickname</strong> &amp; <strong>Room Code</strong> to rejoin seamlessly.</p>
-            </div>
-            <div class="pt-2 flex justify-end">
-                <button onclick="toggleInstructionsModal(false)" class="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 font-semibold text-white rounded-xl text-xs">Close</button>
-            </div>
-        </div>
-    </div>
 
     <!-- HISTORY MODAL -->
     <div id="history-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
@@ -612,10 +574,6 @@
             }
         }
 
-        function toggleInstructionsModal(show) {
-            document.getElementById('instructions-modal').classList.toggle('hidden', !show);
-        }
-
         function closeRoundOverModal() {
             document.getElementById('round-over-modal').classList.add('hidden');
         }
@@ -794,27 +752,11 @@
             // HOST RECEIVES GUEST MESSAGES
             if (isHost) {
                 if (data.type === 'JOIN_REQUEST') {
-                    let existingPlayer = players.find(p => p.clientToken === data.clientToken || p.name.toLowerCase() === (data.name || '').toLowerCase());
+                    let existingPlayer = players.find(p => p.clientToken === data.clientToken);
                     if (existingPlayer) {
                         existingPlayer.connected = true;
-                        existingPlayer.clientToken = data.clientToken;
-                        existingPlayer.id = data.clientToken;
-
-                        if (roundActive) {
-                            sendRealtimeMessage({
-                                type: 'START_GAME',
-                                players: players,
-                                deck: deck,
-                                discardPile: discardPile,
-                                currentTurnIndex: currentTurnIndex,
-                                targetPoints: targetEliminationPoints,
-                                cardsPerPlayer: cardsPerPlayer,
-                                gameHistory: gameHistory
-                            });
-                        } else {
-                            broadcastPlayerList();
-                            updateWaitingRoomUI();
-                        }
+                        broadcastPlayerList();
+                        updateWaitingRoomUI();
                         return;
                     }
 
@@ -874,12 +816,6 @@
                     cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints;
                     resetJoinButtonState(true);
-                    
-                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
-                    if (myIndex !== -1) {
-                        myId = players[myIndex].id;
-                    }
-
                     document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.remove('hidden');
                     document.getElementById('display-room-code').innerText = roomCode;
@@ -896,7 +832,6 @@
                     gameHistory = data.gameHistory || gameHistory;
                     roundActive = true;
                     
-                    document.getElementById('lobby-screen').classList.add('hidden');
                     document.getElementById('waiting-screen').classList.add('hidden');
                     document.getElementById('round-over-modal').classList.add('hidden');
                     document.getElementById('game-board-screen').classList.remove('hidden');
@@ -905,10 +840,7 @@
                     document.getElementById('current-room-id').innerText = roomCode;
                     document.getElementById('game-status-banner').classList.remove('hidden');
                     
-                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
-                    if (myIndex !== -1) {
-                        myId = players[myIndex].id;
-                    }
+                    myIndex = players.findIndex(p => p.id === myId);
                     renderGameBoard();
                     break;
                 case 'GAME_STATE_UPDATE':
@@ -917,18 +849,13 @@
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
                     turnPhase = data.turnPhase;
-                    myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
-                    if (myIndex !== -1) {
-                        myId = players[myIndex].id;
-                    }
+                    myIndex = players.findIndex(p => p.id === myId);
                     renderGameBoard();
                     logTicker(data.message);
                     break;
                 case 'ROUND_OVER':
-                    players = data.players; // <--- Fixed: ensures players score updates sync immediately for guests
                     gameHistory = data.gameHistory || gameHistory;
                     showRoundOverModal(data.resultsData, data.callerName);
-                    renderGameBoard(); // Refresh scores on UI
                     break;
             }
         }
@@ -1064,7 +991,7 @@
             if(!roundActive) return;
             if(currentTurnIndex !== myIndex) return;
             let me = players[myIndex];
-            if(!me || me.eliminated) return;
+            if(me.eliminated) return;
 
             if(turnPhase === 'drop') {
                 let cardIndex = me.hand.findIndex(c => c.uid === cardUid);
@@ -1096,7 +1023,7 @@
             if(!roundActive) return;
             if(currentTurnIndex !== myIndex) return;
             let me = players[myIndex];
-            if(!me || turnPhase !== 'draw') return;
+            if(turnPhase !== 'draw') return;
 
             if(deck.length === 0 && discardPile.length > 1) {
                 let top = discardPile.pop();
@@ -1137,9 +1064,20 @@
             }
         }
 
+        function handleHostAction(data) {
+            players = data.players;
+            deck = data.deck;
+            discardPile = data.discardPile;
+            currentTurnIndex = data.currentTurnIndex;
+            turnPhase = data.turnPhase;
+            broadcastGameState(data.message);
+            renderGameBoard();
+            logTicker(data.message);
+        }
+
         function callShow() {
             let me = players[myIndex];
-            if(!me || currentTurnIndex !== myIndex || turnPhase !== 'drop') return;
+            if(currentTurnIndex !== myIndex || turnPhase !== 'drop') return;
             let sum = calculateHandSum(me.hand);
             if(sum > 5) { alert("Sum must be 5 or less!"); return; }
 
@@ -1331,11 +1269,11 @@
 
             document.getElementById('deck-count').innerText = deck.length;
 
-            let me = players[myIndex] || { name: myName, hand: [], eliminated: false };
+            let me = players[myIndex];
             const myHandContainer = document.getElementById('my-hand-cards');
             myHandContainer.innerHTML = '';
 
-            let mySum = calculateHandSum(me.hand || []);
+            let mySum = calculateHandSum(me.hand);
             document.getElementById('my-hand-sum').innerText = mySum;
             document.getElementById('my-display-name').innerText = me.name + (me.eliminated ? ' (Out)' : '');
 
@@ -1348,7 +1286,7 @@
             document.getElementById('turn-announcement').innerText = isMyTurn ? "👉 YOUR TURN!" : `Turn: ${activePlayer ? activePlayer.name : 'Waiting'}`;
             document.getElementById('action-instruction').innerText = isMyTurn ? (turnPhase === 'drop' ? "Select card to drop." : "Click stock to draw.") : `Waiting...`;
 
-            (me.hand || []).forEach((card) => {
+            me.hand.forEach((card) => {
                 let isRed = ['♥', '♦'].includes(card.suit);
                 let cardEl = document.createElement('div');
                 cardEl.className = `w-12 h-20 sm:w-16 sm:h-24 bg-white border-2 border-slate-300 rounded-lg shadow-md flex flex-col justify-between p-1 sm:p-1.5 font-bold cursor-pointer hover:-translate-y-1 transition transform select-none shrink-0 ${isRed ? 'text-rose-600' : 'text-slate-900'} ${!isMyTurn || me.eliminated ? 'opacity-80 cursor-not-allowed' : ''}`;
