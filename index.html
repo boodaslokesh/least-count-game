@@ -46,10 +46,6 @@
             <div id="game-status-banner" class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden">
                 Waiting...
             </div>
-            <!-- Chat toggle button in top bar -->
-            <button onclick="toggleChatModal(true)" class="bg-indigo-600/85 hover:bg-indigo-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-indigo-700/50 flex items-center gap-1">
-                💬 Chat
-            </button>
             <button onclick="confirmExitGame()" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-rose-700/50">
                 Exit Game
             </button>
@@ -176,11 +172,17 @@
                     </div>
                 </div>
 
-                <!-- Instruction Box -->
-                <div class="text-center max-w-[180px] sm:max-w-xs px-2">
+                <!-- Instruction Box & Game Room Chat Option -->
+                <div class="text-center max-w-[200px] sm:max-w-xs px-2 flex flex-col space-y-2">
                     <div id="turn-indicator-box" class="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-xl shadow">
                         <p id="turn-announcement" class="text-xs sm:text-sm font-bold text-amber-300 truncate">Turn: Name</p>
                         <p id="action-instruction" class="text-[10px] sm:text-xs text-zinc-400 mt-0.5">Drop card</p>
+                    </div>
+
+                    <!-- Room Chat Input Box -->
+                    <div class="flex space-x-1">
+                        <input type="text" id="room-chat-input" placeholder="Type chat..." maxlength="40" class="w-full px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-white text-[10px] focus:outline-none focus:border-emerald-500 placeholder-zinc-500">
+                        <button onclick="sendRoomChatMessage()" class="px-2 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded text-[10px] whitespace-nowrap">Send</button>
                     </div>
                 </div>
 
@@ -228,23 +230,6 @@
             </button>
         </div>
     </footer>
-
-    <!-- CHAT MODAL -->
-    <div id="chat-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-black border border-zinc-800 w-full max-w-sm rounded-2xl p-4 shadow-2xl flex flex-col h-[70vh] max-h-[500px] space-y-3">
-            <div class="flex justify-between items-center border-b border-zinc-900 pb-2">
-                <h3 class="text-base font-bold text-emerald-300">Room Chat</h3>
-                <button onclick="toggleChatModal(false)" class="text-zinc-400 hover:text-white font-bold text-lg px-2">&times;</button>
-            </div>
-            <div id="chat-messages-container" class="flex-grow overflow-y-auto space-y-2 pr-1 text-xs sm:text-sm">
-                <p class="text-zinc-500 italic text-center py-2">No messages yet. Say hello!</p>
-            </div>
-            <div class="flex space-x-2 pt-1">
-                <input type="text" id="chat-input" placeholder="Type a message..." maxlength="120" autocomplete="off" class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-xs sm:text-sm" onkeydown="if(event.key==='Enter') sendChatMessage()">
-                <button onclick="sendChatMessage()" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-xs sm:text-sm transition">Send</button>
-            </div>
-        </div>
-    </div>
 
     <!-- HISTORY MODAL -->
     <div id="history-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
@@ -643,91 +628,6 @@
             }
         }
 
-        function toggleChatModal(show) {
-            document.getElementById('chat-modal').classList.toggle('hidden', !show);
-            if (show) {
-                setTimeout(() => {
-                    const chatInput = document.getElementById('chat-input');
-                    if(chatInput) chatInput.focus();
-                }, 100);
-            }
-        }
-
-        // --- CHAT LOGIC ---
-        const activeChatBubbles = {};
-
-        function sendChatMessage() {
-            const input = document.getElementById('chat-input');
-            if(!input) return;
-            const text = input.value.trim();
-            if(!text) return;
-            input.value = '';
-
-            const msgObj = {
-                senderId: myClientToken || myId,
-                senderName: myName || 'Player',
-                text: text,
-                time: Date.now()
-            };
-
-            appendChatBubbleToUI(msgObj);
-
-            if (isSoloMode) {
-                // In solo mode, bots don't chat unless simulated, but we display our own
-            } else {
-                sendRealtimeMessage({
-                    type: 'ROOM_CHAT_MESSAGE',
-                    message: msgObj
-                });
-            }
-        }
-
-        function appendChatBubbleToUI(msgObj) {
-            const container = document.getElementById('chat-messages-container');
-            if(!container) return;
-            
-            // Remove initial placeholder if present
-            if (container.querySelector('.italic')) {
-                container.innerHTML = '';
-            }
-
-            const div = document.createElement('div');
-            div.className = 'bg-zinc-900 border border-zinc-800 p-2 rounded-xl space-y-0.5';
-            div.innerHTML = `
-                <div class="flex justify-between items-center text-[10px] text-zinc-400">
-                    <span class="font-bold text-emerald-400">${escapeHtml(msgObj.senderName)}</span>
-                    <span>${new Date(msgObj.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                </div>
-                <div class="text-white break-words text-xs sm:text-sm">${escapeHtml(msgObj.text)}</div>
-            `;
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
-
-            // Also attach/update on opponent HUD or player tile for 15 seconds
-            showChatOnPlayerHUD(msgObj.senderId, msgObj.text);
-        }
-
-        function showChatOnPlayerHUD(senderId, text) {
-            // Find player index or ID matching sender
-            let targetPlayer = players.find(p => p.clientToken === senderId || p.id === senderId);
-            if (!targetPlayer) return;
-
-            // Store active message
-            activeChatBubbles[targetPlayer.id] = {
-                text: text,
-                timer: setTimeout(() => {
-                    delete activeChatBubbles[targetPlayer.id];
-                    renderGameBoard();
-                }, 15000)
-            };
-
-            renderGameBoard();
-        }
-
-        function escapeHtml(str) {
-            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-        }
-
         function closeRoundOverModal() {
             document.getElementById('round-over-modal').classList.add('hidden');
         }
@@ -908,14 +808,51 @@
             });
         }
 
-        // --- INCOMING NETWORK DATA SWITCH ---
-        function handleIncomingNetworkData(data) {
-            // HANDLE CHAT MESSAGES
-            if (data.type === 'ROOM_CHAT_MESSAGE') {
-                appendChatBubbleToUI(data.message);
-                return;
+        // --- CHAT SYSTEM LOGIC ---
+        const activeChatTimeouts = {};
+
+        function sendRoomChatMessage() {
+            const inputEl = document.getElementById('room-chat-input');
+            if(!inputEl) return;
+            const text = inputEl.value.trim();
+            if(!text) return;
+            inputEl.value = '';
+
+            const senderName = myName || "Player";
+            const senderToken = myClientToken || myId;
+
+            if (isSoloMode) {
+                displayChatMessageLocally(senderToken, senderName, text);
+            } else {
+                sendRealtimeMessage({
+                    type: 'ROOM_CHAT_MESSAGE',
+                    senderToken: senderToken,
+                    senderName: senderName,
+                    text: text
+                });
+            }
+        }
+
+        function displayChatMessageLocally(senderToken, senderName, text) {
+            let targetPlayer = players.find(p => (p.clientToken === senderToken || p.id === senderToken));
+            if(!targetPlayer) return;
+            targetPlayer.lastChatMessage = text;
+            renderGameBoard();
+
+            if (activeChatTimeouts[targetPlayer.id]) {
+                clearTimeout(activeChatTimeouts[targetPlayer.id]);
             }
 
+            activeChatTimeouts[targetPlayer.id] = setTimeout(() => {
+                if (players.find(p => p.id === targetPlayer.id)) {
+                    targetPlayer.lastChatMessage = '';
+                    renderGameBoard();
+                }
+            }, 15000);
+        }
+
+        // --- INCOMING NETWORK DATA SWITCH ---
+        function handleIncomingNetworkData(data) {
             // HOST RECEIVES GUEST MESSAGES
             if (isHost) {
                 if (data.type === 'JOIN_REQUEST') {
@@ -968,6 +905,10 @@
                 }
                 else if (data.type === 'CALL_SHOW') {
                     handleHostShowCall(data.peerId);
+                }
+                else if (data.type === 'ROOM_CHAT_MESSAGE') {
+                    sendRealtimeMessage(data);
+                    displayChatMessageLocally(data.senderToken, data.senderName, data.text);
                 }
                 else if (data.type === 'PLAYER_LEFT') {
                     const leaving = players.find(p => p.clientToken === data.clientToken || p.id === data.clientToken);
@@ -1089,6 +1030,9 @@
                     document.getElementById('game-status-banner').classList.remove('hidden');
                     renderGameBoard();
                     logTicker(data.message);
+                    break;
+                case 'ROOM_CHAT_MESSAGE':
+                    displayChatMessageLocally(data.senderToken, data.senderName, data.text);
                     break;
                 case 'ROUND_OVER':
                     players = data.players || players;
@@ -1498,22 +1442,17 @@
                     `;
                 }
 
-                // Check for active chat bubble on this opponent's tile
-                let chatBubbleHtml = '';
-                let activeChat = activeChatBubbles[p.id];
-                if (activeChat) {
-                    chatBubbleHtml = `<div class="mt-1 bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 text-[10px] px-1.5 py-1 rounded truncate">💬 ${escapeHtml(activeChat.text)}</div>`;
-                }
+                let chatBubbleHtml = p.lastChatMessage ? `<div class="mt-1 bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 px-1.5 py-0.5 rounded text-[10px] break-words">💬 ${p.lastChatMessage}</div>` : '';
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
                         <span class="font-bold truncate max-w-[65px]">${p.name}</span>
                         ${p.isHost ? '<span class="text-[9px] text-amber-400">Host</span>' : ''}
                     </div>
+                    ${chatBubbleHtml}
                     <div class="flex justify-between items-center text-[10px] mt-1 text-zinc-400">
                         <span>Cards:</span><span class="font-bold text-white">${p.hand ? p.hand.length : 0}</span>
                     </div>
-                    ${chatBubbleHtml}
                     ${actionsHtml}
                 `;
                 hudContainer.appendChild(div);
@@ -1538,14 +1477,6 @@
             let mySum = calculateHandSum(me.hand);
             document.getElementById('my-hand-sum').innerText = mySum;
             document.getElementById('my-display-name').innerText = me.name + (me.eliminated ? ' (Out)' : '');
-
-            // Also render chat bubble on my tile if active
-            let myChatBubbleHtml = '';
-            let myActiveChat = activeChatBubbles[me.id];
-            if (myActiveChat) {
-                myChatBubbleHtml = `<div class="mt-1 bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 text-[10px] px-1.5 py-1 rounded">💬 ${escapeHtml(myActiveChat.text)}</div>`;
-            }
-            // Append or insert chat info near my display name if needed or let opponents hud handle others.
 
             let canShow = (currentTurnIndex === myIndex && turnPhase === 'drop' && mySum <= 5 && !me.eliminated);
             document.getElementById('call-show-btn').disabled = !canShow;
