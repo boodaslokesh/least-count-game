@@ -132,23 +132,6 @@
                 </div>
             </div>
 
-            <!-- LOBBY INSTRUCTIONS -->
-            <div class="pt-3 text-left border-t border-zinc-900 space-y-2">
-                <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider">📖 Game Instructions & Rules</h3>
-                <div class="text-[11px] text-zinc-400 space-y-1.5 leading-relaxed">
-                    <p>• <strong>Objective:</strong> Keep your hand total score as low as possible.</p>
-                    <p>• <strong>Card Values:</strong> Ace = 1, 2-10 = Face value, J/Q/K = 10 points each.</p>
-                    <p>• <strong>Turn Play:</strong> On your turn, drop a card (or multiple matching rank cards) to the Discard board, then click the Stock deck to draw a new card.</p>
-                    <p>• <strong>Board Matching:</strong> If you drop card(s) that match the rank of the current Discard board card, you don't need to draw!</p>
-                    <p>• <strong>Calling Show:</strong> When your total hand sum is <strong>5 or less</strong>, click <em>Call Show!</em> on your turn to end the round.</p>
-                    <p>• <strong>Scoring:</strong> 
-                        <br>&nbsp;&nbsp;- <strong>Good Show:</strong> Lowest sum wins round (0 pts). Opponents add their hand sum to their score.
-                        <br>&nbsp;&nbsp;- <strong>Failed Show:</strong> If an opponent has an equal or lower sum, caller receives <strong>+25 penalty points</strong>!
-                    </p>
-                    <p>• <strong>Rejoining:</strong> Left by mistake? Enter the same <strong>Nickname</strong> &amp; <strong>Room Code</strong> to rejoin seamlessly.</p>
-                </div>
-            </div>
-
             <p id="lobby-error" class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
@@ -326,12 +309,11 @@
             <h2 id="round-over-title" class="text-xl sm:text-2xl font-black text-amber-400 text-center">SHOW CALLED!</h2>
             <div id="round-over-content" class="text-xs sm:text-sm text-zinc-300 space-y-2 max-h-48 overflow-y-auto p-2 bg-zinc-950 rounded-xl border border-zinc-900"></div>
             
-            <div id="host-next-round-container" class="hidden pt-1">
+            <div id="next-round-container" class="pt-1">
                 <button onclick="startNextRound()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition text-sm">
                     Start Next Round
                 </button>
             </div>
-            <p id="waiting-next-round-msg" class="text-xs text-zinc-400 text-center animate-pulse">Waiting for host to start next round...</p>
         </div>
     </div>
 
@@ -405,7 +387,7 @@
                 })
                 .subscribe((status) => {
                     if (status === 'SUBSCRIBED') {
-                        if (!isHost && !isSoloMode) {
+                        if (!isSoloMode) {
                             sendRealtimeMessage({
                                 type: 'JOIN_REQUEST',
                                 name: myName,
@@ -587,13 +569,37 @@
 
         function confirmExitGame() {
             if (confirm("Are you sure you want to exit?")) {
+                let me = players.find(p => p.clientToken === myClientToken);
+                if (me) {
+                    me.connected = false;
+                    me.exitedManually = true;
+                    // If host leaves, make another active player host if available
+                    if (me.isHost) {
+                        isHost = false;
+                        let nextAvailable = players.find(p => p.clientToken !== myClientToken && !p.exitedManually);
+                        if (nextAvailable) {
+                            nextAvailable.isHost = true;
+                        }
+                    }
+                    if (roundActive && currentTurnIndex === myIndex) {
+                        advanceTurn();
+                    }
+                    broadcastPlayerList();
+                    if(roundActive) {
+                        broadcastGameState("A player exited the game.");
+                    }
+                }
                 location.reload();
             }
         }
 
         function confirmRemovePlayer(targetPeerId, targetPlayerName) {
             if (confirm(`Are you sure you want to remove this player (${targetPlayerName})?`)) {
-                players = players.filter(p => p.id !== targetPeerId);
+                let targetPlayer = players.find(p => p.id === targetPeerId);
+                if (targetPlayer) {
+                    targetPlayer.exitedManually = true;
+                    targetPlayer.connected = false;
+                }
                 
                 sendRealtimeMessage({
                     type: 'KICKED_PLAYER',
@@ -668,7 +674,7 @@
             roundCounter = 0;
 
             players = [
-                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }
+                { id: myId, name: myName, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, exitedManually: false, connected: true }
             ];
 
             for (let i = 1; i < maxPlayersLimit; i++) {
@@ -679,7 +685,9 @@
                     scores: 0,
                     hand: [],
                     eliminated: false,
-                    isBot: true
+                    isBot: true,
+                    exitedManually: false,
+                    connected: true
                 });
             }
 
@@ -723,7 +731,7 @@
             gameHistory = [];
             roundCounter = 0;
 
-            players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false }];
+            players = [{ id: myId, name: myName, clientToken: myClientToken, connected: true, isHost: true, scores: 0, hand: [], eliminated: false, isBot: false, exitedManually: false }];
             myIndex = 0;
 
             initRealtimeChannel(roomCode);
@@ -776,6 +784,17 @@
         }
 
         function broadcastPlayerList() {
+            let activeHost = players.find(p => p.isHost && !p.exitedManually);
+            if (!activeHost) {
+                let firstAvailable = players.find(p => !p.exitedManually);
+                if (firstAvailable) {
+                    firstAvailable.isHost = true;
+                    if (firstAvailable.clientToken === myClientToken) {
+                        isHost = true;
+                    }
+                }
+            }
+
             sendRealtimeMessage({ 
                 type: 'UPDATE_PLAYERS', 
                 players: players, 
@@ -786,16 +805,19 @@
         }
 
         function updateWaitingRoomUI() {
-            document.getElementById('connected-count').innerText = players.filter(p => p.connected !== false).length;
+            document.getElementById('connected-count').innerText = players.filter(p => p.connected !== false && !p.exitedManually).length;
             document.getElementById('display-cards-count').innerText = cardsPerPlayer;
             document.getElementById('display-target-pts').innerText = targetEliminationPoints;
             const ul = document.getElementById('player-list-ul');
             ul.innerHTML = '';
             players.forEach(p => {
+                if(p.exitedManually) return;
                 let li = document.createElement('li');
                 li.className = 'bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl text-xs sm:text-sm flex justify-between items-center';
                 let removeBtnHtml = '';
-                if (isHost && !p.isHost && p.id !== myId) {
+                let currentHost = players.find(x => x.isHost && !x.exitedManually);
+                let amIHost = currentHost && currentHost.clientToken === myClientToken;
+                if (amIHost && !p.isHost && p.id !== myId) {
                     removeBtnHtml = `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600/85 hover:bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Remove</button>`;
                 }
                 li.innerHTML = `<div class="flex items-center space-x-2"><span>👤 ${p.name}${p.connected === false ? ' <span class=\"text-rose-400\">(reconnecting...)</span>' : ''}</span> ${p.isHost ? '<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">Host</span>' : ''}</div>${removeBtnHtml}`;
@@ -805,12 +827,17 @@
 
         // --- INCOMING NETWORK DATA SWITCH ---
         function handleIncomingNetworkData(data) {
-            // HOST RECEIVES GUEST MESSAGES
-            if (isHost) {
+            let currentHost = players.find(p => p.isHost && !p.exitedManually);
+            let amIHost = currentHost && currentHost.clientToken === myClientToken;
+            isHost = amIHost;
+
+            // HOST / LEADER RECEIVES GUEST MESSAGES
+            if (isHost || (data.type === 'JOIN_REQUEST' && !players.some(p => p.isHost && !p.exitedManually))) {
                 if (data.type === 'JOIN_REQUEST') {
                     let existingPlayer = players.find(p => p.clientToken === data.clientToken || p.name.toLowerCase() === (data.name || '').toLowerCase());
                     if (existingPlayer) {
                         existingPlayer.connected = true;
+                        existingPlayer.exitedManually = false;
                         existingPlayer.clientToken = data.clientToken;
                         existingPlayer.id = data.clientToken;
 
@@ -833,11 +860,30 @@
                     }
 
                     if (roundActive) {
+                        // Allow re-entry even if round active if they share the exact name/room code
+                        let matchingName = players.find(p => p.name.toLowerCase() === (data.name || '').toLowerCase());
+                        if (matchingName) {
+                            matchingName.connected = true;
+                            matchingName.exitedManually = false;
+                            matchingName.clientToken = data.clientToken;
+                            matchingName.id = data.clientToken;
+                            sendRealtimeMessage({
+                                type: 'START_GAME',
+                                players: players,
+                                deck: deck,
+                                discardPile: discardPile,
+                                currentTurnIndex: currentTurnIndex,
+                                targetPoints: targetEliminationPoints,
+                                cardsPerPlayer: cardsPerPlayer,
+                                gameHistory: gameHistory
+                            });
+                            return;
+                        }
                         sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Game already started.' });
                         return;
                     }
 
-                    if (players.length >= maxPlayersLimit) {
+                    if (players.filter(p => !p.exitedManually).length >= maxPlayersLimit) {
                         sendRealtimeMessage({ type: 'REJECT', targetToken: data.clientToken, reason: 'Room is full.' });
                         return;
                     }
@@ -847,11 +893,12 @@
                         name: data.name || 'Player',
                         clientToken: data.clientToken,
                         connected: true,
-                        isHost: false,
+                        isHost: players.length === 0,
                         scores: 0,
                         hand: [],
                         eliminated: false,
-                        isBot: false
+                        isBot: false,
+                        exitedManually: false
                     };
 
                     players.push(newPlayer);
@@ -864,6 +911,9 @@
                 }
                 else if (data.type === 'CALL_SHOW') {
                     handleHostShowCall(data.peerId);
+                }
+                else if (data.type === 'START_NEXT_ROUND') {
+                    executeStartNextRound();
                 }
                 return;
             }
@@ -892,12 +942,20 @@
                     myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
                     if (myIndex !== -1) {
                         myId = players[myIndex].id;
+                        players[myIndex].connected = true;
+                        players[myIndex].exitedManually = false;
                     }
 
-                    document.getElementById('lobby-screen').classList.add('hidden');
-                    document.getElementById('waiting-screen').classList.remove('hidden');
-                    document.getElementById('display-room-code').innerText = roomCode;
-                    document.getElementById('max-count').innerText = maxPlayersLimit;
+                    let activeH = players.find(p => p.isHost && !p.exitedManually);
+                    isHost = activeH && activeH.clientToken === myClientToken;
+
+                    let lobbyScreenHidden = document.getElementById('lobby-screen').classList.contains('hidden');
+                    if (!lobbyScreenHidden && !roundActive) {
+                        document.getElementById('lobby-screen').classList.add('hidden');
+                        document.getElementById('waiting-screen').classList.remove('hidden');
+                        document.getElementById('display-room-code').innerText = roomCode;
+                        document.getElementById('max-count').innerText = maxPlayersLimit;
+                    }
                     updateWaitingRoomUI();
                     break;
                 case 'START_GAME':
@@ -922,7 +980,13 @@
                     myIndex = players.findIndex(p => p.clientToken === myClientToken || p.name.toLowerCase() === myName.toLowerCase());
                     if (myIndex !== -1) {
                         myId = players[myIndex].id;
+                        players[myIndex].connected = true;
+                        players[myIndex].exitedManually = false;
                     }
+
+                    let activeH2 = players.find(p => p.isHost && !p.exitedManually);
+                    isHost = activeH2 && activeH2.clientToken === myClientToken;
+
                     renderGameBoard();
                     break;
                 case 'GAME_STATE_UPDATE':
@@ -939,10 +1003,10 @@
                     logTicker(data.message);
                     break;
                 case 'ROUND_OVER':
-                    players = data.players; // <--- Fixed: ensures players score updates sync immediately for guests
+                    players = data.players;
                     gameHistory = data.gameHistory || gameHistory;
                     showRoundOverModal(data.resultsData, data.callerName);
-                    renderGameBoard(); // Refresh scores on UI
+                    renderGameBoard();
                     break;
             }
         }
@@ -969,19 +1033,24 @@
         }
 
         function startHostGame() {
-            if(players.filter(p => p.connected !== false).length < 2) { alert("Need at least 2 players to start!"); return; }
+            let activePlayersList = players.filter(p => p.connected !== false && !p.exitedManually);
+            if(activePlayersList.length < 2) { alert("Need at least 2 players to start!"); return; }
             
             roundCounter = 1;
             gameHistory = [];
             let fullDeck = createDeck();
             players.forEach(p => {
-                p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
-                p.eliminated = false;
+                if(!p.exitedManually) {
+                    p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
+                    p.eliminated = false;
+                } else {
+                    p.hand = [];
+                }
             });
             
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
-            currentTurnIndex = 0;
+            currentTurnIndex = players.findIndex(p => !p.exitedManually);
             turnPhase = 'drop';
             roundActive = true;
 
@@ -1028,7 +1097,7 @@
         function checkBotTurn() {
             if(!isSoloMode || !roundActive) return;
             let currentP = players[currentTurnIndex];
-            if(currentP && currentP.isBot && !currentP.eliminated) {
+            if(currentP && currentP.isBot && !currentP.eliminated && !currentP.exitedManually) {
                 setTimeout(() => { executeBotTurn(currentP); }, 1200);
             }
         }
@@ -1078,7 +1147,7 @@
             if(!roundActive) return;
             if(currentTurnIndex !== myIndex) return;
             let me = players[myIndex];
-            if(!me || me.eliminated) return;
+            if(!me || me.eliminated || me.exitedManually) return;
 
             if(turnPhase === 'drop') {
                 let cardIndex = me.hand.findIndex(c => c.uid === cardUid);
@@ -1130,11 +1199,13 @@
             do {
                 currentTurnIndex = (currentTurnIndex + 1) % players.length;
                 attempts++;
-            } while (players[currentTurnIndex].eliminated && attempts < players.length);
+            } while ((players[currentTurnIndex].eliminated || players[currentTurnIndex].exitedManually) && attempts < players.length);
         }
 
         function syncActionComplete(msg) {
-            if(isHost) {
+            let activeH = players.find(p => p.isHost && !p.exitedManually);
+            let amIHost = activeH && activeH.clientToken === myClientToken;
+            if(amIHost || isSoloMode) {
                 if(!isSoloMode) broadcastGameState(msg);
                 renderGameBoard();
                 logTicker(msg);
@@ -1157,7 +1228,10 @@
             let sum = calculateHandSum(me.hand);
             if(sum > 5) { alert("Sum must be 5 or less!"); return; }
 
-            if(isHost || isSoloMode) {
+            let activeH = players.find(p => p.isHost && !p.exitedManually);
+            let amIHost = activeH && activeH.clientToken === myClientToken;
+
+            if(amIHost || isSoloMode) {
                 executeShowRound(myId);
             } else {
                 sendRealtimeMessage({ type: 'CALL_SHOW', peerId: myId });
@@ -1175,7 +1249,7 @@
 
             let summaries = [];
             players.forEach(p => {
-                if(!p.eliminated) summaries.push({ player: p, sum: calculateHandSum(p.hand) });
+                if(!p.eliminated && !p.exitedManually) summaries.push({ player: p, sum: calculateHandSum(p.hand) });
             });
 
             let resultsText = `<strong>${caller.name}</strong> called SHOW with sum: <strong>${callerSum}</strong>!<br><br>`;
@@ -1242,7 +1316,10 @@
             showRoundOverModal(resultsText, caller.name);
             renderGameBoard();
 
-            if(isHost && !isSoloMode) {
+            let activeH = players.find(p => p.isHost && !p.exitedManually);
+            let amIHost = activeH && activeH.clientToken === myClientToken;
+
+            if(amIHost && !isSoloMode) {
                 sendRealtimeMessage(payload);
             }
         }
@@ -1251,18 +1328,21 @@
             document.getElementById('round-over-title').innerText = `${callerName.toUpperCase()} CALLED SHOW!`;
             document.getElementById('round-over-content').innerHTML = htmlContent;
             document.getElementById('round-over-modal').classList.remove('hidden');
-
-            if(isHost || isSoloMode) {
-                document.getElementById('host-next-round-container').classList.remove('hidden');
-                document.getElementById('waiting-next-round-msg').classList.add('hidden');
-            } else {
-                document.getElementById('host-next-round-container').classList.add('hidden');
-                document.getElementById('waiting-next-round-msg').classList.remove('hidden');
-            }
         }
 
         function startNextRound() {
-            let activePlayers = players.filter(p => !p.eliminated);
+            let activeH = players.find(p => p.isHost && !p.exitedManually);
+            let amIHost = activeH && activeH.clientToken === myClientToken;
+
+            if (amIHost || isSoloMode) {
+                executeStartNextRound();
+            } else {
+                sendRealtimeMessage({ type: 'START_NEXT_ROUND' });
+            }
+        }
+
+        function executeStartNextRound() {
+            let activePlayers = players.filter(p => !p.eliminated && !p.exitedManually);
             if(activePlayers.length <= 1) {
                 alert(`Tournament Over! Winner is ${activePlayers[0] ? activePlayers[0].name : 'Nobody'}!`);
                 location.reload();
@@ -1271,14 +1351,14 @@
 
             let fullDeck = createDeck();
             players.forEach(p => {
-                if(!p.eliminated) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
+                if(!p.eliminated && !p.exitedManually) p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
                 else p.hand = [];
             });
             discardPile = [fullDeck.pop()];
             deck = fullDeck;
             roundActive = true;
             turnPhase = 'drop';
-            currentTurnIndex = players.findIndex(p => !p.eliminated);
+            currentTurnIndex = players.findIndex(p => !p.eliminated && !p.exitedManually);
 
             let startPayload = {
                 type: 'START_GAME',
@@ -1292,7 +1372,10 @@
             };
 
             document.getElementById('round-over-modal').classList.add('hidden');
-            if(!isSoloMode) {
+            let activeH = players.find(p => p.isHost && !p.exitedManually);
+            let amIHost = activeH && activeH.clientToken === myClientToken;
+
+            if(amIHost && !isSoloMode) {
                 sendRealtimeMessage(startPayload);
             }
             renderGameBoard();
@@ -1304,6 +1387,7 @@
             const topScoresContainer = document.getElementById('top-scores-container');
             topScoresContainer.innerHTML = '';
             players.forEach(p => {
+                if(p.exitedManually) return;
                 let badge = document.createElement('div');
                 badge.className = `flex items-center space-x-1 px-2 py-0.5 rounded bg-zinc-900 border ${p.eliminated ? 'border-zinc-900 opacity-50' : 'border-zinc-800'} text-[11px]`;
                 badge.innerHTML = `<span class="font-bold text-zinc-300">${p.name}:</span> <span class="font-mono text-amber-300 font-bold">${p.scores}</span>`;
@@ -1314,12 +1398,14 @@
             hudContainer.innerHTML = '';
             
             players.forEach((p, idx) => {
-                if(idx === myIndex) return;
+                if(idx === myIndex || p.exitedManually) return;
                 let isTurn = (idx === currentTurnIndex);
                 let div = document.createElement('div');
                 div.className = `p-2 rounded-lg border flex flex-col justify-between transition ${isTurn ? 'bg-zinc-900 border-amber-400' : 'bg-black border-zinc-800'} ${p.eliminated ? 'opacity-40' : ''}`;
                 
-                let removeBtnHtml = (isHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
+                let activeH = players.find(x => x.isHost && !x.exitedManually);
+                let amIHost = activeH && activeH.clientToken === myClientToken;
+                let removeBtnHtml = (amIHost && !p.isHost && p.id !== myId) ? `<button onclick="confirmRemovePlayer('${p.id}', '${p.name.replace(/'/g, "\\'")}')" class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px]">Remove</button>` : '';
 
                 div.innerHTML = `
                     <div class="flex justify-between items-center text-[10px]">
@@ -1384,6 +1470,7 @@
             const tbody = document.getElementById('scoreboard-table-body');
             tbody.innerHTML = '';
             players.forEach(p => {
+                if(p.exitedManually) return;
                 let tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td class="py-2 font-medium">${p.name}</td>
