@@ -1140,6 +1140,17 @@
             }
         }
 
+        function handleHostAction(data) {
+            players = data.players;
+            deck = data.deck;
+            discardPile = data.discardPile;
+            currentTurnIndex = data.currentTurnIndex;
+            turnPhase = data.turnPhase;
+            broadcastGameState(data.message);
+            renderGameBoard();
+            logTicker(data.message);
+        }
+
         function callShow() {
             let me = players[myIndex];
             if(!me || currentTurnIndex !== myIndex || turnPhase !== 'drop') return;
