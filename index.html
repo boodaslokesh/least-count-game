@@ -817,8 +817,7 @@
                 ensureHostRoleAssignment();
 
                 if (roundActive) {
-                    // Skip turn if the disconnected player's turn came up
-                    if (players[currentTurnIndex] && (players[currentTurnIndex].connected === false || players[currentIndex].eliminated)) {
+                    if (players[currentTurnIndex] && (players[currentTurnIndex].connected === false || players[currentTurnIndex].eliminated)) {
                         advanceTurn();
                     }
                     if (isHost || isSoloMode) {
@@ -851,6 +850,7 @@
                                 deck: deck,
                                 discardPile: discardPile,
                                 currentTurnIndex: currentTurnIndex,
+                                turnPhase: turnPhase,
                                 targetPoints: targetEliminationPoints,
                                 cardsPerPlayer: cardsPerPlayer,
                                 gameHistory: gameHistory
@@ -875,6 +875,7 @@
                                 deck: deck,
                                 discardPile: discardPile,
                                 currentTurnIndex: currentTurnIndex,
+                                turnPhase: turnPhase,
                                 targetPoints: targetEliminationPoints,
                                 cardsPerPlayer: cardsPerPlayer,
                                 gameHistory: gameHistory
@@ -973,6 +974,7 @@
                     deck = data.deck;
                     discardPile = data.discardPile;
                     currentTurnIndex = data.currentTurnIndex;
+                    turnPhase = data.turnPhase || 'drop';
                     cardsPerPlayer = data.cardsPerPlayer || cardsPerPlayer;
                     targetEliminationPoints = data.targetPoints || targetEliminationPoints;
                     gameHistory = data.gameHistory || gameHistory;
@@ -1058,6 +1060,7 @@
                 deck: deck,
                 discardPile: discardPile,
                 currentTurnIndex: currentTurnIndex,
+                turnPhase: turnPhase,
                 targetPoints: targetEliminationPoints,
                 cardsPerPlayer: cardsPerPlayer,
                 gameHistory: gameHistory
@@ -1079,7 +1082,6 @@
 
         function broadcastGameState(msg) {
             ensureHostRoleAssignment();
-            // Automatically skip disconnected or eliminated players' turns
             let attempts = 0;
             while (players[currentTurnIndex] && (players[currentTurnIndex].eliminated || players[currentTurnIndex].connected === false) && attempts < players.length) {
                 currentTurnIndex = (currentTurnIndex + 1) % players.length;
@@ -1175,6 +1177,19 @@
                     turnPhase = 'draw';
                     renderGameBoard();
                     logTicker(`Card dropped. Click stock deck to draw.`);
+                    
+                    // If guest, sync drop state immediately so turnPhase becomes 'draw' across network
+                    if(!isHost && !isSoloMode) {
+                        sendRealtimeMessage({
+                            type: 'PLAYER_ACTION',
+                            players: players,
+                            deck: deck,
+                            discardPile: discardPile,
+                            currentTurnIndex: currentTurnIndex,
+                            turnPhase: turnPhase,
+                            message: `${me.name} dropped a card. Waiting for draw.`
+                        });
+                    }
                 }
             }
         }
@@ -1379,6 +1394,7 @@
                 deck: deck,
                 discardPile: discardPile,
                 currentTurnIndex: currentTurnIndex,
+                turnPhase: turnPhase,
                 targetPoints: targetEliminationPoints,
                 cardsPerPlayer: cardsPerPlayer,
                 gameHistory: gameHistory
