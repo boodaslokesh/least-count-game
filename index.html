@@ -4,114 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Least Count</title>
-    <script src="https://cdn.tailwindcss.com">
-
-    function saveGameSession() {
-        if (!roomCode || !myName) return;
-        try {
-            localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-                roomCode, myId, myName, myClientToken, isHost, isSoloMode,
-                maxPlayersLimit, cardsPerPlayer, targetEliminationPoints,
-                players, myIndex, gameHistory, roundCounter, deck, discardPile,
-                currentTurnIndex, roundActive, turnPhase,
-                savedAt: Date.now()
-            }));
-            localStorage.setItem(NICKNAME_STORAGE_KEY, myName);
-        } catch (e) {}
-    }
-
-    window.addEventListener('beforeunload', saveGameSession);
-    window.addEventListener('pagehide', saveGameSession);
-    window.addEventListener('load', () => {
-        let saved;
-        try { saved = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (e) {}
-        if (!saved || !saved.roomCode || !saved.myName || Date.now() - (saved.savedAt || 0) > 7 * 24 * 60 * 60 * 1000) return;
-        try {
-            roomCode = saved.roomCode; myId = saved.myId || myClientToken; myName = saved.myName;
-            isHost = !!saved.isHost; isSoloMode = !!saved.isSoloMode;
-            maxPlayersLimit = saved.maxPlayersLimit || 4; cardsPerPlayer = saved.cardsPerPlayer || 7;
-            targetEliminationPoints = saved.targetEliminationPoints || 100;
-            players = saved.players || []; myIndex = saved.myIndex || 0;
-            gameHistory = saved.gameHistory || []; roundCounter = saved.roundCounter || 0;
-            deck = saved.deck || []; discardPile = saved.discardPile || [];
-            currentTurnIndex = saved.currentTurnIndex || 0;
-            roundActive = !!saved.roundActive; turnPhase = saved.turnPhase || 'drop';
-            document.getElementById('lobby-screen').classList.add('hidden');
-            document.getElementById('waiting-screen').classList.toggle('hidden', roundActive || isSoloMode);
-            document.getElementById('game-board-screen').classList.toggle('hidden', !roundActive);
-            document.getElementById('room-badge').classList.toggle('hidden', isSoloMode);
-            document.getElementById('current-room-id').innerText = roomCode;
-            document.getElementById('sticky-scores-wrapper').classList.toggle('hidden', !roundActive);
-            document.getElementById('game-status-banner').classList.toggle('hidden', !roundActive);
-            document.getElementById('game-status-banner').innerText = isSoloMode ? 'Solo vs Computer Mode' : 'Multiplayer Game';
-            if (isSoloMode) { document.getElementById('game-board-screen').classList.remove('hidden'); document.getElementById('waiting-screen').classList.add('hidden'); }
-            if (isHost && !isSoloMode) {
-                document.getElementById('display-room-code').innerText = roomCode;
-                document.getElementById('max-count').innerText = maxPlayersLimit;
-                document.getElementById('display-cards-count').innerText = cardsPerPlayer;
-                document.getElementById('display-target-pts').innerText = targetEliminationPoints;
-                document.getElementById('host-controls').classList.toggle('hidden', roundActive);
-            }
-            if (isSoloMode) { renderGameBoard(); checkBotTurn(); }
-            else { initRealtimeChannel(roomCode); if (roundActive) renderGameBoard(); else updateWaitingRoomUI(); }
-            logTicker('Session restored.');
-        } catch (e) { console.error('Unable to restore game session', e); }
-    });
-</script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
-
-    function saveGameSession() {
-        if (!roomCode || !myName) return;
-        try {
-            localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-                roomCode, myId, myName, myClientToken, isHost, isSoloMode,
-                maxPlayersLimit, cardsPerPlayer, targetEliminationPoints,
-                players, myIndex, gameHistory, roundCounter, deck, discardPile,
-                currentTurnIndex, roundActive, turnPhase,
-                savedAt: Date.now()
-            }));
-            localStorage.setItem(NICKNAME_STORAGE_KEY, myName);
-        } catch (e) {}
-    }
-
-    window.addEventListener('beforeunload', saveGameSession);
-    window.addEventListener('pagehide', saveGameSession);
-    window.addEventListener('load', () => {
-        let saved;
-        try { saved = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (e) {}
-        if (!saved || !saved.roomCode || !saved.myName || Date.now() - (saved.savedAt || 0) > 7 * 24 * 60 * 60 * 1000) return;
-        try {
-            roomCode = saved.roomCode; myId = saved.myId || myClientToken; myName = saved.myName;
-            isHost = !!saved.isHost; isSoloMode = !!saved.isSoloMode;
-            maxPlayersLimit = saved.maxPlayersLimit || 4; cardsPerPlayer = saved.cardsPerPlayer || 7;
-            targetEliminationPoints = saved.targetEliminationPoints || 100;
-            players = saved.players || []; myIndex = saved.myIndex || 0;
-            gameHistory = saved.gameHistory || []; roundCounter = saved.roundCounter || 0;
-            deck = saved.deck || []; discardPile = saved.discardPile || [];
-            currentTurnIndex = saved.currentTurnIndex || 0;
-            roundActive = !!saved.roundActive; turnPhase = saved.turnPhase || 'drop';
-            document.getElementById('lobby-screen').classList.add('hidden');
-            document.getElementById('waiting-screen').classList.toggle('hidden', roundActive || isSoloMode);
-            document.getElementById('game-board-screen').classList.toggle('hidden', !roundActive);
-            document.getElementById('room-badge').classList.toggle('hidden', isSoloMode);
-            document.getElementById('current-room-id').innerText = roomCode;
-            document.getElementById('sticky-scores-wrapper').classList.toggle('hidden', !roundActive);
-            document.getElementById('game-status-banner').classList.toggle('hidden', !roundActive);
-            document.getElementById('game-status-banner').innerText = isSoloMode ? 'Solo vs Computer Mode' : 'Multiplayer Game';
-            if (isSoloMode) { document.getElementById('game-board-screen').classList.remove('hidden'); document.getElementById('waiting-screen').classList.add('hidden'); }
-            if (isHost && !isSoloMode) {
-                document.getElementById('display-room-code').innerText = roomCode;
-                document.getElementById('max-count').innerText = maxPlayersLimit;
-                document.getElementById('display-cards-count').innerText = cardsPerPlayer;
-                document.getElementById('display-target-pts').innerText = targetEliminationPoints;
-                document.getElementById('host-controls').classList.toggle('hidden', roundActive);
-            }
-            if (isSoloMode) { renderGameBoard(); checkBotTurn(); }
-            else { initRealtimeChannel(roomCode); if (roundActive) renderGameBoard(); else updateWaitingRoomUI(); }
-            logTicker('Session restored.');
-        } catch (e) { console.error('Unable to restore game session', e); }
-    });
-</script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -159,7 +53,7 @@
     <!-- TOP BAR / HEADER -->
     <header class="p-2 sm:p-3 bg-black flex flex-row justify-between items-center border-b border-zinc-800 gap-2 shrink-0">
         <div class="flex items-center space-x-2">
-            <span class="text-base sm:text-xl font-black tracking-wider text-emerald-400">LEAST COUNT ------------- Testing in Progress</span>
+            <span class="text-base sm:text-xl font-black tracking-wider text-emerald-400">LEAST COUNT</span>
 
             <span id="room-badge"
                   class="text-[10px] sm:text-xs bg-zinc-900 px-2 py-0.5 rounded text-emerald-300 hidden">
@@ -508,8 +402,15 @@
                 History
             </button>
 
-            <button onclick="toggleInstructionsModal(true)" class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">Game Instructions</button>
-            <button onclick="toggleScoreboardModal(true)" class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">Scores</button>
+            <button onclick="toggleInstructionsModal(true)"
+                    class="bg-zinc-900 hover:bg-zinc-800 text-emerald-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+                Game Instructions
+            </button>
+
+            <button onclick="toggleScoreboardModal(true)"
+                    class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+                Scores
+            </button>
         </div>
     </footer>
 
@@ -554,23 +455,6 @@
         </div>
     </div>
 
-    <div id="instructions-modal" class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 z-[70]">
-        <div class="bg-black border border-zinc-800 w-full max-w-lg rounded-2xl p-5 shadow-2xl space-y-3 max-h-[85vh] overflow-y-auto">
-            <div class="flex justify-between items-center border-b border-zinc-900 pb-2"><h3 class="text-base font-bold text-emerald-300">Game Instructions</h3><button onclick="toggleInstructionsModal(false)" class="text-zinc-400 hover:text-white font-bold text-xl px-2">&times;</button></div>
-            <div class="text-sm text-zinc-300 space-y-3">
-                <p><b class="text-white">Goal</b><br>Keep the total points in your cards low. Avoid reaching the elimination target set before the game starts.</p>
-                <p><b class="text-white">Start</b><br>Each player gets the selected number of cards. One card is placed face up to start the discard pile. The game moves one player at a time.</p>
-                <p><b class="text-white">Your turn</b><br>Follow the message in the middle of the screen. When asked to drop a card, choose one card from your hand. When asked to draw, tap the Stock deck, then follow the game prompt to finish your turn.</p>
-                <p><b class="text-white">Card points</b><br>Ace is 1 point, number cards are worth their number, Jack is 11, Queen is 12 and King is 13. Your hand total is shown beside your name.</p>
-                <p><b class="text-white">Call Show</b><br>When it is your turn and your hand total is 5 or less, the Call Show button becomes available. Use it to end the round. The game reveals the hands and adds points according to the round result.</p>
-                <p><b class="text-white">Example</b><br>If your cards are Ace, 2 and 2, your total is 1 + 2 + 2 = 5. If it is your turn, you can call Show. If your total is 9, you cannot call Show yet; play your turn as shown.</p>
-                <p><b class="text-white">Rounds and elimination</b><br>Round points add to each player's tournament score. A player who reaches the selected elimination points is eliminated. The game continues with the remaining players and the host can start the next round.</p>
-                <p><b class="text-white">Solo and multiplayer</b><br>Play against computer players in Solo mode, or create a room and share its code. Players who refresh can return to their saved session; rejoining an active multiplayer game may require host approval.</p>
-                <p><b class="text-white">Room controls</b><br>Use Room Chat to message players. History shows completed rounds, Scores shows current standings, and Exit Game leaves the room and returns you to the lobby.</p>
-            </div>
-            <div class="flex justify-end"><button onclick="toggleInstructionsModal(false)" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 font-semibold text-white rounded-xl text-xs">Close</button></div>
-        </div>
-    </div>
     <!-- HISTORY MODAL -->
     <div id="history-modal"
          class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
@@ -600,6 +484,64 @@
                         class="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 font-semibold text-white rounded-xl text-xs">
                     Close
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME INSTRUCTIONS MODAL -->
+    <div id="instructions-modal"
+         class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 z-[70]">
+        <div class="bg-black border border-emerald-500/30 w-full max-w-lg rounded-2xl p-5 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-zinc-800 pb-2">
+                <h3 class="text-base sm:text-lg font-black text-emerald-300">How to Play Least Count</h3>
+                <button onclick="toggleInstructionsModal(false)" aria-label="Close instructions"
+                        class="text-zinc-400 hover:text-white font-bold text-xl px-2">&times;</button>
+            </div>
+            <div class="space-y-3 text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">1. Goal</h4>
+                    <p>Keep the total points in your hand as low as possible. Players collect points when a round ends; reaching the game's elimination limit removes a player from later rounds. The last eligible player remaining wins.</p>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">2. Starting a round</h4>
+                    <p>Each active player receives the configured number of cards. A card is placed face-up to begin the discard pile, and the remaining cards form the stock deck. Only active, connected players who are allowed to play take turns.</p>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">3. Taking your turn</h4>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li>Choose a card from your hand to discard. All cards in your hand with the same rank/value as the selected card are discarded together.</li>
+                        <li>If that rank/value matches the top card already on the discard pile, your turn ends immediately and the next player goes.</li>
+                        <li>Otherwise, draw one card from the stock deck. Your turn then ends and play moves to the next eligible player.</li>
+                        <li>If the stock deck runs out while cards remain in the discard pile, the discard pile is recycled into the stock while its top card stays face-up.</li>
+                    </ul>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">4. Round-robin first player</h4>
+                    <p>The opening turn rotates by seat order from round to round: the host starts Round 1, the next eligible seat starts Round 2, then the following eligible seat starts Round 3, and so on. If the scheduled player is eliminated, disconnected, or view-only, the next eligible player is selected.</p>
+                    <p class="text-emerald-300">Example with four seats: Round 1 — Player 1; Round 2 — Player 2; Round 3 — Player 3; Round 4 — Player 4; Round 5 — back to Player 1 (skipping any ineligible seat).</p>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">5. Calling “Show”</h4>
+                    <p>When your hand total is 5 points or less, you can use <strong class="text-white">Call Show! (≤5)</strong> to end the round. The game compares the hand totals of eligible players.</p>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li><strong class="text-white">Failed Show:</strong> if any other eligible player has a lower total than the caller, the caller receives a 25-point penalty.</li>
+                        <li><strong class="text-white">Matched Show:</strong> if another eligible player has the same total as the caller and nobody has a lower total, the tied players avoid points for that round; other eligible players add their hand totals.</li>
+                        <li><strong class="text-white">Good Show:</strong> if nobody has a lower or equal total, the caller avoids points and each other eligible player adds their hand total.</li>
+                    </ul>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">6. Points and elimination</h4>
+                    <p>For example, if a player has cards worth 1, 2, and 2 points, their hand total is 5. When a round result says that player adds their hand total, 5 points are added to their running score. A player is marked eliminated when their score reaches the configured elimination threshold. Eliminated players do not take turns in following rounds.</p>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">7. Multiplayer and rejoining</h4>
+                    <p>The host controls starting rounds. A view-only spectator can watch but cannot play cards or call Show. If you leave, use the room's rejoin process to request access again; the host can allow viewing, allow playing, or deny the request.</p>
+                </section>
+                <p class="text-[11px] text-zinc-500 border-t border-zinc-800 pt-2">Card point values and round settings follow the values configured in this game. Check the Scores and History panels to review totals and completed rounds.</p>
+            </div>
+            <div class="flex justify-end pt-1">
+                <button onclick="toggleInstructionsModal(false)"
+                        class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 font-bold text-black rounded-xl text-xs">Got it</button>
             </div>
         </div>
     </div>
@@ -691,21 +633,14 @@
     const SUPABASE_BASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co';
     const SUPABASE_URL = `${SUPABASE_BASE_URL}/rest/v1/least-count`;
     const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
+    const nicknameInput = document.getElementById('nickname-input');
+    try { nicknameInput.value = localStorage.getItem('leastCountNickname') || ''; } catch (e) {}
+    nicknameInput.addEventListener('input', () => { try { localStorage.setItem('leastCountNickname', nicknameInput.value); } catch (e) {} });
 
     const supabaseClient = supabase.createClient(
         SUPABASE_BASE_URL,
         SUPABASE_APIKEY
     );
-
-    const NICKNAME_STORAGE_KEY = 'leastCountNickname';
-    const SESSION_STORAGE_KEY = 'leastCountGameSession';
-    const nicknameInput = document.getElementById('nickname-input');
-    try { nicknameInput.value = localStorage.getItem(NICKNAME_STORAGE_KEY) || ''; } catch (e) {}
-    nicknameInput.addEventListener('input', () => { try { localStorage.setItem(NICKNAME_STORAGE_KEY, nicknameInput.value); } catch (e) {} });
-
-    function toggleInstructionsModal(show) {
-        document.getElementById('instructions-modal').classList.toggle('hidden', !show);
-    }
 
     let roomChannel = null;
 
@@ -1620,8 +1555,38 @@
 
         } catch (e) {}
 
-        try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch (e) {}
-        location.reload();
+        try {
+            if (roomChannel) await supabaseClient.removeChannel(roomChannel);
+        } catch (e) {}
+        roomChannel = null;
+        try { localStorage.removeItem('leastCountGameSession'); } catch (e) {}
+        isHost = false;
+        isSoloMode = false;
+        myId = '';
+        roomCode = '';
+        players = [];
+        myIndex = 0;
+        gameHistory = [];
+        roundCounter = 0;
+        deck = [];
+        discardPile = [];
+        currentTurnIndex = 0;
+        roundActive = false;
+        turnPhase = 'drop';
+        pendingRejoinRequest = null;
+        document.getElementById('lobby-screen').classList.remove('hidden');
+        document.getElementById('waiting-screen').classList.add('hidden');
+        document.getElementById('game-board-screen').classList.add('hidden');
+        document.getElementById('room-badge').classList.add('hidden');
+        document.getElementById('sticky-scores-wrapper').classList.add('hidden');
+        document.getElementById('game-status-banner').classList.add('hidden');
+        document.getElementById('rejoin-request-modal').classList.add('hidden');
+        document.getElementById('history-modal').classList.add('hidden');
+        document.getElementById('scoreboard-modal').classList.add('hidden');
+        document.getElementById('round-over-modal').classList.add('hidden');
+        document.getElementById('lobby-error').classList.add('hidden');
+        logTicker('Ready');
+        refreshPublicRoomsList();
     }
 
     // ============================================================
@@ -1764,6 +1729,12 @@
 
             updateScoreboardTable();
         }
+    }
+
+    function toggleInstructionsModal(show) {
+        const modal = document.getElementById('instructions-modal');
+        if (!modal) return;
+        modal.classList.toggle('hidden', !show);
     }
 
     function toggleHistoryModal(show) {
@@ -4885,18 +4856,33 @@
         roundActive = true;
         turnPhase = 'drop';
 
-        currentTurnIndex =
-            players.findIndex(
-                p =>
-                    !p.eliminated &&
-                    p.connected !== false &&
-                    p.viewOnly !== true
+        // Rotate the opening player each round (round-robin by seat order).
+        // roundCounter is incremented when the previous round is recorded,
+        // so round 2 starts from seat index 1, round 3 from index 2, etc.
+        const eligiblePlayers = players.map((player, index) => ({ player, index }))
+            .filter(({ player }) =>
+                !player.eliminated &&
+                player.connected !== false &&
+                player.viewOnly !== true
             );
 
-        if (
-            currentTurnIndex < 0
-        )
+        if (eligiblePlayers.length) {
+            const firstSeat = isSoloMode
+                ? Math.max(0, roundCounter) % Math.max(1, players.length)
+                : Math.max(0, roundCounter - 1) % Math.max(1, players.length);
+
+            let starter = -1;
+            for (let offset = 0; offset < players.length; offset++) {
+                const candidateIndex = (firstSeat + offset) % players.length;
+                if (eligiblePlayers.some(({ index }) => index === candidateIndex)) {
+                    starter = candidateIndex;
+                    break;
+                }
+            }
+            currentTurnIndex = starter >= 0 ? starter : eligiblePlayers[0].index;
+        } else {
             currentTurnIndex = 0;
+        }
 
         let startPayload = {
 
@@ -5536,59 +5522,6 @@
             }
         );
     }
-
-
-    function saveGameSession() {
-        if (!roomCode || !myName) return;
-        try {
-            localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-                roomCode, myId, myName, myClientToken, isHost, isSoloMode,
-                maxPlayersLimit, cardsPerPlayer, targetEliminationPoints,
-                players, myIndex, gameHistory, roundCounter, deck, discardPile,
-                currentTurnIndex, roundActive, turnPhase,
-                savedAt: Date.now()
-            }));
-            localStorage.setItem(NICKNAME_STORAGE_KEY, myName);
-        } catch (e) {}
-    }
-
-    window.addEventListener('beforeunload', saveGameSession);
-    window.addEventListener('pagehide', saveGameSession);
-    window.addEventListener('load', () => {
-        let saved;
-        try { saved = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (e) {}
-        if (!saved || !saved.roomCode || !saved.myName || Date.now() - (saved.savedAt || 0) > 7 * 24 * 60 * 60 * 1000) return;
-        try {
-            roomCode = saved.roomCode; myId = saved.myId || myClientToken; myName = saved.myName;
-            isHost = !!saved.isHost; isSoloMode = !!saved.isSoloMode;
-            maxPlayersLimit = saved.maxPlayersLimit || 4; cardsPerPlayer = saved.cardsPerPlayer || 7;
-            targetEliminationPoints = saved.targetEliminationPoints || 100;
-            players = saved.players || []; myIndex = saved.myIndex || 0;
-            gameHistory = saved.gameHistory || []; roundCounter = saved.roundCounter || 0;
-            deck = saved.deck || []; discardPile = saved.discardPile || [];
-            currentTurnIndex = saved.currentTurnIndex || 0;
-            roundActive = !!saved.roundActive; turnPhase = saved.turnPhase || 'drop';
-            document.getElementById('lobby-screen').classList.add('hidden');
-            document.getElementById('waiting-screen').classList.toggle('hidden', roundActive || isSoloMode);
-            document.getElementById('game-board-screen').classList.toggle('hidden', !roundActive);
-            document.getElementById('room-badge').classList.toggle('hidden', isSoloMode);
-            document.getElementById('current-room-id').innerText = roomCode;
-            document.getElementById('sticky-scores-wrapper').classList.toggle('hidden', !roundActive);
-            document.getElementById('game-status-banner').classList.toggle('hidden', !roundActive);
-            document.getElementById('game-status-banner').innerText = isSoloMode ? 'Solo vs Computer Mode' : 'Multiplayer Game';
-            if (isSoloMode) { document.getElementById('game-board-screen').classList.remove('hidden'); document.getElementById('waiting-screen').classList.add('hidden'); }
-            if (isHost && !isSoloMode) {
-                document.getElementById('display-room-code').innerText = roomCode;
-                document.getElementById('max-count').innerText = maxPlayersLimit;
-                document.getElementById('display-cards-count').innerText = cardsPerPlayer;
-                document.getElementById('display-target-pts').innerText = targetEliminationPoints;
-                document.getElementById('host-controls').classList.toggle('hidden', roundActive);
-            }
-            if (isSoloMode) { renderGameBoard(); checkBotTurn(); }
-            else { initRealtimeChannel(roomCode); if (roundActive) renderGameBoard(); else updateWaitingRoomUI(); }
-            logTicker('Session restored.');
-        } catch (e) { console.error('Unable to restore game session', e); }
-    });
 </script>
 
 </body>
