@@ -391,10 +391,7 @@
     <!-- FOOTER -->
     <footer class="p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
 
-        <div class="text-zinc-400 truncate max-w-[50vw]"
-             id="activity-log-ticker">
-            Ready
-        </div>
+     
 
         <div class="flex space-x-2">
             <button onclick="toggleHistoryModal(true)"
@@ -410,6 +407,11 @@
             <button onclick="toggleScoreboardModal(true)"
                     class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
                 Scores
+            </button>
+
+            <button onclick="toggleDatabaseHistory(true)"
+                    class="bg-zinc-900 hover:bg-zinc-800 text-amber-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+                Game History DB
             </button>
         </div>
     </footer>
@@ -633,6 +635,144 @@
     const SUPABASE_BASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co';
     const SUPABASE_URL = `${SUPABASE_BASE_URL}/rest/v1/least-count`;
     const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
+
+    // ============================================================
+    // GAME HISTORY DATABASE
+    // ============================================================
+
+    const GAME_HISTORY_URL = `${SUPABASE_BASE_URL}/rest/v1/least_count_game_history`;
+    let gameHistoryHostName = '';
+
+    function getGameHistoryHostName() {
+        if (gameHistoryHostName) return gameHistoryHostName;
+
+        const hostPlayer = players.find(p => p && p.isHost);
+        gameHistoryHostName =
+            (hostPlayer && hostPlayer.name) ||
+            myName ||
+            'Host';
+
+        return gameHistoryHostName;
+    }
+
+    function buildGameHistoryText(finalWinner = '') {
+        const hostName = getGameHistoryHostName();
+        const safePlayers = Array.isArray(players) ? players : [];
+
+        let text =
+            `=== GAME START ===\n` +
+            `Host: ${hostName}\n` +
+            `Game Code: ${roomCode}\n` +
+            `Players: ${safePlayers.map(p => p.name).join(', ')}\n` +
+            `Settings: ${maxPlayersLimit} players, ${cardsPerPlayer} cards/player, ${targetEliminationPoints} elimination points\n\n`;
+
+        if (Array.isArray(gameHistory) && gameHistory.length) {
+            gameHistory.forEach(round => {
+                text += `[ROUND ${round.roundNumber}]\n`;
+                text += `- Caller: ${round.callerName || 'N/A'}\n`;
+                text += `- Caller Sum: ${round.callerSum ?? 'N/A'}\n`;
+                text += `- Outcome: ${round.outcome || 'N/A'}\n`;
+
+                if (Array.isArray(round.details)) {
+                    round.details.forEach(detail => {
+                        text += `- ${detail.name}: Hand Sum = ${detail.sum}, Points Added = ${detail.pointsAdded}, Total Score = ${detail.totalAfterRound ?? 'N/A'}\n`;
+                    });
+                }
+
+                text += `\n`;
+            });
+        }
+
+        if (finalWinner) {
+            text += `=== FINAL RESULT ===\n`;
+            text += `Winner: ${finalWinner}\n`;
+        } else {
+            text += `=== FINAL RESULT ===\n`;
+            text += `Winner: In Progress\n`;
+        }
+
+        return text.trim();
+    }
+
+    function buildGameHistoryPayload(finalWinner = '') {
+        const safePlayers = Array.isArray(players) ? players : [];
+
+        return {
+            game_host: getGameHistoryHostName(),
+            game_code: roomCode,
+            game_winner: finalWinner || '',
+            players_name: safePlayers.map(p => p.name).join(', '),
+            game_points: safePlayers
+                .map(p => `${p.name}: ${p.scores || 0} pts`)
+                .join(', '),
+            game_history: buildGameHistoryText(finalWinner)
+        };
+    }
+
+    async function syncGameHistoryToSupabase(finalWinner = '') {
+        if (!isHost || !roomCode) return;
+
+        try {
+            const payload = buildGameHistoryPayload(finalWinner);
+            const query =
+                `?game_host=eq.${encodeURIComponent(payload.game_host)}` +
+                `&game_code=eq.${encodeURIComponent(payload.game_code)}` +
+                `&select=id`;
+
+            const lookupResponse = await fetch(
+                `${GAME_HISTORY_URL}${query}`,
+                {
+                    method: 'GET',
+                    headers: {
+                        'apikey': SUPABASE_APIKEY,
+                        'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            if (!lookupResponse.ok) {
+                throw new Error('Failed to check game history record');
+            }
+
+            const existingRows = await lookupResponse.json();
+
+            if (Array.isArray(existingRows) && existingRows.length > 0) {
+                const id = existingRows[0].id;
+
+                await fetch(
+                    `${GAME_HISTORY_URL}?id=eq.${encodeURIComponent(id)}`,
+                    {
+                        method: 'PATCH',
+                        headers: {
+                            'apikey': SUPABASE_APIKEY,
+                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=representation'
+                        },
+                        body: JSON.stringify(payload)
+                    }
+                );
+            } else {
+                await fetch(
+                    GAME_HISTORY_URL,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'apikey': SUPABASE_APIKEY,
+                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=representation'
+                        },
+                        body: JSON.stringify(payload)
+                    }
+                );
+            }
+        } catch (error) {
+            console.error('Game history sync failed:', error);
+        }
+    }
+
     const nicknameInput = document.getElementById('nickname-input');
     try { nicknameInput.value = localStorage.getItem('leastCountNickname') || ''; } catch (e) {}
     nicknameInput.addEventListener('input', () => { try { localStorage.setItem('leastCountNickname', nicknameInput.value); } catch (e) {} });
@@ -1527,6 +1667,9 @@
                             discardPile:
                                 discardPile,
 
+                            gameHistoryHostName:
+                                gameHistoryHostName,
+
                             roundActive:
                                 roundActive
                         });
@@ -1585,7 +1728,7 @@
         document.getElementById('scoreboard-modal').classList.add('hidden');
         document.getElementById('round-over-modal').classList.add('hidden');
         document.getElementById('lobby-error').classList.add('hidden');
-        logTicker('Ready');
+      
         refreshPublicRoomsList();
     }
 
@@ -1695,7 +1838,10 @@
                         : null,
 
                 players:
-                    players
+                    players,
+
+                gameHistoryHostName:
+                    gameHistoryHostName
             });
 
             updateWaitingRoomUI();
@@ -1839,6 +1985,7 @@
 
         myId = 'player-me';
         roomCode = 'SOLO';
+        gameHistoryHostName = myName;
 
         gameHistory = [];
         roundCounter = 0;
@@ -1988,6 +2135,8 @@
 
         roomCode =
             generateShortCode();
+
+        gameHistoryHostName = myName;
 
         roundActive = false;
         gameHistory = [];
@@ -3155,6 +3304,9 @@
                     data.players ||
                     players;
 
+                if (data.gameHistoryHostName)
+                    gameHistoryHostName = data.gameHistoryHostName;
+
                 players.forEach(p => {
 
                     p.isHost =
@@ -3208,6 +3360,9 @@
                 players =
                     data.players ||
                     players;
+
+                if (data.gameHistoryHostName)
+                    gameHistoryHostName = data.gameHistoryHostName;
 
                 if (
                     data.currentTurnIndex !==
@@ -4680,7 +4835,32 @@
                     true;
         });
 
+        // Capture each player's running score as part of the round history snapshot.
+        if (gameHistory.length) {
+            const latestRound = gameHistory[gameHistory.length - 1];
+            latestRound.details.forEach(detail => {
+                const detailPlayer = players.find(p => p.name === detail.name);
+                if (detailPlayer) detail.totalAfterRound = detailPlayer.scores;
+            });
+        }
+
         roundActive = false;
+
+        const remainingPlayers = players.filter(
+            p =>
+                !p.eliminated &&
+                p.connected !== false &&
+                p.viewOnly !== true
+        );
+
+        const roundWinner =
+            remainingPlayers.length === 1
+                ? remainingPlayers[0].name
+                : '';
+
+        // Persist the complete game history after every completed round.
+        // Only the host writes, and the same host + game code updates the existing row.
+        syncGameHistoryToSupabase(roundWinner);
 
         let payload = {
 
@@ -4761,7 +4941,7 @@
     // NEXT ROUND
     // ============================================================
 
-    function startNextRound() {
+    async function startNextRound() {
 
         if (
             !isHost &&
@@ -4817,8 +4997,14 @@
             activePlayers.length <= 1
         ) {
 
+            const finalWinner =
+                activePlayers[0] ? activePlayers[0].name : 'Nobody';
+
+            // Final update writes the winner into the same database row.
+            await syncGameHistoryToSupabase(finalWinner);
+
             alert(
-                `Tournament Over! Winner is ${activePlayers[0] ? activePlayers[0].name : 'Nobody'}!`
+                `Tournament Over! Winner is ${finalWinner}!`
             );
 
             location.reload();
@@ -4926,9 +5112,7 @@
 
         renderGameBoard();
 
-        logTicker(
-            "New round started!"
-        );
+       
 
         checkBotTurn();
     }
@@ -5523,6 +5707,184 @@
         );
     }
 </script>
+
+
+    <!-- ========================================================= -->
+    <!-- ALL-IN-ONE: DATABASE GAME HISTORY VIEW                   -->
+    <!-- ========================================================= -->
+    <div id="database-history-modal"
+         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[200]">
+        <div class="bg-zinc-950 border border-zinc-800 w-full max-w-5xl h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
+                <div>
+                    <h2 class="text-lg font-black text-amber-300">Game History DB</h2>
+                    <p class="text-[11px] text-zinc-500 mt-1">Saved rounds, players, scores and final winners from Supabase.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="loadDatabaseGameHistory()"
+                            class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-emerald-300 hover:bg-zinc-800">
+                        Refresh
+                    </button>
+                    <button onclick="toggleDatabaseHistory(false)"
+                            class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">
+                        Close
+                    </button>
+                </div>
+            </div>
+
+           
+
+            <div id="database-history-list" class="p-4 space-y-3 overflow-y-auto flex-1"></div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // ALL-IN-ONE DATABASE HISTORY PAGE
+        // Kept inside this same HTML file; no game-history.html needed.
+        // ============================================================
+
+        function escapeDatabaseHistoryHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function toggleDatabaseHistory(show) {
+            const modal = document.getElementById('database-history-modal');
+            if (!modal) return;
+
+            if (show) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                loadDatabaseGameHistory();
+            } else {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+
+        async function loadDatabaseGameHistory() {
+            const status = document.getElementById('database-history-status');
+            const list = document.getElementById('database-history-list');
+
+            if (!status || !list) return;
+
+            status.innerText = 'Loading game history...';
+            list.innerHTML = '';
+
+            try {
+                const response = await fetch(
+                    `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'apikey': SUPABASE_APIKEY,
+                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(`Game history request failed: ${response.status}`);
+                }
+
+                const rows = await response.json();
+
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    status.innerText = 'No saved games found.';
+                    list.innerHTML = `
+                        <div class="text-center text-xs text-zinc-600 py-12">
+                            No game history has been saved yet.
+                        </div>`;
+                    return;
+                }
+
+                status.innerText =
+                    `${rows.length} saved game${rows.length === 1 ? '' : 's'}.`;
+
+                rows.forEach(row => {
+                    const card = document.createElement('article');
+                    card.className =
+                        'bg-black border border-zinc-800 rounded-2xl p-4 shadow-xl';
+
+                    card.innerHTML = `
+                        <div class="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 pb-3 mb-3">
+                            <div>
+                                <h3 class="text-sm sm:text-base font-black text-emerald-300">
+                                    ${escapeDatabaseHistoryHtml(row.game_code)}
+                                </h3>
+                                <p class="text-xs text-zinc-400 mt-1">
+                                    Host:
+                                    <span class="text-white font-semibold">
+                                        ${escapeDatabaseHistoryHtml(row.game_host)}
+                                    </span>
+                                </p>
+                            </div>
+
+                            <div class="text-right text-xs">
+                                <div class="text-zinc-500">Winner</div>
+                                <div class="text-amber-300 font-bold">
+                                    ${escapeDatabaseHistoryHtml(row.game_winner || 'In Progress')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid sm:grid-cols-2 gap-3 mb-3">
+                            <div class="bg-zinc-900 rounded-xl p-3">
+                                <div class="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                                    Players
+                                </div>
+                                <div class="text-xs text-zinc-200 break-words">
+                                    ${escapeDatabaseHistoryHtml(row.players_name)}
+                                </div>
+                            </div>
+
+                            <div class="bg-zinc-900 rounded-xl p-3">
+                                <div class="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                                    Final / Current Points
+                                </div>
+                                <div class="text-xs text-zinc-200 break-words">
+                                    ${escapeDatabaseHistoryHtml(row.game_points)}
+                                </div>
+                            </div>
+                        </div>
+
+                        <details>
+                            <summary class="cursor-pointer text-xs font-bold text-emerald-300">
+                                View complete round history
+                            </summary>
+
+                            <pre class="mt-3 whitespace-pre-wrap break-words bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-[11px] leading-relaxed text-zinc-300">${escapeDatabaseHistoryHtml(row.game_history)}</pre>
+                        </details>
+
+                        <div class="text-[10px] text-zinc-600 mt-3">
+                            Saved:
+                            ${escapeDatabaseHistoryHtml(
+                                row.created_at
+                                    ? new Date(row.created_at).toLocaleString()
+                                    : ''
+                            )}
+                        </div>
+                    `;
+
+                    list.appendChild(card);
+                });
+            } catch (error) {
+                console.error('Unable to load database game history:', error);
+                status.innerText =
+                    'Unable to load game history from Supabase.';
+                list.innerHTML = `
+                    <div class="text-center text-xs text-red-400 py-12">
+                        Unable to load game history from Supabase.
+                    </div>`;
+            }
+        }
+    </script>
 
 </body>
 </html>
