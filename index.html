@@ -33,6 +33,12 @@
             padding: 0;
         }
 
+        /* Disable browser overscroll / pull-to-refresh. Normal in-app scrolling remains enabled. */
+        html, body {
+            overscroll-behavior: none;
+            overscroll-behavior-y: none;
+        }
+
         .card-shadow {
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15);
         }
@@ -54,12 +60,6 @@
 </head>
 
 <body class="bg-black h-[100dvh] w-screen text-white font-sans flex flex-col justify-between">
-
-    <!-- PULL TO REFRESH INDICATOR -->
-    <div id="ptr-indicator"
-         class="absolute top-0 left-0 right-0 h-12 bg-zinc-900 border-b border-zinc-800 flex items-center justify-center text-xs text-emerald-400 font-semibold z-50 transform -translate-y-full transition-transform duration-200">
-        <span id="ptr-text">Pull down to refresh...</span>
-    </div>
 
     <!-- TOP BAR / HEADER -->
     <header class="p-2 sm:p-3 bg-black flex flex-row justify-between items-center border-b border-zinc-800 gap-2 shrink-0">
@@ -955,93 +955,6 @@
             });
     }
 
-    // ============================================================
-    // PULL TO REFRESH
-    // ============================================================
-
-    let touchStartY = 0;
-    let isPulling = false;
-
-    const ptrIndicator =
-        document.getElementById('ptr-indicator');
-
-    const ptrText =
-        document.getElementById('ptr-text');
-
-    window.addEventListener(
-        'touchstart',
-        (e) => {
-
-            let lobbyScreen =
-                document.getElementById('lobby-screen');
-
-            if (
-                lobbyScreen &&
-                !lobbyScreen.classList.contains('hidden') &&
-                lobbyScreen.scrollTop <= 5
-            ) {
-                touchStartY = e.touches[0].clientY;
-                isPulling = true;
-            }
-        },
-        { passive: true }
-    );
-
-    window.addEventListener(
-        'touchmove',
-        (e) => {
-
-            if (!isPulling) return;
-
-            let touchY = e.touches[0].clientY;
-            let diff = touchY - touchStartY;
-
-            if (diff > 0 && diff < 160) {
-
-                ptrIndicator.style.transform =
-                    `translateY(${diff - 48}px)`;
-
-                if (diff > 75) {
-                    ptrText.innerText =
-                        "Release to refresh!";
-                } else {
-                    ptrText.innerText =
-                        "Pull down to refresh...";
-                }
-            }
-        },
-        { passive: true }
-    );
-
-    window.addEventListener(
-        'touchend',
-        (e) => {
-
-            if (!isPulling) return;
-
-            isPulling = false;
-
-            let touchY =
-                e.changedTouches[0].clientY;
-
-            let diff =
-                touchY - touchStartY;
-
-            ptrIndicator.style.transform =
-                'translateY(-100%)';
-
-            if (diff > 75) {
-
-                ptrText.innerText =
-                    "Refreshing...";
-
-                setTimeout(
-                    () => location.reload(),
-                    200
-                );
-            }
-        }
-    );
 
     const cardValueWeight = {
         'A': 1,
@@ -1601,6 +1514,57 @@
 
             renderGameBoard();
         }
+    }
+
+    // ============================================================
+    // RETURN TO LOBBY WITHOUT RELOADING THE PAGE
+    // ============================================================
+
+    async function returnToLobbyWithoutReload(message = '') {
+        try {
+            if (roomChannel) {
+                await supabaseClient.removeChannel(roomChannel);
+            }
+        } catch (e) {}
+
+        roomChannel = null;
+
+        try {
+            localStorage.removeItem('leastCountGameSession');
+        } catch (e) {}
+
+        updateGameOnlyFooterControls(false);
+
+        isHost = false;
+        isSoloMode = false;
+        myId = '';
+        roomCode = '';
+        players = [];
+        myIndex = 0;
+        gameHistory = [];
+        roundCounter = 0;
+        deck = [];
+        discardPile = [];
+        currentTurnIndex = 0;
+        roundActive = false;
+        turnPhase = 'drop';
+        pendingRejoinRequest = null;
+
+        document.getElementById('lobby-screen').classList.remove('hidden');
+        document.getElementById('waiting-screen').classList.add('hidden');
+        document.getElementById('game-board-screen').classList.add('hidden');
+        document.getElementById('room-badge').classList.add('hidden');
+        document.getElementById('sticky-scores-wrapper').classList.add('hidden');
+        document.getElementById('game-status-banner').classList.add('hidden');
+        document.getElementById('rejoin-request-modal').classList.add('hidden');
+        document.getElementById('history-modal').classList.add('hidden');
+        document.getElementById('scoreboard-modal').classList.add('hidden');
+        document.getElementById('round-over-modal').classList.add('hidden');
+        document.getElementById('database-history-modal')?.classList.add('hidden');
+        document.getElementById('lobby-error').classList.add('hidden');
+
+        logTicker(message || 'Ready');
+        refreshPublicRoomsList();
     }
 
     // ============================================================
@@ -3017,7 +2981,7 @@
                         "You were removed by host."
                     );
 
-                    location.reload();
+                    returnToLobbyWithoutReload("You were removed by the host.");
                 }
 
                 break;
@@ -3057,9 +3021,8 @@
                             );
                     } catch (e) {}
 
-                    setTimeout(
-                        () => location.reload(),
-                        1200
+                    returnToLobbyWithoutReload(
+                        "The host denied your rejoin request."
                     );
 
                     break;
@@ -5028,7 +4991,9 @@
                 `Tournament Over! Winner is ${finalWinner}!`
             );
 
-            location.reload();
+            await returnToLobbyWithoutReload(
+                `Tournament over. Winner: ${finalWinner}.`
+            );
 
             return;
         }
