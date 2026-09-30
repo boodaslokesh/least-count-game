@@ -3,7 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Least Count</title>
+    <title>Least Count Game - 7 Cards Game | Least Count Card Game</title>
+    <meta name="description" content="Play Least Count, the popular 7 cards game and lowest count card game online. Multiplayer Least Count card game with elimination, rooms, scores and game history.">
+    <meta name="keywords" content="least count, leastcount, least count game, least count card game, leastcount game, cards game, card game, 7 cards game, 7 cards card game, eliminate game, eliminate card game, lowest count, lowest count game, lowest score card game, least count multiplayer, least count online, least count game online">
+    <meta name="robots" content="index, follow">
+    <meta property="og:title" content="Least Count Game - 7 Cards Game">
+    <meta property="og:description" content="Play Least Count, a 7 cards multiplayer card game with elimination and lowest-count scoring.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="https://img.magnific.com/premium-photo/png-playing-card-cards-opportunity-recreation_53876-884775.jpg?semt=ais_hybrid&w=740&q=80">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Least Count Game - 7 Cards Game">
+    <meta name="twitter:description" content="Play the Least Count card game online with 7 cards, multiplayer rooms and elimination.">
+    <meta name="twitter:image" content="https://img.magnific.com/premium-photo/png-playing-card-cards-opportunity-recreation_53876-884775.jpg?semt=ais_hybrid&w=740&q=80">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
@@ -53,6 +64,10 @@
     <!-- TOP BAR / HEADER -->
     <header class="p-2 sm:p-3 bg-black flex flex-row justify-between items-center border-b border-zinc-800 gap-2 shrink-0">
         <div class="flex items-center space-x-2">
+            <img src="https://img.magnific.com/premium-photo/png-playing-card-cards-opportunity-recreation_53876-884775.jpg?semt=ais_hybrid&w=740&q=80"
+                 alt="Least Count 7 Cards Game playing cards logo"
+                 class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg object-cover border border-emerald-500/30"
+                 loading="eager">
             <span class="text-base sm:text-xl font-black tracking-wider text-emerald-400">LEAST COUNT</span>
 
             <span id="room-badge"
@@ -146,9 +161,10 @@
 
                         <select id="target-points-select"
                                 class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
-                            <option value="50">50 Pts</option>
+                            <option value="25">25 Pts</option>
+							<option value="50" selected>50 Pts</option>
                             <option value="75">75 Pts</option>
-                            <option value="100" selected>100 Pts</option>
+                            <option value="100">100 Pts</option>
                             <option value="150">150 Pts</option>
                         </select>
                     </div>
