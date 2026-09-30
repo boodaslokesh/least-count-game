@@ -413,8 +413,8 @@
         </div>
 
         <div class="flex space-x-2">
-            <button onclick="toggleHistoryModal(true)"
-                    class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+            <button id="history-footer-btn" onclick="toggleHistoryModal(true)"
+                    class="game-only-footer-control hidden bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
                 History
             </button>
 
@@ -423,8 +423,8 @@
                 Game Instructions
             </button>
 
-            <button onclick="toggleScoreboardModal(true)"
-                    class="bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+            <button id="scores-footer-btn" onclick="toggleScoreboardModal(true)"
+                    class="game-only-footer-control hidden bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
                 Scores
             </button>
 
@@ -684,6 +684,45 @@
             `Game Code: ${roomCode}\n` +
             `Players: ${safePlayers.map(p => p.name).join(', ')}\n` +
             `Settings: ${maxPlayersLimit} players, ${cardsPerPlayer} cards/player, ${targetEliminationPoints} elimination points\n\n`;
+
+        // NEW: complete read-only room snapshot stored in the existing
+        // game_history text column for the DB View Room popup.
+        const snapshotPlayers = safePlayers.map(p => ({
+            name: p.name || 'Player',
+            status: p.eliminated
+                ? 'Eliminated'
+                : p.viewOnly
+                    ? 'View Only'
+                    : p.connected === false
+                        ? 'Offline'
+                        : 'Active',
+            isHost: !!p.isHost,
+            cardCount: Array.isArray(p.hand) ? p.hand.length : 0,
+            cards: Array.isArray(p.hand)
+                ? p.hand.map(c => `${c.val}${c.suit}`)
+                : [],
+            handSum: Array.isArray(p.hand) ? calculateHandSum(p.hand) : 0,
+            score: p.scores || 0
+        }));
+
+        const currentSnapshot = {
+            round: roundCounter,
+            roundActive: !!roundActive,
+            currentTurnPlayer: players[currentTurnIndex]
+                ? players[currentTurnIndex].name
+                : 'N/A',
+            turnPhase,
+            stockCount: Array.isArray(deck) ? deck.length : 0,
+            discardTop: Array.isArray(discardPile) && discardPile.length
+                ? `${discardPile[discardPile.length - 1].val}${discardPile[discardPile.length - 1].suit}`
+                : 'N/A',
+            players: snapshotPlayers
+        };
+
+        text +=
+            `=== CURRENT ROOM SNAPSHOT JSON ===\n` +
+            JSON.stringify(currentSnapshot) +
+            `\n\n`;
 
         if (Array.isArray(gameHistory) && gameHistory.length) {
             gameHistory.forEach(round => {
@@ -1722,6 +1761,8 @@
         } catch (e) {}
         roomChannel = null;
         try { localStorage.removeItem('leastCountGameSession'); } catch (e) {}
+        updateGameOnlyFooterControls(false);
+
         isHost = false;
         isSoloMode = false;
         myId = '';
@@ -3894,6 +3935,7 @@
         deck =
             fullDeck;
 
+        // Round 1 starts with the host. Later rounds rotate by seat order.
         currentTurnIndex = 0;
         turnPhase = 'drop';
         roundActive = true;
@@ -5140,7 +5182,17 @@
     // RENDER GAME BOARD
     // ============================================================
 
+    function updateGameOnlyFooterControls(show) {
+        const historyBtn = document.getElementById('history-footer-btn');
+        const scoresBtn = document.getElementById('scores-footer-btn');
+
+        if (historyBtn) historyBtn.classList.toggle('hidden', !show);
+        if (scoresBtn) scoresBtn.classList.toggle('hidden', !show);
+    }
+
     function renderGameBoard() {
+        updateGameOnlyFooterControls(true);
+
 
         const topScoresContainer =
             document.getElementById(
@@ -5731,6 +5783,26 @@
     <!-- ========================================================= -->
     <!-- ALL-IN-ONE: DATABASE GAME HISTORY VIEW                   -->
     <!-- ========================================================= -->
+    <!-- ========================================================= -->
+    <!-- NEW: DATABASE PLAYING ROOM VIEW POPUP                     -->
+    <!-- ========================================================= -->
+    <div id="database-room-view-modal"
+         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-2 sm:p-5 z-[250]">
+        <div class="bg-zinc-950 border border-emerald-500/30 w-full max-w-7xl h-[94vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-3 sm:p-4 border-b border-zinc-800 shrink-0">
+                <div>
+                    <h2 class="text-lg sm:text-xl font-black text-emerald-300">👁 View Playing Room</h2>
+                    <p id="database-room-view-subtitle" class="text-[10px] sm:text-xs text-zinc-500 mt-1">Read-only game room snapshot</p>
+                </div>
+                <button onclick="closeDatabaseRoomView()"
+                        class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">
+                    Close
+                </button>
+            </div>
+            <div id="database-room-view-content" class="p-3 sm:p-5 overflow-y-auto flex-1 space-y-4"></div>
+        </div>
+    </div>
+
     <div id="database-history-modal"
          class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[200]">
         <div class="bg-zinc-950 border border-zinc-800 w-full max-w-5xl h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
@@ -5786,6 +5858,166 @@
                 modal.classList.add('hidden');
                 modal.classList.remove('flex');
             }
+        }
+
+        function parseDatabaseRoomSnapshot(gameHistoryText) {
+            const text = String(gameHistoryText || '');
+            const marker = '=== CURRENT ROOM SNAPSHOT JSON ===';
+            const start = text.indexOf(marker);
+            if (start === -1) return null;
+
+            const afterMarker = text.slice(start + marker.length).trim();
+            const end = afterMarker.indexOf('\n\n');
+            const jsonText = (end >= 0 ? afterMarker.slice(0, end) : afterMarker).trim();
+
+            try {
+                return JSON.parse(jsonText);
+            } catch (e) {
+                console.warn('Unable to parse saved room snapshot:', e);
+                return null;
+            }
+        }
+
+        function databaseRoomStatusClass(status) {
+            if (status === 'Eliminated') return 'text-rose-400';
+            if (status === 'View Only') return 'text-indigo-400';
+            if (status === 'Offline') return 'text-zinc-400';
+            return 'text-emerald-400';
+        }
+
+        function openDatabaseRoomView(row) {
+            const modal = document.getElementById('database-room-view-modal');
+            const content = document.getElementById('database-room-view-content');
+            const subtitle = document.getElementById('database-room-view-subtitle');
+            if (!modal || !content) return;
+
+            const safeRow = row || {};
+            const snapshot = parseDatabaseRoomSnapshot(safeRow.game_history);
+            const esc = escapeDatabaseHistoryHtml;
+
+            const playersNames = String(safeRow.players_name || '')
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean);
+
+            const pointParts = String(safeRow.game_points || '')
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean);
+
+            const fallbackPlayers = playersNames.map(name => {
+                const match = pointParts.find(part =>
+                    part.toLowerCase().startsWith(`${name.toLowerCase()}:`)
+                );
+                const scoreMatch = match ? match.match(/:\s*([0-9]+)\s*pts/i) : null;
+                return {
+                    name,
+                    status: 'Saved',
+                    isHost: name === safeRow.game_host,
+                    cardCount: 0,
+                    cards: [],
+                    handSum: 0,
+                    score: scoreMatch ? Number(scoreMatch[1]) : 0
+                };
+            });
+
+            const viewPlayers =
+                snapshot && Array.isArray(snapshot.players)
+                    ? snapshot.players
+                    : fallbackPlayers;
+
+            const playerCardsHtml = viewPlayers.length
+                ? viewPlayers.map((player, index) => {
+                    const cards = Array.isArray(player.cards) ? player.cards : [];
+                    const cardHtml = cards.length
+                        ? cards.map(card =>
+                            `<span class="inline-flex items-center justify-center min-w-8 h-9 px-1.5 rounded-lg bg-white text-black font-black text-[11px] border border-zinc-300 mr-1 mb-1">${esc(card)}</span>`
+                          ).join('')
+                        : `<span class="text-zinc-600 italic text-xs">Card values were not stored for this older record.</span>`;
+
+                    return `
+                        <div class="bg-black border border-zinc-800 rounded-2xl p-3 sm:p-4">
+                            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                <div>
+                                    <div class="font-black text-white text-sm">
+                                        ${esc(player.name || `Player ${index + 1}`)}
+                                        ${player.isHost ? '<span class="text-[10px] text-amber-400 ml-1">(Host)</span>' : ''}
+                                    </div>
+                                    <div class="text-[10px] ${databaseRoomStatusClass(player.status)} mt-0.5">${esc(player.status || 'Saved')}</div>
+                                </div>
+                                <div class="flex flex-wrap gap-2 text-[10px]">
+                                    <span class="px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-800">Cards: <strong class="text-white">${Number(player.cardCount || cards.length || 0)}</strong></span>
+                                    <span class="px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-800">Hand Points: <strong class="text-amber-300">${Number(player.handSum || 0)}</strong></span>
+                                    <span class="px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-800">Score: <strong class="text-emerald-300">${Number(player.score || 0)}</strong></span>
+                                </div>
+                            </div>
+                            <div class="border-t border-zinc-900 pt-3">
+                                <div class="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">Cards</div>
+                                <div>${cardHtml}</div>
+                            </div>
+                        </div>`;
+                  }).join('')
+                : `<div class="text-xs text-zinc-500 italic text-center py-6">No player snapshot is available in this saved record.</div>`;
+
+            const roundHistory = String(safeRow.game_history || 'No round history saved.');
+            const roundHistoryWithoutSnapshot = roundHistory
+                .replace(/=== CURRENT ROOM SNAPSHOT JSON ===[\s\S]*$/m, '')
+                .trim();
+
+            content.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div class="bg-black border border-zinc-800 rounded-xl p-3">
+                        <div class="text-[10px] uppercase text-zinc-500">Room</div>
+                        <div class="text-emerald-300 font-black text-lg">${esc(safeRow.game_code || 'N/A')}</div>
+                    </div>
+                    <div class="bg-black border border-zinc-800 rounded-xl p-3">
+                        <div class="text-[10px] uppercase text-zinc-500">Host</div>
+                        <div class="text-white font-bold">${esc(safeRow.game_host || 'N/A')}</div>
+                    </div>
+                    <div class="bg-black border border-zinc-800 rounded-xl p-3">
+                        <div class="text-[10px] uppercase text-zinc-500">Winner</div>
+                        <div class="text-amber-300 font-bold">${esc(safeRow.game_winner || 'In Progress')}</div>
+                    </div>
+                    <div class="bg-black border border-zinc-800 rounded-xl p-3">
+                        <div class="text-[10px] uppercase text-zinc-500">Saved</div>
+                        <div class="text-zinc-300 text-xs">${esc(safeRow.created_at ? new Date(safeRow.created_at).toLocaleString() : '')}</div>
+                    </div>
+                </div>
+
+                <div class="bg-black border border-zinc-800 rounded-2xl p-3 sm:p-4">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <h3 class="text-sm font-black text-emerald-300">Players • Cards • Points • Scores</h3>
+                        <div class="text-[10px] text-zinc-500">
+                            ${snapshot
+                                ? `Round ${Number(snapshot.round || 0)} • Turn: ${esc(snapshot.currentTurnPlayer || 'N/A')} • Stock: ${Number(snapshot.stockCount || 0)} • Discard: ${esc(snapshot.discardTop || 'N/A')}`
+                                : 'Snapshot not available for this older record'}
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${playerCardsHtml}</div>
+                </div>
+
+                <div class="bg-black border border-zinc-800 rounded-2xl p-3 sm:p-4">
+                    <div class="flex items-center justify-between gap-2 mb-3">
+                        <h3 class="text-sm font-black text-amber-300">Round History & Scores</h3>
+                        <span class="text-[10px] text-zinc-500">${snapshot && snapshot.roundActive ? 'Round active at last save' : 'Read-only snapshot'}</span>
+                    </div>
+                    <pre class="whitespace-pre-wrap break-words bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-[11px] leading-relaxed text-zinc-300">${esc(roundHistoryWithoutSnapshot)}</pre>
+                </div>
+            `;
+
+            if (subtitle) {
+                subtitle.innerText = `Room ${safeRow.game_code || 'N/A'} • Host ${safeRow.game_host || 'N/A'} • Read-only`;
+            }
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeDatabaseRoomView() {
+            const modal = document.getElementById('database-room-view-modal');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
         }
 
         async function loadDatabaseGameHistory() {
@@ -5844,6 +6076,14 @@
                                     <span class="text-white font-semibold">
                                         ${escapeDatabaseHistoryHtml(row.game_host)}
                                     </span>
+
+                                    <button type="button"
+                                            onclick='openDatabaseRoomView(${JSON.stringify(row)})'
+                                            title="View playing room"
+                                            class="ml-2 inline-flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400/30 align-middle"
+                                            aria-label="View playing room">
+                                        👁
+                                    </button>
                                 </p>
                             </div>
 
