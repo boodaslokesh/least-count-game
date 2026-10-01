@@ -100,8 +100,8 @@
             </div>
 
             <button id="header-action-btn"
-                    onclick="refreshAppWebsite()"
-                    class="bg-sky-600/85 hover:bg-sky-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-sky-700/50">
+                    onclick="refreshLobbyApp()"
+                    class="bg-emerald-600/85 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-emerald-700/50">
                 Refresh
             </button>
         </div>
@@ -165,8 +165,8 @@
 
                         <select id="cards-count-select"
                                 class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
-                            <option value="5">5 Cards</option>
-                            <option value="7" selected>7 Cards</option>
+                            <option value="5" selected>5 Cards</option>
+                            <option value="7">7 Cards</option>
                             <option value="9">9 Cards</option>
                         </select>
                     </div>
@@ -178,6 +178,8 @@
 
                         <select id="target-points-select"
                                 class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
+                            <option value="1">Single Game</option>
+                            <option value="10">10 Pts</option>
                             <option value="25">25 Pts</option>
 							<option value="50" selected>50 Pts</option>
                             <option value="75">75 Pts</option>
@@ -1714,37 +1716,6 @@
     }
 
     // ============================================================
-    // HEADER ACTION BUTTON
-    // ============================================================
-
-    function refreshAppWebsite() {
-        // Refresh the current website/app page exactly like reloading the link.
-        window.location.reload();
-    }
-
-    function setHeaderActionToExit() {
-        const btn = document.getElementById('header-action-btn');
-        if (!btn) return;
-
-        btn.onclick = confirmExitGame;
-        btn.innerText = 'Exit Game';
-
-        btn.className =
-            'bg-rose-600/85 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-rose-700/50';
-    }
-
-    function setHeaderActionToRefresh() {
-        const btn = document.getElementById('header-action-btn');
-        if (!btn) return;
-
-        btn.onclick = refreshAppWebsite;
-        btn.innerText = 'Refresh';
-
-        btn.className =
-            'bg-sky-600/85 hover:bg-sky-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-sky-700/50';
-    }
-
-    // ============================================================
     // RETURN TO LOBBY WITHOUT RELOADING THE PAGE
     // ============================================================
 
@@ -1780,10 +1751,9 @@
         turnPhase = 'drop';
         pendingRejoinRequest = null;
 
-        // Lobby header shows Refresh instead of Exit Game.
-        setHeaderActionToRefresh();
-
         document.getElementById('lobby-screen').classList.remove('hidden');
+        setLobbyDefaultSettings();
+        setHeaderAction(true);
         document.getElementById('waiting-screen').classList.add('hidden');
         document.getElementById('game-board-screen').classList.add('hidden');
         document.getElementById('room-badge').classList.add('hidden');
@@ -1799,6 +1769,66 @@
         logTicker(message || 'Ready');
         refreshPublicRoomsList();
     }
+
+    // ============================================================
+    // HEADER ACTION + LOBBY DEFAULT SETTINGS
+    // ============================================================
+
+    function setHeaderAction(isLobby) {
+        const btn = document.getElementById('header-action-btn');
+        if (!btn) return;
+
+        if (isLobby) {
+            btn.innerText = 'Refresh';
+            btn.onclick = refreshLobbyApp;
+            btn.className =
+                'bg-emerald-600/85 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-emerald-700/50';
+            btn.title = 'Refresh the app / website';
+        } else {
+            btn.innerText = 'Exit Game';
+            btn.onclick = confirmExitGame;
+            btn.className =
+                'bg-rose-600/85 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-rose-700/50';
+            btn.title = 'Exit the current game or room';
+        }
+    }
+
+    function setLobbyDefaultSettings() {
+        const playersSelect = document.getElementById('max-players-select');
+        const cardsSelect = document.getElementById('cards-count-select');
+        const pointsSelect = document.getElementById('target-points-select');
+
+        if (playersSelect) playersSelect.value = '4';
+        if (cardsSelect) cardsSelect.value = '5';
+        if (pointsSelect) pointsSelect.value = '50';
+    }
+
+    function refreshLobbyApp() {
+        // Always reset the lobby choices before reloading so the next
+        // visit starts with the requested defaults.
+        setLobbyDefaultSettings();
+
+        try {
+            sessionStorage.setItem(
+                'leastCountResetLobbyDefaults',
+                '1'
+            );
+        } catch (e) {}
+
+        window.location.reload();
+    }
+
+    // On every fresh app load, the lobby starts with:
+    // 4 players, 5 cards, 50 elimination points.
+    try {
+        if (
+            document.getElementById('lobby-screen') &&
+            !document.getElementById('lobby-screen').classList.contains('hidden')
+        ) {
+            setLobbyDefaultSettings();
+            setHeaderAction(true);
+        }
+    } catch (e) {}
 
     // ============================================================
     // EXIT GAME
@@ -1936,6 +1966,8 @@
         turnPhase = 'drop';
         pendingRejoinRequest = null;
         document.getElementById('lobby-screen').classList.remove('hidden');
+        setLobbyDefaultSettings();
+        setHeaderAction(true);
         document.getElementById('waiting-screen').classList.add('hidden');
         document.getElementById('game-board-screen').classList.add('hidden');
         document.getElementById('room-badge').classList.add('hidden');
@@ -2203,9 +2235,6 @@
         isSoloMode = true;
         isHost = true;
 
-        // Inside a computer game the header action is Exit Game.
-        setHeaderActionToExit();
-
         myId = 'player-me';
 
         // Give every Computer game a unique code so each solo game gets
@@ -2291,6 +2320,8 @@
             'lobby-screen'
         ).classList.add('hidden');
 
+        setHeaderAction(false);
+
         document.getElementById(
             'game-board-screen'
         ).classList.remove('hidden');
@@ -2332,9 +2363,6 @@
     function createRoom() {
 
         isSoloMode = false;
-
-        // Inside an online game/waiting room the header action is Exit Game.
-        setHeaderActionToExit();
 
         myName =
             document.getElementById(
@@ -2411,6 +2439,8 @@
             'lobby-screen'
         ).classList.add('hidden');
 
+        setHeaderAction(false);
+
         document.getElementById(
             'waiting-screen'
         ).classList.remove('hidden');
@@ -2462,9 +2492,6 @@
     function joinRoom() {
 
         isSoloMode = false;
-
-        // Inside an online game/waiting room the header action is Exit Game.
-        setHeaderActionToExit();
 
         myName =
             document.getElementById(
@@ -3779,6 +3806,8 @@
                 ).classList.add(
                     'hidden'
                 );
+
+                setHeaderAction(false);
 
                 document.getElementById(
                     'waiting-screen'
