@@ -99,9 +99,10 @@
                 Waiting...
             </div>
 
-            <button onclick="confirmExitGame()"
-                    class="bg-rose-600/85 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-rose-700/50">
-                Exit Game
+            <button id="header-action-btn"
+                    onclick="refreshAppWebsite()"
+                    class="bg-sky-600/85 hover:bg-sky-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-sky-700/50">
+                Refresh
             </button>
         </div>
     </header>
@@ -1713,6 +1714,37 @@
     }
 
     // ============================================================
+    // HEADER ACTION BUTTON
+    // ============================================================
+
+    function refreshAppWebsite() {
+        // Refresh the current website/app page exactly like reloading the link.
+        window.location.reload();
+    }
+
+    function setHeaderActionToExit() {
+        const btn = document.getElementById('header-action-btn');
+        if (!btn) return;
+
+        btn.onclick = confirmExitGame;
+        btn.innerText = 'Exit Game';
+
+        btn.className =
+            'bg-rose-600/85 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-rose-700/50';
+    }
+
+    function setHeaderActionToRefresh() {
+        const btn = document.getElementById('header-action-btn');
+        if (!btn) return;
+
+        btn.onclick = refreshAppWebsite;
+        btn.innerText = 'Refresh';
+
+        btn.className =
+            'bg-sky-600/85 hover:bg-sky-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-sky-700/50';
+    }
+
+    // ============================================================
     // RETURN TO LOBBY WITHOUT RELOADING THE PAGE
     // ============================================================
 
@@ -1747,6 +1779,9 @@
         roundActive = false;
         turnPhase = 'drop';
         pendingRejoinRequest = null;
+
+        // Lobby header shows Refresh instead of Exit Game.
+        setHeaderActionToRefresh();
 
         document.getElementById('lobby-screen').classList.remove('hidden');
         document.getElementById('waiting-screen').classList.add('hidden');
@@ -2168,6 +2203,9 @@
         isSoloMode = true;
         isHost = true;
 
+        // Inside a computer game the header action is Exit Game.
+        setHeaderActionToExit();
+
         myId = 'player-me';
 
         // Give every Computer game a unique code so each solo game gets
@@ -2295,6 +2333,9 @@
 
         isSoloMode = false;
 
+        // Inside an online game/waiting room the header action is Exit Game.
+        setHeaderActionToExit();
+
         myName =
             document.getElementById(
                 'nickname-input'
@@ -2421,6 +2462,9 @@
     function joinRoom() {
 
         isSoloMode = false;
+
+        // Inside an online game/waiting room the header action is Exit Game.
+        setHeaderActionToExit();
 
         myName =
             document.getElementById(
