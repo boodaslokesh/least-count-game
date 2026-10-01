@@ -813,6 +813,11 @@
 
     let roomChannel = null;
 
+    // Chat is strictly scoped to the currently active room.
+    // This prevents messages from a previous room/session from
+    // appearing when the user enters a different room.
+    let activeChatRoomKey = '';
+
     let isHost = false;
     let isSoloMode = false;
     let myId = '';
@@ -922,6 +927,10 @@
     }
 
     function initRealtimeChannel(code) {
+        // A new room gets a completely fresh chat context.
+        // If this is only a reconnect to the same room, keep its current chat.
+        resetRoomChatState(code);
+
         if (roomChannel) {
             supabaseClient.removeChannel(roomChannel);
         }
@@ -1551,6 +1560,7 @@
         isSoloMode = false;
         myId = '';
         roomCode = '';
+        resetRoomChatState('');
         players = [];
         myIndex = 0;
         gameHistory = [];
@@ -2445,6 +2455,43 @@
     const roomChatMessages = [];
     const seenChatMessageIds = new Set();
 
+    function clearRoomChatUI() {
+        const chatBanner = document.getElementById('chat-messages-banner');
+        const historyList = document.getElementById('chat-history-list');
+
+        if (historyList) {
+            historyList.innerHTML = '';
+        }
+
+        if (chatBanner) {
+            chatBanner.classList.add('hidden');
+            chatBanner.classList.remove('flex');
+        }
+    }
+
+    function resetRoomChatState(roomKey = '') {
+        const normalizedRoomKey = String(roomKey || '').trim().toUpperCase();
+
+        // Do not wipe chat when the same room is merely reconnecting.
+        if (activeChatRoomKey === normalizedRoomKey) {
+            return;
+        }
+
+        activeChatRoomKey = normalizedRoomKey;
+        roomChatMessages.length = 0;
+        seenChatMessageIds.clear();
+        clearRoomChatUI();
+    }
+
+    function isChatMessageForCurrentRoom(data) {
+        if (!data || data.type !== 'ROOM_CHAT_MESSAGE') return false;
+
+        const messageRoom = String(data.roomCode || '').trim().toUpperCase();
+        const currentRoom = String(roomCode || '').trim().toUpperCase();
+
+        return !!currentRoom && !!messageRoom && messageRoom === currentRoom;
+    }
+
     function sendRoomChatMessage() {
 
         const inputEl =
@@ -2490,6 +2537,11 @@
 
                 type:
                     'ROOM_CHAT_MESSAGE',
+
+                // Always include the room identity so a message can
+                // never be displayed by another room's chat.
+                roomCode:
+                    roomCode,
 
                 messageId:
                     messageId,
@@ -2861,6 +2913,10 @@
                 data.type ===
                 'ROOM_CHAT_MESSAGE'
             ) {
+
+                // Ignore chat packets that belong to another room.
+                if (!isChatMessageForCurrentRoom(data))
+                    return;
 
                 if (
                     data.forwardedByHost
@@ -3714,6 +3770,11 @@
             // ----------------------------------------------------
 
             case 'ROOM_CHAT_MESSAGE':
+
+                // Guest clients must also reject messages from any
+                // room other than the room they are currently in.
+                if (!isChatMessageForCurrentRoom(data))
+                    break;
 
                 displayChatMessageLocally(
                     data.senderName,
