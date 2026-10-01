@@ -818,6 +818,29 @@
     // appearing when the user enters a different room.
     let activeChatRoomKey = '';
 
+    // Tournament winner popup state. Reset only when entering a different room.
+    let tournamentWinnerRoomKey = '';
+    let tournamentWinnerShown = false;
+
+    function resetTournamentWinnerState(roomKey = '') {
+        const normalizedRoomKey = String(roomKey || '').trim().toUpperCase();
+        if (tournamentWinnerRoomKey === normalizedRoomKey) return;
+        tournamentWinnerRoomKey = normalizedRoomKey;
+        tournamentWinnerShown = false;
+    }
+
+    function showTournamentWinnerPopup(winnerName, eventRoomCode = '') {
+        const eventRoom = String(eventRoomCode || '').trim().toUpperCase();
+        const currentRoom = String(roomCode || '').trim().toUpperCase();
+
+        if (!eventRoom || !currentRoom || eventRoom !== currentRoom) return false;
+        if (tournamentWinnerShown) return false;
+
+        tournamentWinnerShown = true;
+        alert(`Tournament Over! Winner is ${winnerName || 'Nobody'}!`);
+        return true;
+    }
+
     let isHost = false;
     let isSoloMode = false;
     let myId = '';
@@ -927,6 +950,8 @@
     }
 
     function initRealtimeChannel(code) {
+        resetTournamentWinnerState(code);
+
         // A new room gets a completely fresh chat context.
         // If this is only a reconnect to the same room, keep its current chat.
         resetRoomChatState(code);
@@ -1561,6 +1586,7 @@
         myId = '';
         roomCode = '';
         resetRoomChatState('');
+        resetTournamentWinnerState('');
         players = [];
         myIndex = 0;
         gameHistory = [];
@@ -1993,11 +2019,20 @@
         isHost = true;
 
         myId = 'player-me';
-        roomCode = 'SOLO';
+
+        // Give every Computer game a unique code so each solo game gets
+        // its own Supabase history row instead of overwriting an older one.
+        roomCode =
+            'SOLO-' +
+            Date.now().toString(36).toUpperCase() +
+            '-' +
+            Math.random().toString(36).slice(2, 6).toUpperCase();
+
         gameHistoryHostName = myName;
 
         gameHistory = [];
         roundCounter = 0;
+        resetTournamentWinnerState(roomCode);
 
         players = [
             {
@@ -2088,6 +2123,10 @@
             "Solo vs Computer Mode";
 
         renderGameBoard();
+
+        // Solo/Computer games use the same Supabase game-history table.
+        // isHost=true in solo mode, so this creates the history row too.
+        syncGameHistoryToSupabase('');
 
         logTicker(
             "Solo game started against Computer bots!"
@@ -3790,18 +3829,9 @@
 
             case 'TOURNAMENT_WINNER':
 
-                // Only accept the winner event for the room currently
-                // open in this browser. This keeps winner popups
-                // isolated between different game rooms.
-                if (
-                    String(data.roomCode || '').trim().toUpperCase() !==
-                    String(roomCode || '').trim().toUpperCase()
-                ) {
-                    break;
-                }
-
-                alert(
-                    `Tournament Over! Winner is ${data.winnerName || 'Nobody'}!`
+                showTournamentWinnerPopup(
+                    data.winnerName,
+                    data.roomCode
                 );
 
                 break;
@@ -3811,6 +3841,13 @@
             // ----------------------------------------------------
 
             case 'ROUND_OVER':
+
+                if (
+                    String(data.roomCode || '').trim().toUpperCase() !==
+                    String(roomCode || '').trim().toUpperCase()
+                ) {
+                    break;
+                }
 
                 players =
                     data.players ||
@@ -3837,6 +3874,13 @@
                 );
 
                 renderGameBoard();
+
+                if (data.tournamentWinner) {
+                    showTournamentWinnerPopup(
+                        data.tournamentWinner,
+                        data.roomCode
+                    );
+                }
 
                 break;
         }
@@ -4687,7 +4731,7 @@
     // SHOW ROUND
     // ============================================================
 
-    function executeShowRound(
+    async function executeShowRound(
         callerPeerId
     ) {
 
@@ -4972,6 +5016,9 @@
             type:
                 'ROUND_OVER',
 
+            roomCode:
+                roomCode,
+
             resultsData:
                 resultsText,
 
@@ -4982,7 +5029,12 @@
                 players,
 
             gameHistory:
-                gameHistory
+                gameHistory,
+
+            // If only one eligible player remains, this round also ended
+            // the tournament. Send the winner in the same reliable packet.
+            tournamentWinner:
+                roundWinner || ''
         };
 
         showRoundOverModal(
@@ -4992,12 +5044,23 @@
 
         renderGameBoard();
 
+        if (roundWinner) {
+            // Host/solo gets the popup immediately. Remote clients get it
+            // from the same ROUND_OVER broadcast below.
+            showTournamentWinnerPopup(
+                roundWinner,
+                roomCode
+            );
+        }
+
         if (
             isHost &&
             !isSoloMode
         ) {
 
-            sendRealtimeMessage(
+            // Wait until Supabase accepts the broadcast before this flow can
+            // tear down the room channel.
+            await sendRealtimeMessage(
                 payload
             );
         }
@@ -5108,10 +5171,15 @@
             // Final update writes the winner into the same database row.
             await syncGameHistoryToSupabase(finalWinner);
 
-            // Broadcast the final winner to every client in this room.
-            // The popup is intentionally handled by all clients instead
-            // of being shown only in the host's browser.
-            sendRealtimeMessage({
+            // Fallback if the final ROUND_OVER winner was not displayed.
+            showTournamentWinnerPopup(
+                finalWinner,
+                roomCode
+            );
+
+            // Await the send so the room channel is not removed before
+            // Supabase accepts the final winner event.
+            await sendRealtimeMessage({
                 type:
                     'TOURNAMENT_WINNER',
 
@@ -5121,11 +5189,6 @@
                 winnerName:
                     finalWinner
             });
-
-            // Do not show a local alert here. Supabase broadcast is
-            // configured with self: true, so the host also receives
-            // TOURNAMENT_WINNER and shows the same popup through the
-            // common handler below.
 
             await returnToLobbyWithoutReload(
                 `Tournament over. Winner: ${finalWinner}.`
