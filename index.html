@@ -56,10 +56,80 @@
             background: rgba(255,255,255,0.2);
             border-radius: 2px;
         }
+
+        /* ============================================================
+           ACCOUNT / WALLET AUTHENTICATION UI
+           ============================================================ */
+        #account-auth-screen { z-index: 200; }
+        .auth-card { box-shadow: 0 25px 80px rgba(0,0,0,.65); }
+        .wallet-pill { white-space: nowrap; }
     </style>
 </head>
 
 <body class="bg-black h-[100dvh] w-screen text-white font-sans flex flex-col justify-between">
+
+
+    <!-- ============================================================
+         ACCOUNT REGISTRATION / LOGIN
+         ============================================================ -->
+    <div id="account-auth-screen"
+         class="fixed inset-0 bg-black flex items-center justify-center p-4 overflow-y-auto">
+        <div class="auth-card w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-5 sm:p-6">
+            <div class="text-center mb-5">
+                <div class="text-4xl mb-2">🃏</div>
+                <h1 class="text-2xl font-black text-emerald-400">LEAST COUNT</h1>
+                <p class="text-xs text-zinc-500 mt-1">Create your player account</p>
+            </div>
+
+            <div id="register-panel" class="space-y-3">
+                <h2 class="text-lg font-bold text-white">Register</h2>
+                <p class="text-[11px] text-zinc-400">New accounts receive <strong class="text-amber-300">500 joining coins</strong>.</p>
+
+                <input id="register-firstname" type="text" maxlength="30" autocomplete="given-name"
+                       placeholder="First name"
+                       class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-sm">
+                <input id="register-lastname" type="text" maxlength="30" autocomplete="family-name"
+                       placeholder="Last name"
+                       class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-sm">
+                <input id="register-password" type="password" minlength="8" maxlength="128" autocomplete="new-password"
+                       placeholder="Password (minimum 8 characters)"
+                       class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-sm">
+                <input id="register-password-confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password"
+                       placeholder="Confirm password"
+                       class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-sm">
+
+                <button onclick="registerUserAccount()"
+                        class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-sm">
+                    Register & Get 500 Coins
+                </button>
+
+                <button onclick="showLoginPanel()" class="w-full py-2 text-xs text-amber-300 hover:text-amber-200">
+                    Already registered? Login
+                </button>
+            </div>
+
+            <div id="login-panel" class="space-y-3 hidden">
+                <h2 class="text-lg font-bold text-white">Login</h2>
+                <input id="login-firstname" type="text" maxlength="30" autocomplete="username"
+                       placeholder="First name"
+                       class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-sm">
+                <input id="login-password" type="password" minlength="8" maxlength="128" autocomplete="current-password"
+                       placeholder="Password"
+                       class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 text-sm">
+
+                <button onclick="loginUserAccount()"
+                        class="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-sm">
+                    Login
+                </button>
+
+                <button onclick="showRegisterPanel()" class="w-full py-2 text-xs text-emerald-300 hover:text-emerald-200">
+                    New player? Register
+                </button>
+            </div>
+
+            <p id="auth-message" class="hidden text-xs text-center mt-3 font-medium"></p>
+        </div>
+    </div>
 
     <!-- TOP BAR / HEADER -->
     <header class="p-2 sm:p-3 bg-black flex flex-row justify-between items-center border-b border-zinc-800 gap-2 shrink-0">
@@ -69,6 +139,18 @@
                  class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg object-cover border border-emerald-500/30"
                  loading="eager">
             <span class="text-base sm:text-xl font-black tracking-wider text-emerald-400">LEAST COUNT</span>
+
+            <span id="logged-user-badge"
+                  class="text-[10px] sm:text-xs bg-zinc-900 px-2 py-0.5 rounded text-emerald-300">
+                <span id="header-user-name" class="font-bold">Player</span>
+                <span class="text-zinc-500">•</span>
+                <span id="header-wallet-coins" class="text-amber-300 font-bold">200</span> 🪙
+            </span>
+
+            <button id="request-coins-link" onclick="requestCoinsFromAdmin()"
+                    class="hidden text-[10px] sm:text-xs text-amber-300 hover:text-amber-200 underline whitespace-nowrap">
+                Request Coins
+            </button>
 
             <span id="room-badge"
                   class="text-[10px] sm:text-xs bg-zinc-900 px-2 py-0.5 rounded text-emerald-300 hidden">
@@ -82,6 +164,11 @@
                  class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden">
                 Waiting...
             </div>
+
+            <button onclick="logoutUserAccount()"
+                    class="bg-zinc-800 hover:bg-zinc-700 text-amber-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-700">
+                Logout
+            </button>
 
             <button onclick="confirmExitGame()"
                     class="bg-rose-600/85 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-rose-700/50">
@@ -98,7 +185,7 @@
     </div>
 
     <!-- MAIN CONTAINER -->
-    <main class="flex-grow flex flex-col items-center justify-center p-2 sm:p-4 max-w-5xl mx-auto w-full overflow-hidden">
+    <main id="game-main" class="flex-grow flex flex-col items-center justify-center p-2 sm:p-4 max-w-5xl mx-auto w-full overflow-hidden">
 
         <!-- LOBBY SCREEN -->
         <div id="lobby-screen"
@@ -107,6 +194,19 @@
             <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">
                 Multiplayer & Solo Lobby
             </h2>
+
+            <div class="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-left">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="min-w-0">
+                        <div class="text-[10px] uppercase tracking-wider text-zinc-500">Logged in</div>
+                        <div id="lobby-user-name" class="text-sm font-bold text-emerald-300 truncate">Player</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-[10px] uppercase tracking-wider text-zinc-500">Wallet</div>
+                        <div class="text-sm font-black text-amber-300"><span id="lobby-wallet-coins">200</span> 🪙</div>
+                    </div>
+                </div>
+            </div>
 
             <div class="space-y-2.5 text-left">
                 <div>
@@ -125,13 +225,12 @@
                            class="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white placeholder-zinc-600 font-medium text-sm">
                 </div>
 
-                <div class="grid grid-cols-3 gap-2">
-                    <div>
-                        <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">
-                            Max Players
-                        </label>
-
-                        <select id="max-players-select"
+                
+<div class="space-y-2 mt-2">
+  <div class="grid grid-cols-3 gap-2 w-full">
+    <div class="min-w-0">
+      <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Max Players</label>
+      <select id="max-players-select"
                                 class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
                             <option value="2">2 Players</option>
                             <option value="3">3 Players</option>
@@ -139,27 +238,19 @@
                             <option value="5">5 Players</option>
                             <option value="6">6 Players</option>
                         </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">
-                            Cards / Player
-                        </label>
-
-                        <select id="cards-count-select"
+    </div>
+    <div class="min-w-0">
+      <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Cards / Player</label>
+      <select id="cards-count-select"
                                 class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
                             <option value="5">5 Cards</option>
                             <option value="7" selected>7 Cards</option>
                             <option value="9">9 Cards</option>
                         </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">
-                            Eliminate Pts
-                        </label>
-
-                        <select id="target-points-select"
+    </div>
+    <div class="min-w-0">
+      <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Eliminate Points</label>
+      <select id="target-points-select"
                                 class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
                             <option value="25">25 Pts</option>
 							<option value="50" selected>50 Pts</option>
@@ -167,21 +258,39 @@
                             <option value="100">100 Pts</option>
                             <option value="150">150 Pts</option>
                         </select>
-                    </div>
-                </div>
+    </div>
+  </div>
 
-                <div class="mt-2">
-                    <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Joker Card</label>
-                    <select id="joker-option-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
+  <div class="grid grid-cols-2 gap-2 w-full">
+    <div class="min-w-0">
+      <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Entry Coins</label>
+      <select id="game-stake-select"
+                                class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
+                            <option value="0" selected>0</option>
+                            <option value="25">25 Coins</option>
+                            <option value="50">50 Coins</option>
+                            <option value="100">100 Coins</option>
+                            <option value="200">200 Coins</option>
+                            <option value="300">300 Coins</option>
+                            <option value="400">400 Coins</option>
+                            <option value="500">500 Coins</option>
+                            <option value="600">600 Coins</option>
+                            <option value="700">700 Coins</option>
+                            <option value="800">800 Coins</option>
+                            <option value="900">900 Coins</option>
+                            <option value="1000">1000 Coins</option>
+                        </select>
+    </div>
+    <div class="min-w-0">
+      <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Joker Card</label>
+      <select id="joker-option-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
                         <option value="no" selected>No Joker</option>
                         <option value="yes">Include 1 Joker (0 Points)</option>
                     </select>
-                </div>
-            </div>
-
-            <div class="space-y-2.5 pt-1">
-
-                <button onclick="startSoloGame()"
+    </div>
+  </div>
+</div>
+<button onclick="startSoloGame()"
                         class="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition transform active:scale-95 text-sm">
                     🤖 Play vs Computer (Solo)
                 </button>
@@ -268,6 +377,8 @@
                     <span id="display-cards-count">7</span>
                     • Target:
                     <span id="display-target-pts">100</span> pts
+                    • Entry:
+                    <span id="display-game-stake">25</span> 🪙
                     • Joker:
                     <span id="display-joker-option">No</span>
                 </h3>
@@ -656,6 +767,42 @@
         </div>
     </div>
 
+    <!-- COIN REQUEST CONFIRMATION MODAL -->
+    <div id="coin-request-modal"
+         class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 z-[100]">
+        <div class="bg-black border border-amber-500/40 w-full max-w-sm rounded-2xl p-6 shadow-2xl text-center space-y-4">
+            <div class="text-4xl">🪙</div>
+            <h3 class="text-lg font-black text-amber-300">Coins Requested</h3>
+            <p class="text-sm text-zinc-300 leading-relaxed">
+                Coins requested. Please wait to process the coins.
+            </p>
+            <button onclick="closeCoinRequestModal()"
+                    class="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-sm">
+                OK
+            </button>
+        </div>
+    </div>
+
+    <!-- SECURE WALLET / ROOM CONFIRMATION MODAL -->
+    <div id="wallet-confirmation-modal"
+         class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 z-[110]">
+        <div class="bg-black border border-amber-500/40 w-full max-w-sm rounded-2xl p-5 shadow-2xl space-y-4">
+            <div class="text-center">
+                <div id="wallet-confirmation-icon" class="text-4xl mb-2">🪙</div>
+                <h3 id="wallet-confirmation-title" class="text-lg font-black text-amber-300">Wallet Confirmation</h3>
+                <div id="wallet-confirmation-body" class="text-sm text-zinc-300 mt-3 leading-relaxed"></div>
+            </div>
+            <div id="wallet-confirmation-actions" class="grid grid-cols-2 gap-2">
+                <button id="wallet-confirmation-cancel"
+                        class="py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl text-sm">Cancel</button>
+                <button id="wallet-confirmation-ok"
+                        class="py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-sm">Confirm</button>
+            </div>
+            <button id="wallet-confirmation-close"
+                    class="hidden w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-sm">OK</button>
+        </div>
+    </div>
+
 <script>
     // ============================================================
     // SUPABASE CLIENT & REALTIME CHANNEL INITIALIZATION
@@ -693,7 +840,9 @@
             `Host: ${hostName}\n` +
             `Game Code: ${roomCode}\n` +
             `Players: ${safePlayers.map(p => p.name).join(', ')}\n` +
-            `Settings: ${maxPlayersLimit} players, ${cardsPerPlayer} cards/player, ${targetEliminationPoints} elimination points, Joker: ${includeJoker ? 'Yes (0 points)' : 'No'}\n\n`;
+            `Settings: ${maxPlayersLimit} players, ${cardsPerPlayer} cards/player, ${targetEliminationPoints} elimination points, Entry: ${gameStake} coins, Joker: ${includeJoker ? 'Yes (0 points)' : 'No'}\n` +
+            `Prize Pot: ${gamePot} coins\n` +
+            `Wallet Settlement: ${walletSettled ? 'Settled' : 'Pending/In Progress'}\n\n`;
 
         if (Array.isArray(gameHistory) && gameHistory.length) {
             gameHistory.forEach(round => {
@@ -802,14 +951,643 @@
         }
     }
 
+    // Nickname is editable and defaults to the logged-in user's first name.
+    // Keep a separate nickname per account so users on the same browser do not overwrite each other.
     const nicknameInput = document.getElementById('nickname-input');
-    try { nicknameInput.value = localStorage.getItem('leastCountNickname') || ''; } catch (e) {}
-    nicknameInput.addEventListener('input', () => { try { localStorage.setItem('leastCountNickname', nicknameInput.value); } catch (e) {} });
+    function getNicknameStorageKey(profile = currentUserProfile) {
+        if (!profile?.firstname || !profile?.lastname) return 'leastCountNicknameGuest';
+        return `leastCountNickname:${String(profile.firstname).trim().toLowerCase()}:${String(profile.lastname).trim().toLowerCase()}`;
+    }
+    function loadSavedNickname(profile = currentUserProfile) {
+        const firstName = profile?.firstname || 'Player';
+        try {
+            const key = getNicknameStorageKey(profile);
+            const saved = localStorage.getItem(key);
+            return saved && saved.trim() ? saved.trim() : firstName;
+        } catch (e) {
+            return firstName;
+        }
+    }
+    if (nicknameInput) {
+        nicknameInput.addEventListener('input', () => {
+            try {
+                const value = nicknameInput.value.trim();
+                localStorage.setItem(getNicknameStorageKey(), value);
+            } catch (e) {}
+        });
+    }
 
     const supabaseClient = supabase.createClient(
         SUPABASE_BASE_URL,
         SUPABASE_APIKEY
     );
+
+
+    // ============================================================
+    // USER ACCOUNT / WALLET
+    // ============================================================
+
+    function authHeaders(prefer = '') {
+        const h = {
+            'apikey': SUPABASE_APIKEY,
+            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+            'Content-Type': 'application/json'
+        };
+        if (prefer) h['Prefer'] = prefer;
+        return h;
+    }
+
+
+    // ============================================================
+    // SECURE WALLET / AUDIT RPC HELPERS
+    // Requires least_count_security_migration.sql to be applied.
+    // ============================================================
+
+    const WALLET_LEDGER_URL = `${SUPABASE_BASE_URL}/rest/v1/least_count_wallet_ledger`;
+    const ROOM_TRANSACTION_URL = `${SUPABASE_BASE_URL}/rest/v1/least_count_room_transactions`;
+    let walletOperationInFlight = false;
+
+    async function callSupabaseRpc(functionName, payload = {}) {
+        const response = await fetch(
+            `${SUPABASE_BASE_URL}/rest/v1/rpc/${functionName}`,
+            {
+                method: 'POST',
+                headers: authHeaders('return=representation'),
+                body: JSON.stringify(payload)
+            }
+        );
+
+        const raw = await response.text();
+        let parsed = null;
+        try { parsed = raw ? JSON.parse(raw) : null; } catch (e) { parsed = raw; }
+
+        if (!response.ok) {
+            const message =
+                parsed?.message ||
+                parsed?.details ||
+                parsed?.hint ||
+                (typeof parsed === 'string' ? parsed : '') ||
+                `RPC ${functionName} failed (${response.status})`;
+            throw new Error(message);
+        }
+
+        return parsed;
+    }
+
+    function walletEventKey(type, code = roomCode, extra = '') {
+        const account = currentUserProfile
+            ? `${currentUserProfile.firstname}:${currentUserProfile.lastname}`
+            : 'anonymous';
+        return [type, code || 'NO_ROOM', account, extra || 'default'].join(':');
+    }
+
+    function escapeWalletHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
+
+    function showWalletInfoModal(title, html, icon = '🪙') {
+        return new Promise(resolve => {
+            const modal = document.getElementById('wallet-confirmation-modal');
+            const titleEl = document.getElementById('wallet-confirmation-title');
+            const bodyEl = document.getElementById('wallet-confirmation-body');
+            const iconEl = document.getElementById('wallet-confirmation-icon');
+            const actions = document.getElementById('wallet-confirmation-actions');
+            const close = document.getElementById('wallet-confirmation-close');
+
+            if (!modal) return resolve(true);
+
+            titleEl.textContent = title;
+            bodyEl.innerHTML = html;
+            iconEl.textContent = icon;
+            actions.classList.add('hidden');
+            close.classList.remove('hidden');
+            modal.classList.remove('hidden');
+
+            close.onclick = () => {
+                modal.classList.add('hidden');
+                close.classList.add('hidden');
+                actions.classList.remove('hidden');
+                resolve(true);
+            };
+        });
+    }
+
+    function showWalletConfirmModal(title, html, icon = '🪙') {
+        return new Promise(resolve => {
+            const modal = document.getElementById('wallet-confirmation-modal');
+            const titleEl = document.getElementById('wallet-confirmation-title');
+            const bodyEl = document.getElementById('wallet-confirmation-body');
+            const iconEl = document.getElementById('wallet-confirmation-icon');
+            const actions = document.getElementById('wallet-confirmation-actions');
+            const close = document.getElementById('wallet-confirmation-close');
+            const ok = document.getElementById('wallet-confirmation-ok');
+            const cancel = document.getElementById('wallet-confirmation-cancel');
+
+            if (!modal) return resolve(confirm(title));
+
+            titleEl.textContent = title;
+            bodyEl.innerHTML = html;
+            iconEl.textContent = icon;
+            actions.classList.remove('hidden');
+            close.classList.add('hidden');
+            modal.classList.remove('hidden');
+
+            const finish = value => {
+                modal.classList.add('hidden');
+                ok.onclick = null;
+                cancel.onclick = null;
+                resolve(value);
+            };
+
+            ok.onclick = () => finish(true);
+            cancel.onclick = () => finish(false);
+        });
+    }
+
+    function updateLowCoinWarning() {
+        const coins = Number(currentUserProfile?.coins || 0);
+        const warning = document.getElementById('low-coin-warning');
+        const balance = document.getElementById('low-coin-balance');
+        if (balance) balance.textContent = coins;
+        if (warning) warning.classList.toggle('hidden', !currentUserProfile || coins >= 25);
+    }
+
+    function persistActiveGameSession() {
+        if (isSoloMode || !roomCode || !currentUserProfile) return;
+        try {
+            localStorage.setItem('leastCountGameSession', JSON.stringify({
+                roomCode,
+                myName,
+                myClientToken,
+                wasHost: !!isHost,
+                roundActive: !!roundActive,
+                savedAt: new Date().toISOString()
+            }));
+        } catch (e) {}
+    }
+
+    function clearActiveGameSession() {
+        try { localStorage.removeItem('leastCountGameSession'); } catch (e) {}
+    }
+
+    async function restoreActiveGameSessionIfAvailable() {
+        if (!currentUserProfile || roomCode || isSoloMode) return false;
+
+        let saved = null;
+        try {
+            saved = JSON.parse(localStorage.getItem('leastCountGameSession') || 'null');
+        } catch (e) {}
+
+        if (!saved?.roomCode) return false;
+
+        // Ignore very old stale sessions.
+        const ageMs = Date.now() - new Date(saved.savedAt || 0).getTime();
+        if (!Number.isFinite(ageMs) || ageMs > 12 * 60 * 60 * 1000) {
+            clearActiveGameSession();
+            return false;
+        }
+
+        myName = saved.myName || loadSavedNickname(currentUserProfile);
+        roomCode = String(saved.roomCode).toUpperCase();
+        myId = myClientToken;
+        isSoloMode = false;
+        isHost = false; // server/room messages decide current host after reconnect
+
+        const nick = document.getElementById('nickname-input');
+        const room = document.getElementById('join-room-input');
+        if (nick) nick.value = myName;
+        if (room) room.value = roomCode;
+
+        initRealtimeChannel(roomCode);
+        logTicker(`Reconnecting to room ${roomCode}...`);
+        return true;
+    }
+
+    function setAuthMessage(message, ok = false) {
+        const el = document.getElementById('auth-message');
+        if (!el) return;
+        el.textContent = message || '';
+        el.classList.toggle('hidden', !message);
+        el.classList.toggle('text-emerald-400', !!ok);
+        el.classList.toggle('text-rose-400', !ok);
+    }
+
+    function normalizeName(v) {
+        return String(v || '').trim().replace(/\s+/g, ' ');
+    }
+
+    function saveLoggedInUser(profile) {
+        currentUserProfile = {
+            firstname: profile.firstname,
+            lastname: profile.lastname,
+            coins: Number(profile.coins || 0),
+            coin_request: profile.coin_request || currentUserProfile?.coin_request || 'no',
+            sessionToken:
+                profile.session_token ||
+                profile.sessionToken ||
+                currentUserProfile?.sessionToken ||
+                ''
+        };
+        localStorage.setItem('leastCountUserSession', JSON.stringify(currentUserProfile));
+        updateUserUI();
+    }
+
+    function clearLoggedInUser() {
+        currentUserProfile = null;
+        localStorage.removeItem('leastCountUserSession');
+        updateUserUI();
+    }
+
+    function updateUserUI() {
+        const loggedIn = !!currentUserProfile;
+        const auth = document.getElementById('account-auth-screen');
+        if (auth) auth.classList.toggle('hidden', loggedIn);
+
+        const first = currentUserProfile?.firstname || 'Player';
+        const coins = Number(currentUserProfile?.coins || 0);
+
+        ['header-user-name','lobby-user-name'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = first;
+        });
+        ['header-wallet-coins','lobby-wallet-coins'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = coins;
+        });
+
+        const requestLink = document.getElementById('request-coins-link');
+        if (requestLink) requestLink.classList.toggle('hidden', !loggedIn || coins >= 25);
+        updateLowCoinWarning();
+
+        const nick = document.getElementById('nickname-input');
+        if (nick) {
+            // First name is the default, but the player can freely edit the nickname.
+            nick.value = loadSavedNickname(currentUserProfile);
+            nick.readOnly = false;
+            nick.disabled = false;
+            nick.classList.remove('opacity-70');
+        }
+    }
+
+    function showRegisterPanel() {
+        document.getElementById('register-panel')?.classList.remove('hidden');
+        document.getElementById('login-panel')?.classList.add('hidden');
+        setAuthMessage('');
+    }
+
+    function showLoginPanel() {
+        document.getElementById('register-panel')?.classList.add('hidden');
+        document.getElementById('login-panel')?.classList.remove('hidden');
+        setAuthMessage('');
+    }
+
+    async function getUserProfile() {
+        const sessionToken = currentUserProfile?.sessionToken || '';
+        if (!sessionToken) return null;
+
+        const result = await callSupabaseRpc('get_player_profile', {
+            p_session_token: sessionToken
+        });
+
+        const row = Array.isArray(result) ? result[0] : result;
+        return row || null;
+    }
+
+    async function getUserProfileByFirstname() {
+        // Kept only for compatibility with older code paths.
+        return getUserProfile();
+    }
+
+    async function registerUserAccount() {
+        const firstname = normalizeName(document.getElementById('register-firstname')?.value);
+        const lastname = normalizeName(document.getElementById('register-lastname')?.value);
+        const password = document.getElementById('register-password')?.value || '';
+        const confirmPassword = document.getElementById('register-password-confirm')?.value || '';
+
+        if (!firstname || !lastname) return setAuthMessage('First name and last name are required.');
+        if (password.length < 8) return setAuthMessage('Password must be at least 8 characters.');
+        if (password !== confirmPassword) return setAuthMessage('Passwords do not match.');
+
+        try {
+            setAuthMessage('Creating account...');
+
+            const result = await callSupabaseRpc('register_player_account', {
+                p_firstname: firstname,
+                p_lastname: lastname,
+                p_password: password
+            });
+
+            const profile = Array.isArray(result) ? result[0] : result;
+            if (!profile) throw new Error('Registration did not return a player profile.');
+
+            saveLoggedInUser(profile);
+            setAuthMessage('Registration successful.', true);
+            document.getElementById('register-password').value = '';
+            document.getElementById('register-password-confirm').value = '';
+            document.getElementById('auth-message').classList.add('hidden');
+            logTicker(`Welcome ${firstname}! You received 500 joining coins.`);
+        } catch (error) {
+            console.error('Registration failed:', error);
+            const message = String(error?.message || '');
+            if (message.toLowerCase().includes('already')) {
+                setAuthMessage('Account already exists. Please login.');
+                document.getElementById('login-firstname').value = firstname;
+                showLoginPanel();
+            } else {
+                setAuthMessage(message || 'Registration failed.');
+            }
+        }
+    }
+
+    async function loginUserAccount() {
+        const firstname = normalizeName(document.getElementById('login-firstname')?.value);
+        const password = document.getElementById('login-password')?.value || '';
+
+        if (!firstname || !password) return setAuthMessage('Enter first name and password.');
+        if (password.length < 8) return setAuthMessage('Password must be at least 8 characters.');
+
+        try {
+            setAuthMessage('Logging in...');
+
+            const result = await callSupabaseRpc('login_player_account', {
+                p_firstname: firstname,
+                p_password: password
+            });
+
+            const profile = Array.isArray(result) ? result[0] : result;
+            if (!profile) throw new Error('Account not found or incorrect password.');
+
+            saveLoggedInUser(profile);
+            document.getElementById('login-password').value = '';
+            setAuthMessage('');
+            logTicker(`Welcome back, ${firstname}.`);
+            refreshPublicRoomsList();
+            restoreActiveGameSessionIfAvailable();
+        } catch (error) {
+            console.error('Login failed:', error);
+            setAuthMessage('Account not found or incorrect password.');
+        }
+    }
+
+    async function refreshCurrentUserWallet() {
+        if (!currentUserProfile) return null;
+        try {
+            const profile = await getUserProfile();
+            if (profile) {
+                currentUserProfile.coins = Number(profile.coins || 0);
+                saveLoggedInUser(profile);
+                return profile;
+            }
+        } catch (e) {
+            console.error('Wallet refresh failed:', e);
+        }
+        return currentUserProfile;
+    }
+
+    async function requestCoinsFromAdmin() {
+        if (!currentUserProfile || Number(currentUserProfile.coins || 0) >= 25) return;
+        if (!currentUserProfile.sessionToken) {
+            alert('Please login again before requesting coins.');
+            return;
+        }
+
+        try {
+            const result = await callSupabaseRpc('request_player_coins', {
+                p_session_token: currentUserProfile.sessionToken
+            });
+
+            const row = Array.isArray(result) ? result[0] : result;
+            currentUserProfile.coin_request = 'yes';
+            if (row?.coins !== undefined) currentUserProfile.coins = Number(row.coins || 0);
+            saveLoggedInUser(currentUserProfile);
+
+            // Admin notification should be sent from a trusted backend/Edge Function,
+            // never from browser code with a permanent WhatsApp access token.
+            document.getElementById('coin-request-modal')?.classList.remove('hidden');
+            updateUserUI();
+        } catch (error) {
+            console.error('Coin request submission failed:', error);
+            alert('Coin request could not be submitted right now. Please try again.');
+        }
+    }
+
+    function closeCoinRequestModal() {
+        document.getElementById('coin-request-modal')?.classList.add('hidden');
+    }
+
+    async function logoutUserAccount() {
+        if (roomCode || roundActive) {
+            const ok = confirm('Exit the current game and logout?');
+            if (!ok) return;
+            await returnToLobbyWithoutReload('Logged out.');
+        }
+        clearLoggedInUser();
+        showLoginPanel();
+        document.getElementById('login-firstname').value = '';
+        document.getElementById('login-password').value = '';
+        logTicker('Please login to continue.');
+    }
+
+    async function initializeUserSession() {
+        try {
+            const raw = localStorage.getItem('leastCountUserSession');
+            if (!raw) {
+                showRegisterPanel();
+                updateUserUI();
+                return;
+            }
+            const saved = JSON.parse(raw);
+            if (!saved?.firstname || !saved?.lastname || !saved?.sessionToken) throw new Error('Invalid session');
+            currentUserProfile = saved;
+            const profile = await getUserProfile();
+            if (!profile) throw new Error('Session expired or profile no longer exists');
+            profile.sessionToken = saved.sessionToken;
+            saveLoggedInUser(profile);
+            document.getElementById('account-auth-screen')?.classList.add('hidden');
+            restoreActiveGameSessionIfAvailable();
+        } catch (e) {
+            console.warn('Stored login session could not be restored:', e);
+            clearLoggedInUser();
+            showRegisterPanel();
+        }
+    }
+
+    // Game wallet helpers. Paid-room money changes are executed atomically
+    // in PostgreSQL through RPCs. Event keys make retries/double clicks idempotent.
+    async function collectGameEntryCoins() {
+        if (isSoloMode || Number(gameStake) <= 0) {
+            gamePot = 0;
+            return true;
+        }
+        if (walletSettled || gamePot > 0 || walletOperationInFlight) return true;
+
+        const active = players.filter(p =>
+            p.connected !== false &&
+            p.viewOnly !== true &&
+            !p.eliminated &&
+            !p.isBot
+        );
+
+        if (active.length < 2) {
+            alert('Need at least 2 players.');
+            return false;
+        }
+
+        const accounts = active.map(p => ({
+            firstname: p.firstname,
+            lastname: p.lastname,
+            nickname: p.name,
+            client_token: p.clientToken || p.id
+        }));
+
+        if (accounts.some(p => !p.firstname || !p.lastname)) {
+            alert('One or more players are missing account information.');
+            return false;
+        }
+
+        walletOperationInFlight = true;
+        try {
+            const result = await callSupabaseRpc('collect_room_entry_fees', {
+                p_host_session_token: currentUserProfile?.sessionToken || '',
+                p_room_id: roomCode,
+                p_host_name: getGameHistoryHostName(),
+                p_entry_amount: Number(gameStake),
+                p_players: accounts,
+                p_event_key: `room-entry:${roomCode}`
+            });
+
+            const row = Array.isArray(result) ? result[0] : result;
+            gamePot = Number(row?.total_pot ?? (gameStake * active.length));
+
+            // Refresh host wallet from DB. Other players receive a sync event.
+            if (currentUserProfile) await refreshCurrentUserWallet();
+
+            for (const p of active) {
+                sendRealtimeMessage({
+                    type: 'WALLET_REFRESH',
+                    targetToken: p.clientToken || p.id
+                });
+            }
+
+            await callSupabaseRpc('upsert_room_transaction', {
+                p_host_session_token: currentUserProfile?.sessionToken || '',
+                p_room_id: roomCode,
+                p_host_name: getGameHistoryHostName(),
+                p_players: active.map(p => ({
+                    firstname: p.firstname,
+                    lastname: p.lastname,
+                    nickname: p.name
+                })),
+                p_entry_amount: Number(gameStake),
+                p_total_pot: Number(gamePot),
+                p_winner: null,
+                p_prize_paid: 0,
+                p_status: 'active'
+            });
+
+            persistActiveGameSession();
+            return true;
+        } catch (error) {
+            console.error('Atomic entry collection failed:', error);
+            alert(error.message || 'Unable to collect game entry coins.');
+            return false;
+        } finally {
+            walletOperationInFlight = false;
+        }
+    }
+
+    async function settleGameWinner(finalWinner) {
+        if (isSoloMode || walletSettled || !finalWinner || Number(gamePot) <= 0 || walletOperationInFlight) return;
+
+        const winner = players.find(p => p.name === finalWinner && !p.isBot);
+        if (!winner || !winner.firstname || !winner.lastname) return;
+
+        walletOperationInFlight = true;
+        try {
+            const previousBalance =
+                currentUserProfile &&
+                currentUserProfile.firstname === winner.firstname &&
+                currentUserProfile.lastname === winner.lastname
+                    ? Number(currentUserProfile.coins || 0)
+                    : Number(winner.coins || 0);
+
+            const result = await callSupabaseRpc('pay_room_winner', {
+                p_host_session_token: currentUserProfile?.sessionToken || '',
+                p_room_id: roomCode,
+                p_winner_firstname: winner.firstname,
+                p_winner_lastname: winner.lastname,
+                p_winner_nickname: winner.name,
+                p_prize_amount: Number(gamePot),
+                p_event_key: `winner-prize:${roomCode}`
+            });
+
+            const row = Array.isArray(result) ? result[0] : result;
+            const newCoins = Number(row?.new_balance ?? (previousBalance + gamePot));
+            winner.coins = newCoins;
+            walletSettled = true;
+
+            await callSupabaseRpc('upsert_room_transaction', {
+                p_host_session_token: currentUserProfile?.sessionToken || '',
+                p_room_id: roomCode,
+                p_host_name: getGameHistoryHostName(),
+                p_players: players.filter(p => !p.isBot).map(p => ({
+                    firstname: p.firstname,
+                    lastname: p.lastname,
+                    nickname: p.name
+                })),
+                p_entry_amount: Number(gameStake),
+                p_total_pot: Number(gamePot),
+                p_winner: finalWinner,
+                p_prize_paid: Number(gamePot),
+                p_status: 'completed'
+            });
+
+            if (roomChannel && winner.clientToken) {
+                sendRealtimeMessage({
+                    type: 'WALLET_SYNC',
+                    targetToken: winner.clientToken,
+                    coins: newCoins,
+                    previousCoins: previousBalance,
+                    prize: Number(gamePot)
+                });
+            }
+
+            if (currentUserProfile &&
+                currentUserProfile.firstname === winner.firstname &&
+                currentUserProfile.lastname === winner.lastname) {
+                currentUserProfile.coins = newCoins;
+                saveLoggedInUser(currentUserProfile);
+
+                await showWalletInfoModal(
+                    '🏆 Winner Payment Complete',
+                    `<div class="space-y-1">
+                        <div>You won <strong class="text-amber-300">${Number(gamePot)} coins</strong></div>
+                        <div>Previous balance: <strong>${previousBalance}</strong></div>
+                        <div>New balance: <strong class="text-emerald-300">${newCoins}</strong></div>
+                    </div>`,
+                    '🏆'
+                );
+            }
+
+            logTicker(`${finalWinner} won ${gamePot} coins. Wallet updated.`);
+        } catch (error) {
+            console.error('Winner wallet payout failed:', error);
+            alert(`Winner payout could not be completed automatically: ${error.message}`);
+        } finally {
+            walletOperationInFlight = false;
+        }
+    }
+
+    window.addEventListener('beforeunload', () => {
+        if (roomCode && !isSoloMode) persistActiveGameSession();
+    });
+
+    document.addEventListener('DOMContentLoaded', initializeUserSession);
 
     let roomChannel = null;
 
@@ -845,6 +1623,11 @@
     let cardsPerPlayer = 7;
     let targetEliminationPoints = 100;
     let includeJoker = false;
+    let gameStake = 25;
+    let gamePot = 0;
+    let walletSettled = false;
+    let currentUserProfile = null;
+    const USER_PROFILE_URL = `${SUPABASE_BASE_URL}/rest/v1/user_profile`;
     let roomCode = '';
 
     let players = [];
@@ -957,6 +1740,9 @@
                         sendRealtimeMessage({
                             type: 'JOIN_REQUEST',
                             name: myName,
+                            firstname: currentUserProfile?.firstname || myName,
+                            lastname: currentUserProfile?.lastname || '',
+                            coins: Number(currentUserProfile?.coins || 0),
                             clientToken: myClientToken,
                             senderId: myClientToken,
                             rejoinRequest: true
@@ -1129,7 +1915,7 @@
                             </span>
                         </div>
                         <div class="text-[10px] text-zinc-400">
-                            Max: ${room.max_players} players • Cards: ${room.cards}
+                            Max: ${room.max_players} players • Cards: ${room.cards} • Entry: ${Number(room.entry_coins || 0)} 🪙
                         </div>
                     </div>
                     <span class="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] rounded-lg">
@@ -1172,6 +1958,12 @@
                 host_name:
                     myName || 'Host',
 
+                host_firstname:
+                    currentUserProfile?.firstname || '',
+
+                host_lastname:
+                    currentUserProfile?.lastname || '',
+
                 max_players:
                     String(maxPlayersLimit),
 
@@ -1189,6 +1981,9 @@
 
                 game_started:
                     startedValue,
+
+                entry_coins:
+                    Number(gameStake || 0),
 
                 created_at:
                     new Date().toISOString()
@@ -1561,6 +2356,9 @@
         roundActive = false;
         turnPhase = 'drop';
         pendingRejoinRequest = null;
+        gamePot = 0;
+        walletSettled = false;
+        refreshCurrentUserWallet();
 
         document.getElementById('lobby-screen').classList.remove('hidden');
         document.getElementById('waiting-screen').classList.add('hidden');
@@ -1575,6 +2373,8 @@
         document.getElementById('database-history-modal')?.classList.add('hidden');
         document.getElementById('lobby-error').classList.add('hidden');
 
+        const stakeSelect = document.getElementById('game-stake-select');
+        if (stakeSelect) stakeSelect.value = '0';
         logTicker(message || 'Ready');
         refreshPublicRoomsList();
     }
@@ -1610,11 +2410,26 @@
 
                     if (leaving) {
 
+                        if (roundActive && Number(gameStake) > 0 && leaving.firstname && leaving.lastname) {
+                            callSupabaseRpc('record_room_leave_forfeit', {
+                                p_host_session_token: currentUserProfile?.sessionToken || '',
+                                p_room_id: roomCode,
+                                p_firstname: leaving.firstname,
+                                p_lastname: leaving.lastname,
+                                p_nickname: leaving.name,
+                                p_entry_amount: Number(gameStake),
+                                p_event_key: `room-leave:${roomCode}:${leaving.firstname}:${leaving.lastname}`
+                            }).catch(e => console.warn('Leave audit failed:', e));
+                        }
+
                         leaving.connected = false;
                         leaving.viewOnly = false;
                         leaving.rejoinPending = false;
                     }
 
+                    // A host who exits after the paid game has started forfeits the
+                    // already-paid stake; it remains in gamePot for the final winner.
+                    // If it is the host's turn, advanceTurn() skips the departed host.
                     if (
                         roundActive &&
                         players[currentTurnIndex] &&
@@ -1637,6 +2452,17 @@
                         );
 
                     if (successor) {
+
+                        try {
+                            await callSupabaseRpc('transfer_room_host', {
+                                p_current_host_session_token: currentUserProfile?.sessionToken || '',
+                                p_room_id: roomCode,
+                                p_new_host_firstname: successor.firstname || '',
+                                p_new_host_lastname: successor.lastname || ''
+                            });
+                        } catch (hostTransferError) {
+                            console.warn('Server host transfer audit failed:', hostTransferError);
+                        }
 
                         await sendRealtimeMessage({
 
@@ -1666,7 +2492,14 @@
                                 gameHistoryHostName,
 
                             roundActive:
-                                roundActive
+                                roundActive,
+
+                            // Keep the already-paid room pot alive when the host exits.
+                            gameStake:
+                                gameStake,
+
+                            gamePot:
+                                gamePot
                         });
                     }
 
@@ -1726,6 +2559,8 @@
         document.getElementById('round-over-modal').classList.add('hidden');
         document.getElementById('lobby-error').classList.add('hidden');
         logTicker('Ready');
+        const stakeSelect = document.getElementById('game-stake-select');
+        if (stakeSelect) stakeSelect.value = '0';
         refreshPublicRoomsList();
     }
 
@@ -1812,6 +2647,13 @@
                 );
 
             if (newHost) {
+
+                callSupabaseRpc('transfer_room_host', {
+                    p_current_host_session_token: currentUserProfile?.sessionToken || '',
+                    p_room_id: roomCode,
+                    p_new_host_firstname: newHost.firstname || '',
+                    p_new_host_lastname: newHost.lastname || ''
+                }).catch(e => console.warn('Server host transfer audit failed:', e));
 
                 isHost =
                     (
@@ -1997,6 +2839,9 @@
                 scores: 0,
                 hand: [],
                 eliminated: false,
+                firstname: currentUserProfile.firstname,
+                lastname: currentUserProfile.lastname,
+                coins: Number(currentUserProfile.coins || 0),
                 isBot: false,
                 connected: true,
                 viewOnly: false,
@@ -2090,7 +2935,7 @@
     // CREATE ROOM
     // ============================================================
 
-    function createRoom() {
+    async function createRoom() {
 
         isSoloMode = false;
 
@@ -2130,6 +2975,13 @@
             );
 
         includeJoker = document.getElementById('joker-option-select').value === 'yes';
+        gameStake = parseInt(document.getElementById('game-stake-select')?.value || '0', 10);
+        if (!Number.isFinite(gameStake) || gameStake < 0) gameStake = 0;
+
+        if (gameStake > 0 && Number(currentUserProfile.coins || 0) < gameStake) {
+            showLobbyError(`You need at least ${gameStake} coins to create this game.`);
+            return;
+        }
 
         isHost = true;
         myId = myClientToken;
@@ -2142,6 +2994,8 @@
         roundActive = false;
         gameHistory = [];
         roundCounter = 0;
+        gamePot = 0;
+        walletSettled = false;
 
         players = [
             {
@@ -2154,6 +3008,10 @@
                 hand: [],
                 eliminated: false,
                 isBot: false,
+                firstname: currentUserProfile?.firstname || myName,
+                lastname: currentUserProfile?.lastname || '',
+                coins: Number(currentUserProfile?.coins || 0),
+                clientToken: myClientToken,
 
                 // NEW REJOIN FIELDS
                 viewOnly: false,
@@ -2192,6 +3050,7 @@
             'display-target-pts'
         ).innerText =
             targetEliminationPoints;
+        document.getElementById('display-game-stake').innerText = gameStake;
 
         document.getElementById(
             'host-controls'
@@ -2203,10 +3062,26 @@
 
         updateWaitingRoomUI();
 
-        registerPublicRoom(
+        await registerPublicRoom(
             'waiting',
             'no'
         );
+
+        if (Number(gameStake) > 0) {
+            try {
+                await callSupabaseRpc('authorize_room_entry', {
+                    p_session_token: currentUserProfile?.sessionToken || '',
+                    p_room_id: roomCode,
+                    p_entry_amount: Number(gameStake)
+                });
+            } catch (error) {
+                showLobbyError(error.message || 'Unable to authorize room entry.');
+                await returnToLobbyWithoutReload('Room creation cancelled.');
+                return;
+            }
+        }
+
+        persistActiveGameSession();
 
         logTicker(
             `Room active! Code: ${roomCode}`
@@ -2217,7 +3092,7 @@
     // JOIN ROOM
     // ============================================================
 
-    function joinRoom() {
+    async function joinRoom() {
 
         isSoloMode = false;
 
@@ -2237,16 +3112,55 @@
                 ''
             );
 
-        if (
-            !myName ||
-            !codeInput
-        ) {
+        if (!myName || !codeInput) {
 
             showLobbyError(
                 "Enter your nickname and Room Code."
             );
 
             return;
+        }
+
+        // Get the room's configured stake before connecting so a paid-room
+        // entry is explicit and accidental joins are avoided.
+        try {
+            const lookup = await fetch(
+                `${SUPABASE_URL}?join_code=eq.${encodeURIComponent(codeInput)}&select=join_code,entry_coins,game_started,status&limit=1`,
+                { headers: authHeaders() }
+            );
+            if (lookup.ok) {
+                const rows = await lookup.json();
+                const room = Array.isArray(rows) ? rows[0] : null;
+                if (room) {
+                    const roomStake = Number(room.entry_coins || 0);
+                    if (roomStake > 0) {
+                        const balance = Number(currentUserProfile?.coins || 0);
+                        if (balance < roomStake) {
+                            showLobbyError(`You need ${roomStake} coins to join. Your balance is ${balance}.`);
+                            return;
+                        }
+                        const accepted = await showWalletConfirmModal(
+                            'Paid Room Confirmation',
+                            `<div class="space-y-1 text-left bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                                <div class="flex justify-between"><span>Entry:</span><strong class="text-amber-300">${roomStake} coins</strong></div>
+                                <div class="flex justify-between"><span>Your balance:</span><strong>${balance} coins</strong></div>
+                                <div class="flex justify-between"><span>Balance after joining:</span><strong class="text-emerald-300">${balance - roomStake} coins</strong></div>
+                             </div>
+                             <p class="text-[11px] text-zinc-500 mt-2">The fee is deducted once when the host starts the paid game.</p>`,
+                            '🎟️'
+                        );
+                        if (!accepted) return;
+
+                        await callSupabaseRpc('authorize_room_entry', {
+                            p_session_token: currentUserProfile?.sessionToken || '',
+                            p_room_id: codeInput,
+                            p_entry_amount: roomStake
+                        });
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Room confirmation lookup failed; continuing with normal join flow:', e);
         }
 
         const joinBtn =
@@ -2275,6 +3189,7 @@
         roomCode = codeInput;
         gameHistory = [];
 
+        persistActiveGameSession();
         initRealtimeChannel(roomCode);
     }
 
@@ -2324,7 +3239,9 @@
                 targetEliminationPoints,
 
             includeJoker:
-                includeJoker
+                includeJoker,
+            gameStake:
+                gameStake
         });
     }
 
@@ -2351,6 +3268,8 @@
             'display-target-pts'
         ).innerText =
             targetEliminationPoints;
+        const stakeDisplay = document.getElementById('display-game-stake');
+        if (stakeDisplay) stakeDisplay.innerText = gameStake;
 
         const jokerDisplay = document.getElementById('display-joker-option');
         if (jokerDisplay) jokerDisplay.innerText = includeJoker ? 'Yes (0)' : 'No';
@@ -2732,6 +3651,21 @@
                     return;
                 }
 
+
+                const duplicateNickname = players.find(p =>
+                    String(p.name || '').trim().toLowerCase() ===
+                    String(data.name || '').trim().toLowerCase()
+                );
+
+                if (duplicateNickname) {
+                    sendRealtimeMessage({
+                        type: 'REJECT',
+                        targetToken: data.clientToken,
+                        reason: 'That nickname is already being used in this room. Please choose another nickname.'
+                    });
+                    return;
+                }
+
                 /*
                  * If game has already started, a player who
                  * does not already exist cannot join.
@@ -2797,6 +3731,15 @@
 
                     scores:
                         0,
+
+                    firstname:
+                        data.firstname || data.name || 'Player',
+
+                    lastname:
+                        data.lastname || '',
+
+                    coins:
+                        Number(data.coins || 0),
 
                     hand:
                         [],
@@ -2905,6 +3848,18 @@
                     );
 
                 if (leaving) {
+
+                    if (roundActive && Number(gameStake) > 0 && leaving.firstname && leaving.lastname) {
+                        callSupabaseRpc('record_room_leave_forfeit', {
+                            p_host_session_token: currentUserProfile?.sessionToken || '',
+                            p_room_id: roomCode,
+                            p_firstname: leaving.firstname,
+                            p_lastname: leaving.lastname,
+                            p_nickname: leaving.name,
+                            p_entry_amount: Number(gameStake),
+                            p_event_key: `room-leave:${roomCode}:${leaving.firstname}:${leaving.lastname}`
+                        }).catch(e => console.warn('Leave audit failed:', e));
+                    }
 
                     leaving.connected =
                         false;
@@ -3301,6 +4256,39 @@
                 break;
 
             // ----------------------------------------------------
+            // WALLET REFRESH / SYNC
+            // ----------------------------------------------------
+
+            case 'WALLET_REFRESH':
+                if (!data.targetToken || data.targetToken === myClientToken) {
+                    refreshCurrentUserWallet();
+                }
+                break;
+
+            case 'WALLET_SYNC':
+                if (data.targetToken === myClientToken) {
+                    const previous = Number(data.previousCoins ?? currentUserProfile?.coins ?? 0);
+                    const updated = Number(data.coins ?? previous);
+                    if (currentUserProfile) {
+                        currentUserProfile.coins = updated;
+                        saveLoggedInUser(currentUserProfile);
+                    }
+
+                    if (Number(data.prize || 0) > 0) {
+                        showWalletInfoModal(
+                            '🏆 Winner Payment Complete',
+                            `<div class="space-y-1">
+                                <div>You won <strong class="text-amber-300">${Number(data.prize)} coins</strong></div>
+                                <div>Previous balance: <strong>${previous}</strong></div>
+                                <div>New balance: <strong class="text-emerald-300">${updated}</strong></div>
+                             </div>`,
+                            '🏆'
+                        );
+                    }
+                }
+                break;
+
+            // ----------------------------------------------------
             // HOST TRANSFERRED
             // ----------------------------------------------------
 
@@ -3312,6 +4300,12 @@
 
                 if (data.gameHistoryHostName)
                     gameHistoryHostName = data.gameHistoryHostName;
+
+                if (data.gameStake !== undefined)
+                    gameStake = Number(data.gameStake || 0);
+
+                if (data.gamePot !== undefined)
+                    gamePot = Number(data.gamePot || 0);
 
                 players.forEach(p => {
 
@@ -3455,6 +4449,7 @@
 
                 updateWaitingRoomUI();
                 renderGameBoard();
+                persistActiveGameSession();
 
                 break;
 
@@ -3478,6 +4473,8 @@
                     data.targetPoints;
                 includeJoker =
                     data.includeJoker === true;
+                gameStake =
+                    Number(data.gameStake || gameStake);
 
                 resetJoinButtonState(
                     true
@@ -3536,6 +4533,8 @@
                     targetEliminationPoints;
                 includeJoker =
                     data.includeJoker === true;
+                gameStake =
+                    Number(data.gameStake || gameStake);
 
                 gameHistory =
                     data.gameHistory ||
@@ -3702,6 +4701,7 @@
                 }
 
                 renderGameBoard();
+                persistActiveGameSession();
 
                 logTicker(
                     data.message
@@ -3844,7 +4844,7 @@
     // START HOST GAME
     // ============================================================
 
-    function startHostGame() {
+    async function startHostGame() {
 
         if (
             players.filter(
@@ -3860,6 +4860,11 @@
             );
 
             return;
+        }
+
+        if (!isSoloMode) {
+            const paid = await collectGameEntryCoins();
+            if (!paid) return;
         }
 
         roundCounter = 1;
@@ -3901,6 +4906,7 @@
         updateRoomStartedStatus(
             'yes'
         );
+        persistActiveGameSession();
 
         let startPayload = {
 
@@ -3927,6 +4933,9 @@
 
             includeJoker:
                 includeJoker,
+
+            gameStake:
+                gameStake,
 
             gameHistory:
                 gameHistory
@@ -4880,6 +5889,10 @@
                 ? remainingPlayers[0].name
                 : '';
 
+        if (roundWinner && !isSoloMode) {
+            settleGameWinner(roundWinner);
+        }
+
         // Persist the complete game history after every completed round.
         // Only the host writes, and the same host + game code updates the existing row.
         syncGameHistoryToSupabase(roundWinner);
@@ -5022,6 +6035,9 @@
             const finalWinner =
                 activePlayers[0] ? activePlayers[0].name : 'Nobody';
 
+            // Final wallet settlement is guarded so it cannot pay twice.
+            if (!isSoloMode) await settleGameWinner(finalWinner);
+
             // Final update writes the winner into the same database row.
             await syncGameHistoryToSupabase(finalWinner);
 
@@ -5119,6 +6135,9 @@
 
             includeJoker:
                 includeJoker,
+
+            gameStake:
+                gameStake,
 
             gameHistory:
                 gameHistory
