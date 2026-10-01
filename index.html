@@ -4472,6 +4472,13 @@
 
         advanceTurn();
 
+        // Render the draw locally immediately. The host will still
+        // validate and broadcast the authoritative state, but the
+        // player should not wait for the realtime round-trip to see
+        // the card they just drew.
+        renderGameBoard();
+        logTicker(`${me.name} drew a card.`);
+
         syncActionComplete(
             `${me.name} drew a card.`
         );
