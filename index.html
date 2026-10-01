@@ -2288,6 +2288,11 @@
             });
         }
 
+        // Lock the payout multiplier to the number of opponents
+        // at the beginning of this game. Eliminations later do not
+        // change the win reward.
+        gameOpponentCount = Math.max(1, players.length - 1);
+
         myIndex = 0;
 
         let fullDeck =
@@ -4266,6 +4271,19 @@
         // One unique wallet settlement per online game session.
         setWalletGameId();
 
+        // Lock the payout multiplier to the number of real players
+        // participating when the room starts. Later eliminations do
+        // not reduce the winner's reward.
+        gameOpponentCount = Math.max(
+            1,
+            players.filter(
+                p =>
+                    p.connected !== false &&
+                    !p.eliminated &&
+                    p.viewOnly !== true
+            ).length - 1
+        );
+
         let fullDeck =
             createDeck();
 
@@ -4333,14 +4351,7 @@
                 walletGameId,
 
             gameOpponentCount:
-                Math.max(
-                    1,
-                    players.filter(
-                        p =>
-                            p.connected !== false &&
-                            p.viewOnly !== true
-                    ).length - 1
-                ),
+                gameOpponentCount,
 
             gameHistory:
                 gameHistory
@@ -5607,14 +5618,7 @@
                 walletGameId,
 
             gameOpponentCount:
-                Math.max(
-                    1,
-                    players.filter(
-                        p =>
-                            p.connected !== false &&
-                            p.viewOnly !== true
-                    ).length - 1
-                ),
+                gameOpponentCount,
 
             gameHistory:
                 gameHistory
