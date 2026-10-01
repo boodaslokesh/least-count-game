@@ -83,6 +83,15 @@
                 Waiting...
             </div>
 
+            <!-- COINS WALLET -->
+            <div id="wallet-display"
+                 title="Virtual coin wallet"
+                 class="flex items-center gap-1 bg-zinc-900 border border-amber-500/30 px-2.5 py-1 rounded-full shadow">
+                <span class="text-amber-300 text-[11px]">🪙</span>
+                <span id="wallet-balance"
+                      class="text-amber-300 text-[11px] font-black tabular-nums">0</span>
+            </div>
+
             <button onclick="confirmExitGame()"
                     class="bg-rose-600/85 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-rose-700/50">
                 Exit Game
@@ -107,6 +116,10 @@
             <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">
                 Multiplayer & Solo Lobby
             </h2>
+
+            <div class="text-[11px] text-zinc-500">
+                Virtual wallet: win +100 coins per opponent • lose -100 coins
+            </div>
 
             <div class="space-y-2.5 text-left">
                 <div>
@@ -161,6 +174,8 @@
 
                         <select id="target-points-select"
                                 class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
+                                 <option value="1">Single Game</option>
+                                <option value="10">25 Pts</option>
                             <option value="25">25 Pts</option>
 							<option value="50" selected>50 Pts</option>
                             <option value="75">75 Pts</option>
@@ -568,7 +583,11 @@
                     <h4 class="font-bold text-white">7. Multiplayer and rejoining</h4>
                     <p>The host controls starting rounds. A view-only spectator can watch but cannot play cards or call Show. If you leave, use the room's rejoin process to request access again; the host can allow viewing, allow playing, or deny the request.</p>
                 </section>
-                <p class="text-[11px] text-zinc-500 border-t border-zinc-800 pt-2">Card point values and round settings follow the values configured in this game. Check the Scores and History panels to review totals and completed rounds.</p>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">8. Coin Wallet</h4>
+                    <p>Every completed game settles the player's coin wallet. Winning gives <strong class="text-amber-300">+100 coins for each opponent</strong>. Losing costs <strong class="text-rose-300">100 coins</strong>. The wallet is saved on this device/browser and will not go below 0.</p>
+                </section>
+                <p class="text-[11px] text-zinc-500 border-t border-zinc-800 pt-2">Card point values and round settings follow the values configured in this game. Check the Scores and History panels to review totals and completed rounds. Coin wallet results are separate from card-game scores.</p>
             </div>
             <div class="flex justify-end pt-1">
                 <button onclick="toggleInstructionsModal(false)"
@@ -868,6 +887,114 @@
             Math.random().toString(36).slice(2) +
             Date.now().toString(36);
     }
+
+    // ============================================================
+    // COIN WALLET
+    // ============================================================
+    // The current game is free to play. Coins are virtual in-game
+    // points only. Wallet state is stored locally on this device.
+    const WALLET_STORAGE_KEY = 'leastCountWalletBalanceV1';
+    const WALLET_SETTLEMENT_PREFIX = 'leastCountWalletSettlementV1:';
+    const WALLET_INITIAL_BALANCE = 0;
+    const WIN_COINS_PER_OPPONENT = 100;
+    const LOSS_COINS = 100;
+
+    let walletBalance = WALLET_INITIAL_BALANCE;
+    let gameOpponentCount = 0;
+
+    function loadWalletBalance() {
+        try {
+            const stored = parseInt(localStorage.getItem(WALLET_STORAGE_KEY), 10);
+            walletBalance = Number.isFinite(stored) && stored >= 0
+                ? stored
+                : WALLET_INITIAL_BALANCE;
+        } catch (e) {
+            walletBalance = WALLET_INITIAL_BALANCE;
+        }
+        renderWalletBalance();
+    }
+
+    function saveWalletBalance() {
+        try {
+            localStorage.setItem(WALLET_STORAGE_KEY, String(Math.max(0, Math.floor(walletBalance))));
+        } catch (e) {}
+        renderWalletBalance();
+    }
+
+    function renderWalletBalance() {
+        const el = document.getElementById('wallet-balance');
+        if (el) el.innerText = String(Math.max(0, Math.floor(walletBalance)));
+    }
+
+    function getWalletSettlementKey(eventRoomCode) {
+        return WALLET_SETTLEMENT_PREFIX +
+            String(eventRoomCode || roomCode || '').trim().toUpperCase();
+    }
+
+    function hasWalletSettlement(eventRoomCode) {
+        try {
+            return localStorage.getItem(getWalletSettlementKey(eventRoomCode)) === 'settled';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function markWalletSettlement(eventRoomCode) {
+        try {
+            localStorage.setItem(getWalletSettlementKey(eventRoomCode), 'settled');
+        } catch (e) {}
+    }
+
+    function settleGameWallet(winnerName, eventRoomCode = '', opponentCount = 0) {
+        const normalizedRoom = String(eventRoomCode || roomCode || '').trim().toUpperCase();
+        if (!normalizedRoom) return null;
+
+        // A game can broadcast its final result more than once. This prevents
+        // duplicate coin awards/deductions from retries or repeated events.
+        if (hasWalletSettlement(normalizedRoom)) {
+            return null;
+        }
+
+        const meName = String(myName || '').trim();
+        const finalWinner = String(winnerName || '').trim();
+
+        if (!meName || !finalWinner) return null;
+
+        const opponents = Math.max(
+            0,
+            Number.isFinite(Number(opponentCount))
+                ? Math.floor(Number(opponentCount))
+                : 0
+        );
+
+        let delta = 0;
+
+        if (meName === finalWinner) {
+            delta = opponents * WIN_COINS_PER_OPPONENT;
+            walletBalance += delta;
+        } else {
+            delta = -LOSS_COINS;
+            walletBalance = Math.max(0, walletBalance + delta);
+        }
+
+        markWalletSettlement(normalizedRoom);
+        saveWalletBalance();
+
+        const sign = delta >= 0 ? '+' : '';
+        logTicker(
+            meName === finalWinner
+                ? `You won! Wallet ${sign}${delta} coins.`
+                : `Game lost. Wallet ${sign}${delta} coins.`
+        );
+
+        return delta;
+    }
+
+    function initializeGameWalletContext(playerCount) {
+        gameOpponentCount = Math.max(0, Number(playerCount || 0) - 1);
+    }
+
+    loadWalletBalance();
 
     let maxPlayersLimit = 4;
     let cardsPerPlayer = 7;
@@ -1596,6 +1723,7 @@
         currentTurnIndex = 0;
         roundActive = false;
         turnPhase = 'drop';
+        gameOpponentCount = 0;
         pendingRejoinRequest = null;
 
         document.getElementById('lobby-screen').classList.remove('hidden');
@@ -1749,6 +1877,7 @@
         currentTurnIndex = 0;
         roundActive = false;
         turnPhase = 'drop';
+        gameOpponentCount = 0;
         pendingRejoinRequest = null;
         document.getElementById('lobby-screen').classList.remove('hidden');
         document.getElementById('waiting-screen').classList.add('hidden');
@@ -2038,6 +2167,7 @@
             {
                 id: myId,
                 name: myName,
+                clientToken: myClientToken,
                 isHost: true,
                 scores: 0,
                 hand: [],
@@ -2070,6 +2200,7 @@
         }
 
         myIndex = 0;
+        initializeGameWalletContext(players.length);
 
         let fullDeck =
             createDeck();
@@ -3613,6 +3744,11 @@
                 players =
                     data.players;
 
+                gameOpponentCount =
+                    Number.isFinite(Number(data.gameOpponentCount))
+                        ? Math.max(0, Number(data.gameOpponentCount))
+                        : Math.max(0, players.length - 1);
+
                 deck =
                     data.deck;
 
@@ -3829,6 +3965,12 @@
 
             case 'TOURNAMENT_WINNER':
 
+                settleGameWallet(
+                    data.winnerName,
+                    data.roomCode,
+                    data.gameOpponentCount ?? gameOpponentCount ?? Math.max(0, players.length - 1)
+                );
+
                 showTournamentWinnerPopup(
                     data.winnerName,
                     data.roomCode
@@ -3876,6 +4018,12 @@
                 renderGameBoard();
 
                 if (data.tournamentWinner) {
+                    settleGameWallet(
+                        data.tournamentWinner,
+                        data.roomCode,
+                        data.gameOpponentCount ?? gameOpponentCount ?? Math.max(0, players.length - 1)
+                    );
+
                     showTournamentWinnerPopup(
                         data.tournamentWinner,
                         data.roomCode
@@ -3991,6 +4139,13 @@
 
         roundCounter = 1;
         gameHistory = [];
+        initializeGameWalletContext(
+            players.filter(p =>
+                p.connected !== false &&
+                !p.eliminated &&
+                p.viewOnly !== true
+            ).length
+        );
 
         let fullDeck =
             createDeck();
@@ -4054,6 +4209,9 @@
 
             includeJoker:
                 includeJoker,
+
+            gameOpponentCount:
+                gameOpponentCount,
 
             gameHistory:
                 gameHistory
@@ -5041,8 +5199,19 @@
             // If only one eligible player remains, this round also ended
             // the tournament. Send the winner in the same reliable packet.
             tournamentWinner:
-                roundWinner || ''
+                roundWinner || '',
+
+            gameOpponentCount:
+                gameOpponentCount
         };
+
+        if (roundWinner) {
+            settleGameWallet(
+                roundWinner,
+                roomCode,
+                gameOpponentCount
+            );
+        }
 
         showRoundOverModal(
             resultsText,
@@ -5175,6 +5344,12 @@
             const finalWinner =
                 activePlayers[0] ? activePlayers[0].name : 'Nobody';
 
+            settleGameWallet(
+                finalWinner,
+                roomCode,
+                gameOpponentCount || Math.max(0, players.length - 1)
+            );
+
             // Final update writes the winner into the same database row.
             await syncGameHistoryToSupabase(finalWinner);
 
@@ -5194,7 +5369,10 @@
                     roomCode,
 
                 winnerName:
-                    finalWinner
+                    finalWinner,
+
+                gameOpponentCount:
+                    gameOpponentCount
             });
 
             await returnToLobbyWithoutReload(
@@ -5287,6 +5465,9 @@
 
             includeJoker:
                 includeJoker,
+
+            gameOpponentCount:
+                gameOpponentCount,
 
             gameHistory:
                 gameHistory
