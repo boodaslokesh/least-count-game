@@ -3785,6 +3785,28 @@
                 break;
 
             // ----------------------------------------------------
+            // TOURNAMENT WINNER
+            // ----------------------------------------------------
+
+            case 'TOURNAMENT_WINNER':
+
+                // Only accept the winner event for the room currently
+                // open in this browser. This keeps winner popups
+                // isolated between different game rooms.
+                if (
+                    String(data.roomCode || '').trim().toUpperCase() !==
+                    String(roomCode || '').trim().toUpperCase()
+                ) {
+                    break;
+                }
+
+                alert(
+                    `Tournament Over! Winner is ${data.winnerName || 'Nobody'}!`
+                );
+
+                break;
+
+            // ----------------------------------------------------
             // ROUND OVER
             // ----------------------------------------------------
 
@@ -5086,9 +5108,24 @@
             // Final update writes the winner into the same database row.
             await syncGameHistoryToSupabase(finalWinner);
 
-            alert(
-                `Tournament Over! Winner is ${finalWinner}!`
-            );
+            // Broadcast the final winner to every client in this room.
+            // The popup is intentionally handled by all clients instead
+            // of being shown only in the host's browser.
+            sendRealtimeMessage({
+                type:
+                    'TOURNAMENT_WINNER',
+
+                roomCode:
+                    roomCode,
+
+                winnerName:
+                    finalWinner
+            });
+
+            // Do not show a local alert here. Supabase broadcast is
+            // configured with self: true, so the host also receives
+            // TOURNAMENT_WINNER and shows the same popup through the
+            // common handler below.
 
             await returnToLobbyWithoutReload(
                 `Tournament over. Winner: ${finalWinner}.`
