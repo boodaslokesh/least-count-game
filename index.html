@@ -3290,6 +3290,8 @@
 
     const roomChatMessages = [];
     const seenChatMessageIds = new Set();
+    const roomChatExpiryTimers = new Map();
+    const ROOM_CHAT_MESSAGE_DURATION_MS = 15000;
 
     function clearRoomChatUI() {
         const chatBanner = document.getElementById('chat-messages-banner');
@@ -3305,6 +3307,101 @@
         }
     }
 
+    function clearRoomChatExpiryTimers() {
+        roomChatExpiryTimers.forEach(timerId => {
+            try {
+                clearTimeout(timerId);
+            } catch (e) {}
+        });
+        roomChatExpiryTimers.clear();
+    }
+
+    function pruneExpiredRoomChatMessages() {
+        const now = Date.now();
+
+        for (let i = roomChatMessages.length - 1; i >= 0; i--) {
+            const message = roomChatMessages[i];
+            if (message && Number(message.expiresAt || 0) <= now) {
+                roomChatMessages.splice(i, 1);
+
+                if (message.id) {
+                    const timerId = roomChatExpiryTimers.get(message.id);
+                    if (timerId) {
+                        try {
+                            clearTimeout(timerId);
+                        } catch (e) {}
+                        roomChatExpiryTimers.delete(message.id);
+                    }
+                }
+            }
+        }
+    }
+
+    function renderRoomChatMessages() {
+        const chatBanner = document.getElementById('chat-messages-banner');
+        const historyList = document.getElementById('chat-history-list');
+
+        if (!chatBanner || !historyList) return;
+
+        pruneExpiredRoomChatMessages();
+        historyList.innerHTML = '';
+
+        if (!roomChatMessages.length) {
+            clearRoomChatUI();
+            return;
+        }
+
+        [...roomChatMessages]
+            .reverse()
+            .forEach(message => {
+                const row = document.createElement('div');
+                row.className = 'leading-4 break-words';
+
+                const sender = document.createElement('span');
+                sender.className = 'font-bold text-amber-300 mr-1';
+                sender.textContent = `${message.senderName}:`;
+
+                const body = document.createElement('span');
+                body.className = 'text-white';
+                body.textContent = message.text;
+
+                row.appendChild(sender);
+                row.appendChild(body);
+                historyList.appendChild(row);
+            });
+
+        chatBanner.classList.remove('hidden');
+        chatBanner.classList.add('flex');
+    }
+
+    function scheduleRoomChatMessageExpiry(messageId) {
+        if (!messageId) return;
+
+        const previousTimer = roomChatExpiryTimers.get(messageId);
+        if (previousTimer) {
+            try {
+                clearTimeout(previousTimer);
+            } catch (e) {}
+        }
+
+        const timerId = setTimeout(() => {
+            const index = roomChatMessages.findIndex(
+                message => message && message.id === messageId
+            );
+
+            if (index >= 0) {
+                roomChatMessages.splice(index, 1);
+            }
+
+            roomChatExpiryTimers.delete(messageId);
+
+            // Remove the message from this room's chat after exactly 15 seconds.
+            renderRoomChatMessages();
+        }, ROOM_CHAT_MESSAGE_DURATION_MS);
+
+        roomChatExpiryTimers.set(messageId, timerId);
+    }
+
     function resetRoomChatState(roomKey = '') {
         const normalizedRoomKey = String(roomKey || '').trim().toUpperCase();
 
@@ -3314,6 +3411,7 @@
         }
 
         activeChatRoomKey = normalizedRoomKey;
+        clearRoomChatExpiryTimers();
         roomChatMessages.length = 0;
         seenChatMessageIds.clear();
         clearRoomChatUI();
@@ -3418,7 +3516,7 @@
 
         const safeId =
             messageId ||
-            `${senderName}-${text}-${Date.now()}`;
+            `${senderName}-${text}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
         if (
             seenChatMessageIds.has(
@@ -3439,63 +3537,31 @@
                 text || '',
 
             id:
-                safeId
+                safeId,
+
+            expiresAt:
+                Date.now() + ROOM_CHAT_MESSAGE_DURATION_MS
         });
 
-        if (
+        // Keep the existing "latest 3" behavior while each visible message
+        // independently expires 15 seconds after it was shown.
+        while (
             roomChatMessages.length > 3
-        )
-            roomChatMessages.shift();
+        ) {
+            const removed = roomChatMessages.shift();
+            if (removed && removed.id) {
+                const timerId = roomChatExpiryTimers.get(removed.id);
+                if (timerId) {
+                    try {
+                        clearTimeout(timerId);
+                    } catch (e) {}
+                    roomChatExpiryTimers.delete(removed.id);
+                }
+            }
+        }
 
-        historyList.innerHTML = '';
-
-        [...roomChatMessages]
-            .reverse()
-            .forEach(message => {
-
-                const row =
-                    document.createElement(
-                        'div'
-                    );
-
-                row.className =
-                    'leading-4 break-words';
-
-                const sender =
-                    document.createElement(
-                        'span'
-                    );
-
-                sender.className =
-                    'font-bold text-amber-300 mr-1';
-
-                sender.textContent =
-                    `${message.senderName}:`;
-
-                const body =
-                    document.createElement(
-                        'span'
-                    );
-
-                body.className =
-                    'text-white';
-
-                body.textContent =
-                    message.text;
-
-                row.appendChild(sender);
-                row.appendChild(body);
-
-                historyList.appendChild(row);
-            });
-
-        chatBanner.classList.remove(
-            'hidden'
-        );
-
-        chatBanner.classList.add(
-            'flex'
-        );
+        renderRoomChatMessages();
+        scheduleRoomChatMessageExpiry(safeId);
     }
 
     // ============================================================
@@ -7260,12 +7326,14 @@
                     tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/60';
                     const botCoins = Number(row.bot_coins || 0);
                     const realCoins = Number(row.real_coins || 0);
+                    const botCoinsClass = botCoins < 0 ? 'text-rose-400' : 'text-indigo-300';
+                    const realCoinsClass = realCoins < 0 ? 'text-rose-400' : 'text-emerald-300';
                     const botGames = Number(row.bot_games_played || 0);
                     const realGames = Number(row.real_games_played || 0);
                     tr.innerHTML = `
                         <td class="p-3 text-left"><div class="font-bold text-white">${escapeAccountStatsHtml(row.name)}</div></td>
-                        <td class="p-3 text-right font-black text-indigo-300">${botCoins}</td>
-                        <td class="p-3 text-right font-black text-emerald-300">${realCoins}</td>
+                        <td class="p-3 text-right font-black ${botCoinsClass}">${botCoins}</td>
+                        <td class="p-3 text-right font-black ${realCoinsClass}">${realCoins}</td>
                         <td class="p-3 text-right text-zinc-300">${botGames}</td>
                         <td class="p-3 text-right text-zinc-300">${realGames}</td>
                         <td class="p-3 text-right font-bold text-white">${botGames + realGames}</td>`;
