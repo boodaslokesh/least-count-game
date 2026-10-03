@@ -784,6 +784,14 @@
                     Congratulations! The tournament is complete.
                 </p>
 
+                <div class="text-left space-y-2 pt-1">
+                    <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-400 font-black">Cards at Final Show</div>
+                    <div id="tournament-winner-cards"
+                         class="max-h-44 overflow-y-auto space-y-1.5 rounded-xl border border-zinc-800 bg-black/70 p-2">
+                        <div class="text-xs text-zinc-500 italic text-center">Cards are not available.</div>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-2 gap-3 pt-2">
                     <button onclick="stayInTournamentGame()"
                             class="py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl shadow-lg transition text-sm">
@@ -1013,7 +1021,12 @@
         tournamentWinnerShown = false;
     }
 
-    function showTournamentWinnerPopup(winnerName, eventRoomCode = '') {
+    function showTournamentWinnerPopup(
+        winnerName,
+        eventRoomCode = '',
+        roundPlayers = null,
+        callerName = ''
+    ) {
         const eventRoom = String(eventRoomCode || '').trim().toUpperCase();
         const currentRoom = String(roomCode || '').trim().toUpperCase();
 
@@ -1024,9 +1037,33 @@
 
         const modal = document.getElementById('tournament-winner-modal');
         const winnerEl = document.getElementById('tournament-winner-name');
+        const cardsEl = document.getElementById('tournament-winner-cards');
 
         if (winnerEl) {
             winnerEl.innerText = winnerName || 'Nobody';
+        }
+
+        const snapshotPlayers = Array.isArray(roundPlayers) && roundPlayers.length
+            ? roundPlayers
+            : players;
+
+        if (cardsEl) {
+            if (snapshotPlayers.length) {
+                cardsEl.innerHTML = snapshotPlayers
+                    .filter(player => player && Array.isArray(player.hand))
+                    .map(player => buildRoundCardPreviewHtml(
+                        player,
+                        String(player.name || '').trim() === String(callerName || '').trim(),
+                        String(player.name || '').trim() === String(winnerName || '').trim()
+                    ))
+                    .join('');
+
+                if (!cardsEl.innerHTML.trim()) {
+                    cardsEl.innerHTML = '<div class="text-xs text-zinc-500 italic text-center">Cards are not available.</div>';
+                }
+            } else {
+                cardsEl.innerHTML = '<div class="text-xs text-zinc-500 italic text-center">Cards are not available.</div>';
+            }
         }
 
         if (modal) {
@@ -4873,6 +4910,15 @@
                             Math.trunc(Number(data.gameOpponentCount) || 1)
                         );
 
+                if (Array.isArray(data.players) && data.players.length) {
+                    players = data.players;
+                    myIndex = players.findIndex(
+                        p =>
+                            p.id === myId ||
+                            p.clientToken === myClientToken
+                    );
+                }
+
                 await settleWalletForCompletedGame(
                     data.winnerName,
                     gameOpponentCount,
@@ -4881,7 +4927,9 @@
 
                 showTournamentWinnerPopup(
                     data.winnerName,
-                    data.roomCode
+                    data.roomCode,
+                    data.players || players,
+                    data.callerName || ''
                 );
 
                 break;
@@ -4949,7 +4997,9 @@
 
                     showTournamentWinnerPopup(
                         data.tournamentWinner,
-                        data.roomCode
+                        data.roomCode,
+                        data.players || players,
+                        data.callerName || ''
                     );
                 }
 
@@ -6254,7 +6304,9 @@
             // from the same ROUND_OVER broadcast below.
             showTournamentWinnerPopup(
                 roundWinner,
-                roomCode
+                roomCode,
+                players,
+                caller.name
             );
         }
 
@@ -6388,7 +6440,11 @@
             // Fallback if the final ROUND_OVER winner was not displayed.
             showTournamentWinnerPopup(
                 finalWinner,
-                roomCode
+                roomCode,
+                players,
+                gameHistory.length && gameHistory[gameHistory.length - 1]
+                    ? gameHistory[gameHistory.length - 1].callerName
+                    : ''
             );
 
             // Await the send so the room channel is not removed before
@@ -6402,6 +6458,14 @@
 
                 winnerName:
                     finalWinner,
+
+                players:
+                    players,
+
+                callerName:
+                    gameHistory.length && gameHistory[gameHistory.length - 1]
+                        ? gameHistory[gameHistory.length - 1].callerName
+                        : '',
 
                 walletGameId:
                     walletGameId,
