@@ -1197,6 +1197,29 @@
         }
     }
 
+    // Settle the player's loss as soon as the local player is eliminated.
+    // This is intentionally independent of the final tournament result so
+    // an eliminated player can leave immediately and still receive -100.
+    async function settleWalletForEliminatedPlayer(forceType = '') {
+        const me = players.find(
+            p =>
+                p &&
+                (
+                    p.id === myId ||
+                    p.clientToken === myClientToken
+                )
+        );
+
+        if (!me || me.eliminated !== true)
+            return false;
+
+        return await settleWalletForCompletedGame(
+            '__ELIMINATION__',
+            gameOpponentCount,
+            forceType
+        );
+    }
+
 
     // ============================================================
     // CUSTOM GAME ACCOUNT AUTHENTICATION
@@ -2191,6 +2214,17 @@
     // ============================================================
 
     async function returnToLobbyWithoutReload(message = '') {
+        // If this player was already eliminated, settle the -100 loss before
+        // disconnecting from the room. This covers leaving before the final
+        // tournament result is reached.
+        try {
+            await settleWalletForEliminatedPlayer(
+                isSoloMode ? 'bot' : 'real'
+            );
+        } catch (e) {
+            console.error('Elimination wallet settlement before lobby failed:', e);
+        }
+
         try {
             if (roomChannel) {
                 await supabaseClient.removeChannel(roomChannel);
@@ -2356,6 +2390,17 @@
         ))
             return;
 
+        // A player who is already eliminated must pay the -100 loss even
+        // when leaving before the whole game has finished. A player who is
+        // not eliminated is not charged for simply exiting the room.
+        try {
+            await settleWalletForEliminatedPlayer(
+                isSoloMode ? 'bot' : 'real'
+            );
+        } catch (e) {
+            console.error('Elimination wallet settlement on exit failed:', e);
+        }
+
         if (
             !isSoloMode &&
             roomCode &&
@@ -2512,10 +2557,20 @@
             )
         ) {
 
+            const targetPlayer = players.find(
+                p =>
+                    p.id === targetPeerId ||
+                    p.clientToken === targetPeerId
+            );
+
+            const targetWasEliminated =
+                !!targetPlayer?.eliminated;
+
             players =
                 players.filter(
                     p =>
-                        p.id !== targetPeerId
+                        p.id !== targetPeerId &&
+                        p.clientToken !== targetPeerId
                 );
 
             sendRealtimeMessage({
@@ -2523,7 +2578,10 @@
                     'KICKED_PLAYER',
 
                 kickedId:
-                    targetPeerId
+                    targetPeerId,
+
+                eliminated:
+                    targetWasEliminated
             });
 
             broadcastPlayerList();
@@ -3833,11 +3891,27 @@
                     myClientToken
                 ) {
 
+                    // Host removal itself is NOT a loss. Only a player
+                    // who is marked eliminated is charged -100.
+                    if (data.eliminated === true) {
+                        await settleWalletForCompletedGame(
+                            '__ELIMINATION__',
+                            gameOpponentCount,
+                            isSoloMode ? 'bot' : 'real'
+                        );
+                    }
+
                     alert(
-                        "You were removed by host."
+                        data.eliminated === true
+                            ? "You were removed by host after elimination. -100 coins applied."
+                            : "You were removed by host."
                     );
 
-                    returnToLobbyWithoutReload("You were removed by the host.");
+                    await returnToLobbyWithoutReload(
+                        data.eliminated === true
+                            ? "You were removed by the host after elimination."
+                            : "You were removed by the host."
+                    );
                 }
 
                 break;
@@ -4479,6 +4553,10 @@
                             myClientToken
                     );
 
+                await settleWalletForEliminatedPlayer(
+                    isSoloMode ? 'bot' : 'real'
+                );
+
                 document.getElementById(
                     'waiting-screen'
                 ).classList.add(
@@ -4648,6 +4726,10 @@
                             p.clientToken ===
                             myClientToken
                     );
+
+                await settleWalletForEliminatedPlayer(
+                    isSoloMode ? 'bot' : 'real'
+                );
 
                 showRoundOverModal(
                     data.resultsData,
@@ -5799,6 +5881,13 @@
                 p.eliminated =
                     true;
         });
+
+        // If the host itself was eliminated in this round, settle its -100
+        // immediately. Other players settle on their own clients when they
+        // receive the synchronized elimination state.
+        await settleWalletForEliminatedPlayer(
+            isSoloMode ? 'bot' : 'real'
+        );
 
         // Capture each player's running score as part of the round history snapshot.
         if (gameHistory.length) {
