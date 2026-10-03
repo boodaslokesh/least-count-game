@@ -752,6 +752,53 @@
         </div>
     </div>
 
+    <!-- TOURNAMENT WINNER CELEBRATION MODAL -->
+    <div id="tournament-winner-modal"
+         class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center p-4 z-[95] overflow-hidden">
+
+        <div class="relative bg-gradient-to-b from-zinc-950 to-black border border-amber-400/60 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-5 text-center overflow-hidden">
+
+            <div class="pointer-events-none absolute inset-0 text-3xl select-none">
+                <span class="absolute top-4 left-7 animate-bounce">🎉</span>
+                <span class="absolute top-12 right-8 animate-pulse">🎊</span>
+                <span class="absolute bottom-12 left-10 animate-pulse">✨</span>
+                <span class="absolute bottom-8 right-10 animate-bounce">🎆</span>
+                <span class="absolute top-24 left-1/2 animate-pulse">🧨</span>
+            </div>
+
+            <div class="relative z-10 space-y-3">
+                <div class="text-5xl leading-none">🏆🎉</div>
+
+                <div class="text-xs uppercase tracking-[0.3em] text-amber-300 font-black">
+                    Tournament Winner
+                </div>
+
+                <h2 id="tournament-winner-name"
+                    class="text-3xl sm:text-4xl font-black text-white break-words">
+                    Winner
+                </h2>
+
+                <div class="text-2xl">🎇 🎆 🥳 🎊 🎇</div>
+
+                <p class="text-sm text-zinc-300">
+                    Congratulations! The tournament is complete.
+                </p>
+
+                <div class="grid grid-cols-2 gap-3 pt-2">
+                    <button onclick="stayInTournamentGame()"
+                            class="py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl shadow-lg transition text-sm">
+                        Stay in Game
+                    </button>
+
+                    <button onclick="exitTournamentToLobby()"
+                            class="py-3 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-xl shadow-lg transition text-sm">
+                        Exit Game
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ROUND OVER MODAL -->
     <div id="round-over-modal"
          class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center p-4 z-50">
@@ -974,8 +1021,43 @@
         if (tournamentWinnerShown) return false;
 
         tournamentWinnerShown = true;
-        alert(`Tournament Over! Winner is ${winnerName || 'Nobody'}!`);
+
+        const modal = document.getElementById('tournament-winner-modal');
+        const winnerEl = document.getElementById('tournament-winner-name');
+
+        if (winnerEl) {
+            winnerEl.innerText = winnerName || 'Nobody';
+        }
+
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+
         return true;
+    }
+
+    function stayInTournamentGame() {
+        const modal = document.getElementById('tournament-winner-modal');
+        if (modal) modal.classList.add('hidden');
+
+        const roundModal = document.getElementById('round-over-modal');
+        if (roundModal) roundModal.classList.add('hidden');
+
+        document.getElementById('lobby-screen')?.classList.add('hidden');
+        document.getElementById('waiting-screen')?.classList.add('hidden');
+        document.getElementById('game-board-screen')?.classList.remove('hidden');
+        document.getElementById('room-badge')?.classList.add('hidden');
+        document.getElementById('game-status-banner')?.classList.add('hidden');
+        setHeaderAction(false);
+        renderGameBoard();
+        logTicker('Tournament completed. You stayed in the room.');
+    }
+
+    async function exitTournamentToLobby() {
+        const modal = document.getElementById('tournament-winner-modal');
+        if (modal) modal.classList.add('hidden');
+
+        await returnToLobbyWithoutReload('Tournament completed.');
     }
 
     let isHost = false;
@@ -1964,245 +2046,191 @@
         player
     ) {
 
-        if (!isHost || !player)
+        if (!player || isMePlayer(player))
+            return;
+
+        const me = players.find(p => isMePlayer(p));
+
+        // Any connected player who is currently inside the room may
+        // approve another player's rejoin request.
+        if (
+            !me ||
+            me.connected === false
+        )
             return;
 
         pendingRejoinRequest = {
-            clientToken:
-                player.clientToken || player.id,
-
-            playerId:
-                player.id,
-
-            playerName:
-                player.name || 'Player'
+            clientToken: player.clientToken || player.id,
+            playerId: player.id,
+            playerName: player.name || 'Player'
         };
 
-        const modal =
-            document.getElementById(
-                'rejoin-request-modal'
-            );
-
-        const textEl =
-            document.getElementById(
-                'rejoin-request-text'
-            );
+        const modal = document.getElementById('rejoin-request-modal');
+        const textEl = document.getElementById('rejoin-request-text');
 
         if (textEl) {
-
             textEl.innerText =
                 `${player.name || 'Player'} has returned to the room and is requesting permission to rejoin.`;
         }
 
-        modal.classList.remove('hidden');
+        if (modal) modal.classList.remove('hidden');
 
-        /*
-         * Make sure only one request is shown at a time.
-         */
-        document.getElementById(
-            'allow-view-rejoin-btn'
-        ).onclick =
+        document.getElementById('allow-view-rejoin-btn').onclick =
             () => approveRejoin('view');
 
-        document.getElementById(
-            'allow-play-rejoin-btn'
-        ).onclick =
+        document.getElementById('allow-play-rejoin-btn').onclick =
             () => approveRejoin('play');
 
-        document.getElementById(
-            'deny-rejoin-btn'
-        ).onclick =
+        document.getElementById('deny-rejoin-btn').onclick =
             () => approveRejoin('deny');
     }
 
     function closeRejoinRequestNotification() {
-
-        const modal =
-            document.getElementById(
-                'rejoin-request-modal'
-            );
-
-        if (modal)
-            modal.classList.add('hidden');
-
+        const modal = document.getElementById('rejoin-request-modal');
+        if (modal) modal.classList.add('hidden');
         pendingRejoinRequest = null;
     }
 
-    function approveRejoin(permission) {
+    function approveRejoin(permission, requestedTokenOverride = '') {
+        const actor = players.find(p => isMePlayer(p));
 
         if (
-            !isHost ||
-            !pendingRejoinRequest
+            !actor ||
+            actor.connected === false
         )
             return;
 
         const requestedToken =
-            pendingRejoinRequest.clientToken;
+            requestedTokenOverride ||
+            (pendingRejoinRequest && pendingRejoinRequest.clientToken) ||
+            '';
 
-        const player =
-            players.find(p =>
-                (p.clientToken || p.id) ===
-                requestedToken
-            );
+        if (!requestedToken)
+            return;
 
-        if (!player) {
+        // Non-host players can approve from their own room UI. The host
+        // remains the authoritative state owner, so the approval is sent
+        // to the current host and applied there.
+        if (!isHost) {
+            sendRealtimeMessage({
+                type: 'REJOIN_APPROVAL_REQUEST',
+                targetToken: requestedToken,
+                permission: permission,
+                approvedBy: myClientToken
+            });
 
             closeRejoinRequestNotification();
 
             logTicker(
-                "Rejoin request player is no longer available."
+                permission === 'deny'
+                    ? 'Sent the rejoin denial to the host.'
+                    : `Sent rejoin approval to the host (${permission === 'play' ? 'play' : 'view only'}).`
             );
 
             return;
         }
 
-        /*
-         * DENY
-         */
-        if (permission === 'deny') {
+        const player = players.find(p =>
+            (p.clientToken || p.id) === requestedToken
+        );
 
+        if (!player) {
+            closeRejoinRequestNotification();
+            logTicker('Rejoin request player is no longer available.');
+            return;
+        }
+
+        // DENY
+        if (permission === 'deny') {
             player.connected = false;
             player.viewOnly = false;
             player.rejoinPending = false;
 
             sendRealtimeMessage({
                 type: 'REJOIN_PERMISSION_RESPONSE',
+                targetToken: requestedToken,
+                permission: 'deny'
+            });
 
-                targetToken:
-                    requestedToken,
-
-                permission:
-                    'deny'
+            sendRealtimeMessage({
+                type: 'REJOIN_REQUEST_RESOLVED',
+                targetToken: requestedToken
             });
 
             closeRejoinRequestNotification();
-
             broadcastPlayerList();
 
-            if (roundActive)
-                broadcastGameState(
-                    `${player.name} was not allowed to rejoin.`
-                );
+            if (roundActive) {
+                broadcastGameState(`${player.name} was not allowed to rejoin.`);
+            }
 
             renderGameBoard();
-
-            logTicker(
-                `Denied rejoin request from ${player.name}.`
-            );
-
+            logTicker(`Denied rejoin request from ${player.name}.`);
             return;
         }
 
-        /*
-         * VIEW ONLY
-         */
+        // VIEW ONLY
         if (permission === 'view') {
-
             player.connected = false;
             player.viewOnly = true;
             player.rejoinPending = false;
 
             sendRealtimeMessage({
-                type:
-                    'REJOIN_PERMISSION_RESPONSE',
+                type: 'REJOIN_PERMISSION_RESPONSE',
+                targetToken: requestedToken,
+                permission: 'view',
+                players: players,
+                deck: deck,
+                discardPile: discardPile,
+                currentTurnIndex: currentTurnIndex,
+                turnPhase: turnPhase,
+                roundActive: roundActive,
+                gameHistory: gameHistory
+            });
 
-                targetToken:
-                    requestedToken,
-
-                permission:
-                    'view',
-
-                players:
-                    players,
-
-                deck:
-                    deck,
-
-                discardPile:
-                    discardPile,
-
-                currentTurnIndex:
-                    currentTurnIndex,
-
-                turnPhase:
-                    turnPhase,
-
-                roundActive:
-                    roundActive,
-
-                gameHistory:
-                    gameHistory
+            sendRealtimeMessage({
+                type: 'REJOIN_REQUEST_RESOLVED',
+                targetToken: requestedToken
             });
 
             closeRejoinRequestNotification();
-
             broadcastPlayerList();
-
             renderGameBoard();
-
-            logTicker(
-                `${player.name} allowed to view the game only.`
-            );
-
+            logTicker(`${player.name} allowed to view the game only.`);
             return;
         }
 
-        /*
-         * ALLOW PLAY
-         */
+        // ALLOW PLAY
         if (permission === 'play') {
-
             player.connected = true;
             player.viewOnly = false;
             player.rejoinPending = false;
 
             sendRealtimeMessage({
-                type:
-                    'REJOIN_PERMISSION_RESPONSE',
+                type: 'REJOIN_PERMISSION_RESPONSE',
+                targetToken: requestedToken,
+                permission: 'play',
+                players: players,
+                deck: deck,
+                discardPile: discardPile,
+                currentTurnIndex: currentTurnIndex,
+                turnPhase: turnPhase,
+                roundActive: roundActive,
+                gameHistory: gameHistory
+            });
 
-                targetToken:
-                    requestedToken,
-
-                permission:
-                    'play',
-
-                players:
-                    players,
-
-                deck:
-                    deck,
-
-                discardPile:
-                    discardPile,
-
-                currentTurnIndex:
-                    currentTurnIndex,
-
-                turnPhase:
-                    turnPhase,
-
-                roundActive:
-                    roundActive,
-
-                gameHistory:
-                    gameHistory
+            sendRealtimeMessage({
+                type: 'REJOIN_REQUEST_RESOLVED',
+                targetToken: requestedToken
             });
 
             closeRejoinRequestNotification();
-
             broadcastPlayerList();
 
             if (roundActive) {
-
-                broadcastGameState(
-                    `${player.name} rejoined and was allowed to play.`
-                );
-
+                broadcastGameState(`${player.name} rejoined and was allowed to play.`);
             } else {
-
-                logTicker(
-                    `${player.name} was allowed to rejoin.`
-                );
+                logTicker(`${player.name} was allowed to rejoin.`);
             }
 
             renderGameBoard();
@@ -2268,6 +2296,7 @@
         document.getElementById('history-modal').classList.add('hidden');
         document.getElementById('scoreboard-modal').classList.add('hidden');
         document.getElementById('round-over-modal').classList.add('hidden');
+        document.getElementById('tournament-winner-modal')?.classList.add('hidden');
         document.getElementById('database-history-modal')?.classList.add('hidden');
         document.getElementById('lobby-error').classList.add('hidden');
 
@@ -3782,6 +3811,24 @@
             }
 
             // ----------------------------------------------------
+            // REJOIN APPROVAL FROM ANY ROOM PLAYER
+            // ----------------------------------------------------
+
+            else if (
+                data.type ===
+                'REJOIN_APPROVAL_REQUEST'
+            ) {
+
+                if (!data.targetToken)
+                    return;
+
+                approveRejoin(
+                    data.permission || 'deny',
+                    data.targetToken
+                );
+            }
+
+            // ----------------------------------------------------
             // PLAYER ACTION
             // ----------------------------------------------------
 
@@ -3922,6 +3969,53 @@
         // ========================================================
 
         switch (data.type) {
+
+            // ----------------------------------------------------
+            // REJOIN REQUEST VISIBLE TO ROOM PLAYERS
+            // ----------------------------------------------------
+
+            case 'JOIN_REQUEST':
+
+                if (data.clientToken === myClientToken)
+                    break;
+
+                {
+                    const requestedPlayer = players.find(
+                        p =>
+                            p &&
+                            (p.clientToken === data.clientToken || p.id === data.clientToken)
+                    );
+
+                    if (
+                        requestedPlayer &&
+                        (
+                            requestedPlayer.connected === false ||
+                            requestedPlayer.rejoinPending === true
+                        )
+                    ) {
+                        requestedPlayer.rejoinPending = true;
+                        requestedPlayer.connected = false;
+                        showRejoinRequestNotification(requestedPlayer);
+                        renderGameBoard();
+                    }
+                }
+
+                break;
+
+            // ----------------------------------------------------
+            // REJOIN REQUEST RESOLVED
+            // ----------------------------------------------------
+
+            case 'REJOIN_REQUEST_RESOLVED':
+
+                if (
+                    pendingRejoinRequest &&
+                    pendingRejoinRequest.clientToken === data.targetToken
+                ) {
+                    closeRejoinRequestNotification();
+                }
+
+                break;
 
             // ----------------------------------------------------
             // REJECT
@@ -4840,7 +4934,8 @@
 
                 showRoundOverModal(
                     data.resultsData,
-                    data.callerName
+                    data.callerName,
+                    data.tournamentWinner || ''
                 );
 
                 renderGameBoard();
@@ -4948,6 +5043,11 @@
     // ============================================================
 
     function startHostGame() {
+
+        if (!isSoloMode && !isHost) {
+            logTicker('Only the room host can start the game.');
+            return;
+        }
 
         if (
             players.filter(
@@ -5732,6 +5832,38 @@
         );
     }
 
+    function escapeRoundResultHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function buildRoundCardPreviewHtml(player, isCaller = false, isTournamentWinner = false) {
+        const hand = Array.isArray(player?.hand) ? player.hand : [];
+
+        const cardsHtml = hand.length
+            ? hand.map(card => {
+                const red = ['♥', '♦'].includes(card.suit);
+                return `<span class="inline-flex min-w-[42px] h-[56px] bg-white border border-slate-300 rounded-lg shadow-sm items-center justify-center gap-0.5 px-1 font-black ${red ? 'text-rose-600' : 'text-slate-900'}">${escapeRoundResultHtml(card.val)}${escapeRoundResultHtml(card.suit)}</span>`;
+            }).join('')
+            : '<span class="text-zinc-500 italic text-[11px]">No cards visible</span>';
+
+        return `
+            <div class="rounded-xl border ${isCaller ? 'border-amber-400/70 bg-amber-500/10' : 'border-zinc-800 bg-black'} p-2.5 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="font-black text-white truncate">${escapeRoundResultHtml(player?.name || 'Player')}
+                        ${isCaller ? '<span class="text-amber-400 text-[10px] ml-1">CALLED SHOW</span>' : ''}
+                        ${isTournamentWinner ? '<span class="text-emerald-400 text-[10px] ml-1">WINNER</span>' : ''}
+                    </div>
+                    <div class="text-[10px] text-zinc-400 shrink-0">${hand.length} card${hand.length === 1 ? '' : 's'}</div>
+                </div>
+                <div class="flex flex-wrap gap-1.5">${cardsHtml}</div>
+            </div>`;
+    }
+
     // ============================================================
     // SHOW ROUND
     // ============================================================
@@ -6025,6 +6157,21 @@
             }
         }
 
+        // Show every active player's exact cards at the moment SHOW was called.
+        // The same snapshot is broadcast to every room member in ROUND_OVER.
+        resultsText +=
+            `<div class="mt-3 pt-3 border-t border-zinc-800 space-y-2">
+                <div class="text-amber-300 font-black">Cards at SHOW</div>`;
+
+        summaries.forEach(item => {
+            resultsText += buildRoundCardPreviewHtml(
+                item.player,
+                item.player.id === caller.id
+            );
+        });
+
+        resultsText += `</div>`;
+
         // Capture each player's running score as part of the round history snapshot.
         if (gameHistory.length) {
             const latestRound = gameHistory[gameHistory.length - 1];
@@ -6096,7 +6243,8 @@
 
         showRoundOverModal(
             resultsText,
-            caller.name
+            caller.name,
+            roundWinner
         );
 
         renderGameBoard();
@@ -6125,7 +6273,8 @@
 
     function showRoundOverModal(
         htmlContent,
-        callerName
+        callerName,
+        tournamentWinnerName = ''
     ) {
 
         document.getElementById(
@@ -6144,22 +6293,24 @@
             'hidden'
         );
 
-        document.getElementById(
-            'host-next-round-container'
-        ).classList.remove(
-            'hidden'
-        );
+        const nextRoundContainer = document.getElementById('host-next-round-container');
+        const waitingNextRound = document.getElementById('waiting-next-round-msg');
 
-        document.getElementById(
-            'waiting-next-round-msg'
-        ).classList.add(
-            'hidden'
-        );
+        if (tournamentWinnerName) {
+            nextRoundContainer?.classList.add('hidden');
+            waitingNextRound?.classList.add('hidden');
+        } else if (isHost || isSoloMode) {
+            nextRoundContainer?.classList.remove('hidden');
+            waitingNextRound?.classList.add('hidden');
+        } else {
+            nextRoundContainer?.classList.add('hidden');
+            waitingNextRound?.classList.remove('hidden');
+        }
 
-        document.getElementById(
-            'waiting-next-round-msg'
-        ).innerText =
-            "Any connected player can start the next round.";
+        if (waitingNextRound) {
+            waitingNextRound.innerText =
+                "Waiting for host to start next round...";
+        }
     }
 
     // ============================================================
@@ -6259,10 +6410,9 @@
                     gameOpponentCount
             });
 
-            await returnToLobbyWithoutReload(
-                `Tournament over. Winner: ${finalWinner}.`
-            );
-
+            // Do not leave the room automatically. The tournament popup
+            // now gives every player an explicit choice: stay in the room
+            // or exit to the lobby.
             return;
         }
 
