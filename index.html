@@ -3881,6 +3881,47 @@
                 break;
 
             // ----------------------------------------------------
+            // PLAYER ELIMINATED
+            // ----------------------------------------------------
+
+            case 'PLAYER_ELIMINATED':
+
+                if (data.targetToken !== myClientToken)
+                    break;
+
+                if (data.walletGameId)
+                    walletGameId = data.walletGameId;
+
+                if (data.gameOpponentCount !== undefined)
+                    gameOpponentCount = Math.max(
+                        1,
+                        Math.trunc(Number(data.gameOpponentCount) || 1)
+                    );
+
+                const eliminatedMe = players.find(
+                    p =>
+                        p &&
+                        (
+                            p.id === myId ||
+                            p.clientToken === myClientToken
+                        )
+                );
+
+                if (eliminatedMe) {
+                    eliminatedMe.eliminated = true;
+                }
+
+                // Settle immediately, before the final tournament result.
+                // The RPC is idempotent, so later ROUND_OVER / Exit calls
+                // cannot deduct the same game twice.
+                await settleWalletForEliminatedPlayer(
+                    data.forceWalletType || (isSoloMode ? 'bot' : 'real')
+                );
+
+                renderGameBoard();
+                break;
+
+            // ----------------------------------------------------
             // KICKED
             // ----------------------------------------------------
 
@@ -5872,7 +5913,15 @@
         resultsText +=
             `</div>`;
 
+        // Mark newly eliminated players and notify each affected client
+        // immediately. This happens before the final game result, so an
+        // eliminated player who exits right away still receives the -100
+        // settlement and the game is counted in their account history.
+        const newlyEliminatedPlayers = [];
+
         players.forEach(p => {
+
+            const wasEliminated = p.eliminated === true;
 
             if (
                 p.scores >=
@@ -5880,14 +5929,35 @@
             )
                 p.eliminated =
                     true;
+
+            if (!wasEliminated && p.eliminated === true) {
+                newlyEliminatedPlayers.push(p);
+            }
         });
 
         // If the host itself was eliminated in this round, settle its -100
-        // immediately. Other players settle on their own clients when they
-        // receive the synchronized elimination state.
+        // immediately. Other players settle on their own clients from the
+        // dedicated elimination event, the synchronized state, or their
+        // own Exit action (whichever happens first).
         await settleWalletForEliminatedPlayer(
             isSoloMode ? 'bot' : 'real'
         );
+
+        if (!isSoloMode && newlyEliminatedPlayers.length) {
+            for (const eliminatedPlayer of newlyEliminatedPlayers) {
+                const targetToken = getPlayerToken(eliminatedPlayer);
+                if (!targetToken) continue;
+
+                await sendRealtimeMessage({
+                    type: 'PLAYER_ELIMINATED',
+                    targetToken,
+                    roomCode,
+                    walletGameId,
+                    gameOpponentCount,
+                    forceWalletType: 'real'
+                });
+            }
+        }
 
         // Capture each player's running score as part of the round history snapshot.
         if (gameHistory.length) {
