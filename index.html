@@ -1836,6 +1836,13 @@
             console.error('Logout failed:', error);
         }
 
+        // Logout is an intentional session termination. Do not allow the
+        // refresh/reconnect feature to restore the previous room after logout.
+        try {
+            localStorage.removeItem('leastCountGameSession');
+            clearActiveRoomSession();
+        } catch (e) {}
+
         clearAuthSession();
         currentUser = null;
         currentProfile = null;
@@ -8452,42 +8459,133 @@
             if (!summary || !content) return;
             summary.innerText = 'Loading secure admin dashboard...';
             try {
-                const { data, error } = await supabaseClient.rpc('admin_get_least_count_dashboard', { p_session_token: adminSessionToken });
+                const { data, error } = await supabaseClient.rpc(
+                    'admin_get_least_count_dashboard',
+                    { p_session_token: adminSessionToken }
+                );
                 if (error) throw error;
+
                 const row = Array.isArray(data) ? data[0] : data;
                 const dashboard = row?.dashboard || row || {};
                 const users = Array.isArray(dashboard.users) ? dashboard.users : [];
                 const rooms = Array.isArray(dashboard.rooms) ? dashboard.rooms : [];
+                const transactions = Array.isArray(dashboard.transactions) ? dashboard.transactions : [];
                 const events = Array.isArray(dashboard.events) ? dashboard.events : [];
-                summary.innerHTML = `<span class="text-white font-bold">${users.length}</span> users · <span class="text-amber-300 font-bold">${rooms.length}</span> active/recent rooms · <span class="text-rose-300 font-bold">${events.length}</span> audit events`;
+                const actions = Array.isArray(dashboard.actions) ? dashboard.actions : [];
+
+                const onlineUsers = users.filter(u => Number(u.active_sessions || 0) > 0).length;
+                const playingRooms = rooms.filter(r => r.status === 'playing').length;
+
+                summary.innerHTML =
+                    `<span class="text-white font-bold">${users.length}</span> members` +
+                    ` · <span class="text-emerald-300 font-bold">${onlineUsers}</span> active sessions` +
+                    ` · <span class="text-amber-300 font-bold">${playingRooms}</span> currently playing rooms` +
+                    ` · <span class="text-rose-300 font-bold">${events.length}</span> audit events`;
                 content.innerHTML = '';
 
-                const userSection = document.createElement('section');
-                userSection.className = 'bg-black border border-zinc-800 rounded-2xl p-3 overflow-x-auto';
-                userSection.innerHTML = `<h3 class="font-black text-white mb-3">Users & Wallets</h3><table class="w-full min-w-[760px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500"><th class="text-left p-2">Name</th><th class="text-left p-2">Mobile</th><th class="text-right p-2">Bot</th><th class="text-right p-2">Real</th><th class="text-right p-2">Bot Games</th><th class="text-right p-2">Real Games</th></tr></thead><tbody></tbody></table>`;
+                const makeSection = (title, html) => {
+                    const section = document.createElement('section');
+                    section.className = 'bg-black border border-zinc-800 rounded-2xl p-3 overflow-x-auto';
+                    section.innerHTML = `<h3 class="font-black text-white mb-3">${title}</h3>${html}`;
+                    content.appendChild(section);
+                    return section;
+                };
+
+                // MEMBERS: operational account information only. Passwords/password hashes
+                // are deliberately never returned by the admin RPC.
+                const userSection = makeSection(
+                    'All Members & Wallets',
+                    `<table class="w-full min-w-[1050px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500 uppercase text-[9px]"><th class="text-left p-2">Name</th><th class="text-left p-2">Mobile</th><th class="text-right p-2">Bot Coins</th><th class="text-right p-2">Real Coins</th><th class="text-right p-2">Bot Games</th><th class="text-right p-2">Real Games</th><th class="text-right p-2">Sessions</th><th class="text-left p-2">Registered</th></tr></thead><tbody></tbody></table>`
+                );
                 const tbody = userSection.querySelector('tbody');
                 users.forEach(u => {
                     const tr = document.createElement('tr');
                     tr.className = 'border-b border-zinc-900';
                     const b = Number(u.bot_coins || 0), r = Number(u.real_coins || 0);
-                    tr.innerHTML = `<td class="p-2 font-bold text-white">${escapeAccountStatsHtml(u.name)}</td><td class="p-2 text-zinc-400">${escapeAccountStatsHtml(u.mobile)}</td><td class="p-2 text-right font-black ${b < 0 ? 'text-rose-400' : 'text-indigo-300'}">${b}</td><td class="p-2 text-right font-black ${r < 0 ? 'text-rose-400' : 'text-emerald-300'}">${r}</td><td class="p-2 text-right text-zinc-300">${Number(u.bot_games_played || 0)}</td><td class="p-2 text-right text-zinc-300">${Number(u.real_games_played || 0)}</td>`;
+                    tr.innerHTML =
+                        `<td class="p-2 font-bold text-white">${escapeAccountStatsHtml(u.name)}</td>` +
+                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(u.mobile)}</td>` +
+                        `<td class="p-2 text-right font-black ${b < 0 ? 'text-rose-400' : 'text-indigo-300'}">${b}</td>` +
+                        `<td class="p-2 text-right font-black ${r < 0 ? 'text-rose-400' : 'text-emerald-300'}">${r}</td>` +
+                        `<td class="p-2 text-right text-zinc-300">${Number(u.bot_games_played || 0)}</td>` +
+                        `<td class="p-2 text-right text-zinc-300">${Number(u.real_games_played || 0)}</td>` +
+                        `<td class="p-2 text-right ${Number(u.active_sessions || 0) ? 'text-emerald-300 font-bold' : 'text-zinc-500'}">${Number(u.active_sessions || 0)}</td>` +
+                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(formatAccountDate(u.created_at))}</td>`;
                     tbody.appendChild(tr);
                 });
-                content.appendChild(userSection);
 
-                const roomSection = document.createElement('section');
-                roomSection.className = 'bg-black border border-zinc-800 rounded-2xl p-3 overflow-x-auto';
-                roomSection.innerHTML = `<h3 class="font-black text-white mb-3">Room Lifecycle</h3><table class="w-full min-w-[700px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500"><th class="text-left p-2">Room</th><th class="text-left p-2">Status</th><th class="text-right p-2">Version</th><th class="text-left p-2">Updated</th></tr></thead><tbody></tbody></table>`;
+                // CURRENT / RECENT ROOMS. The state is available to the admin only;
+                // it is displayed in a compact expandable JSON block for inspection.
+                const roomSection = makeSection(
+                    'Current Playing Rooms / Recent Rooms',
+                    `<table class="w-full min-w-[1100px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500 uppercase text-[9px]"><th class="text-left p-2">Room</th><th class="text-left p-2">Status</th><th class="text-left p-2">Host</th><th class="text-left p-2">Owner</th><th class="text-right p-2">Players</th><th class="text-right p-2">Version</th><th class="text-left p-2">Last Activity</th><th class="text-left p-2">State</th></tr></thead><tbody></tbody></table>`
+                );
                 const rt = roomSection.querySelector('tbody');
-                rooms.forEach(x => { const tr=document.createElement('tr'); tr.className='border-b border-zinc-900'; tr.innerHTML=`<td class="p-2 font-bold text-white">${escapeAccountStatsHtml(x.room_code)}</td><td class="p-2 text-amber-300">${escapeAccountStatsHtml(x.status)}</td><td class="p-2 text-right text-zinc-300">${Number(x.state_version||0)}</td><td class="p-2 text-zinc-400">${escapeAccountStatsHtml(formatAccountDate(x.updated_at))}</td>`; rt.appendChild(tr); });
-                content.appendChild(roomSection);
+                rooms.forEach(room => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'border-b border-zinc-900 align-top';
+                    const state = room.state && typeof room.state === 'object' ? room.state : {};
+                    const roomPlayers = Array.isArray(state.players) ? state.players : [];
+                    const host = roomPlayers.find(p => p && p.isHost) || {};
+                    const ownerToken = room.owner_token ? String(room.owner_token).slice(0, 12) + '…' : '—';
+                    const stateHtml = `<details><summary class="cursor-pointer text-emerald-300 font-bold">Inspect</summary><pre class="mt-2 max-w-[520px] max-h-[260px] overflow-auto whitespace-pre-wrap text-[9px] text-zinc-400">${escapeAccountStatsHtml(JSON.stringify(state, null, 2))}</pre></details>`;
+                    tr.innerHTML =
+                        `<td class="p-2 font-black text-white">${escapeAccountStatsHtml(room.room_code)}</td>` +
+                        `<td class="p-2 ${room.status === 'playing' ? 'text-emerald-300 font-bold' : 'text-amber-300'}">${escapeAccountStatsHtml(room.status)}</td>` +
+                        `<td class="p-2 text-zinc-300">${escapeAccountStatsHtml(host.name || room.host_player_id || '—')}</td>` +
+                        `<td class="p-2 text-zinc-500 font-mono">${escapeAccountStatsHtml(ownerToken)}</td>` +
+                        `<td class="p-2 text-right text-white font-bold">${roomPlayers.length}</td>` +
+                        `<td class="p-2 text-right text-zinc-300">${Number(room.state_version || 0)}</td>` +
+                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(formatAccountDate(room.last_activity_at || room.updated_at))}</td>` +
+                        `<td class="p-2">${stateHtml}</td>`;
+                    rt.appendChild(tr);
+                });
 
-                const eventSection = document.createElement('section');
-                eventSection.className = 'bg-black border border-zinc-800 rounded-2xl p-3';
-                eventSection.innerHTML = `<h3 class="font-black text-white mb-3">Recent Audit Events</h3><div class="space-y-2"></div>`;
+                // COMPLETE WALLET LEDGER / MEMBER HISTORY.
+                const txSection = makeSection(
+                    'Complete Coin / Game History',
+                    `<table class="w-full min-w-[1100px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500 uppercase text-[9px]"><th class="text-left p-2">Date</th><th class="text-left p-2">Member</th><th class="text-left p-2">Game ID</th><th class="text-left p-2">Room</th><th class="text-left p-2">Wallet</th><th class="text-left p-2">Result</th><th class="text-right p-2">Opponents</th><th class="text-right p-2">Delta</th></tr></thead><tbody></tbody></table>`
+                );
+                const tt = txSection.querySelector('tbody');
+                transactions.forEach(t => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'border-b border-zinc-900';
+                    const delta = Number(t.delta || 0);
+                    tr.innerHTML =
+                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(formatAccountDate(t.created_at))}</td>` +
+                        `<td class="p-2 font-bold text-white">${escapeAccountStatsHtml(t.name || '—')}</td>` +
+                        `<td class="p-2 font-mono text-zinc-400">${escapeAccountStatsHtml(t.game_id)}</td>` +
+                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(t.game_code || '—')}</td>` +
+                        `<td class="p-2 ${t.wallet_type === 'real' ? 'text-emerald-300' : 'text-indigo-300'}">${escapeAccountStatsHtml(t.wallet_type)}</td>` +
+                        `<td class="p-2 ${t.result === 'win' ? 'text-emerald-300' : 'text-rose-300'}">${escapeAccountStatsHtml(t.result)}</td>` +
+                        `<td class="p-2 text-right text-zinc-300">${Number(t.opponent_count || 0)}</td>` +
+                        `<td class="p-2 text-right font-black ${delta < 0 ? 'text-rose-400' : 'text-emerald-300'}">${delta > 0 ? '+' : ''}${delta}</td>`;
+                    tt.appendChild(tr);
+                });
+
+                const eventSection = makeSection(
+                    'Recent Audit Events',
+                    `<div class="space-y-2"></div>`
+                );
                 const ec = eventSection.querySelector('div');
-                events.forEach(x => { const d=document.createElement('div'); d.className='border-b border-zinc-900 pb-2 text-[10px] text-zinc-400'; d.innerHTML=`<span class="text-rose-300 font-bold">${escapeAccountStatsHtml(x.event_type)}</span> · ${escapeAccountStatsHtml(x.room_code||'—')} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))}`; ec.appendChild(d); });
-                content.appendChild(eventSection);
+                events.forEach(x => {
+                    const d = document.createElement('div');
+                    d.className = 'border-b border-zinc-900 pb-2 text-[10px] text-zinc-400';
+                    d.innerHTML = `<span class="text-rose-300 font-bold">${escapeAccountStatsHtml(x.event_type)}</span> · ${escapeAccountStatsHtml(x.room_code || '—')} · ${escapeAccountStatsHtml(x.player_name || x.player_id || '—')} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))}<div class="text-zinc-600 mt-1">${escapeAccountStatsHtml(JSON.stringify(x.event_data || {}))}</div>`;
+                    ec.appendChild(d);
+                });
+
+                const actionSection = makeSection(
+                    'Recent Game Actions',
+                    `<div class="space-y-2"></div>`
+                );
+                const ac = actionSection.querySelector('div');
+                actions.forEach(x => {
+                    const d = document.createElement('div');
+                    d.className = 'border-b border-zinc-900 pb-2 text-[10px] text-zinc-400';
+                    d.innerHTML = `<span class="text-amber-300 font-bold">${escapeAccountStatsHtml(x.action)}</span> · ${escapeAccountStatsHtml(x.room_code || '—')} · ${escapeAccountStatsHtml(x.player_name || x.player_id || '—')} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))} · ${x.accepted ? '<span class="text-emerald-300">accepted</span>' : '<span class="text-rose-300">rejected</span>'}`;
+                    ac.appendChild(d);
+                });
             } catch (error) {
                 console.error('Admin dashboard load failed:', error);
                 summary.innerText = 'Admin session expired or dashboard unavailable.';
