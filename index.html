@@ -183,9 +183,6 @@
                 Waiting...
             </div>
 
-            <span id="connection-status-indicator"
-                  class="hidden text-[9px] font-black px-2 py-1 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-400"
-                  title="Realtime connection status">● Offline</span>
             <button id="logout-btn"
                     onclick="logoutUser()"
                     class="hidden bg-zinc-800 hover:bg-zinc-700 text-rose-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-700">
@@ -216,11 +213,6 @@
             <button type="button" onclick="toggleCoinInstructionsModal(true)"
                     class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-indigo-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
                 Coins Instructions
-            </button>
-            <span class="text-zinc-700">|</span>
-            <button id="admin-nav-btn" type="button" onclick="toggleAdminModal(true)"
-                    class="hidden px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-rose-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
-                Admin
             </button>
         </div>
     </nav>
@@ -1016,14 +1008,9 @@
     // Supabase Auth signup/login/email service is used. Coin balances live
     // only in Supabase; the browser stores only this login session token.
     const GAME_AUTH_TOKEN_KEY = 'leastCountGameAuthTokenV1';
-    const ADMIN_TOKEN_KEY = 'leastCountAdminSessionV1';
-    const ADMIN_MOBILE = '9912517895';
     let authSessionToken = '';
     let currentUser = null;
     let currentProfile = null;
-    let adminSessionToken = '';
-    let adminAuthenticated = false;
-    let adminDashboardCache = null;
 
     let roomChannel = null;
 
@@ -1124,16 +1111,10 @@
     let myId = '';
     let myName = '';
     let myClientToken = '';
-    // Authoritative host identity for the current multiplayer room.
-    let roomHostToken = '';
-    // Permanent owner identity for the room. It does not change when host authority changes.
-    let roomOwnerToken = '';
-    let hostTransferInProgress = false;
-    let lastHostTransferAt = 0;
 
     try {
         myClientToken =
-            localStorage.getItem('leastCountClientToken') || '';
+            sessionStorage.getItem('leastCountClientToken') || '';
 
         if (!myClientToken) {
             myClientToken =
@@ -1141,16 +1122,11 @@
                 Math.random().toString(36).slice(2) +
                 Date.now().toString(36);
 
-            localStorage.setItem(
+            sessionStorage.setItem(
                 'leastCountClientToken',
                 myClientToken
             );
         }
-
-        // Keep a sessionStorage copy for compatibility with older sessions.
-        try {
-            sessionStorage.setItem('leastCountClientToken', myClientToken);
-        } catch (e) {}
     } catch (e) {
         myClientToken =
             'client-' +
@@ -1187,193 +1163,6 @@
     // (player_id, game_id, wallet_type) constraint, so retries are safe.
     const walletSettlementInFlight = new Map();
     const walletSettlementCompleted = new Set();
-
-    // ============================================================
-    // PRODUCTION HARDENING STATE
-    // ============================================================
-    let lastPersistedStateVersion = 0;
-    let persistencePromise = Promise.resolve();
-    // Turn timeout intentionally disabled. Turns advance only through normal game actions.
-    // ============================================================
-    // REFRESH / BROWSER-RELOAD ROOM RECOVERY
-    // ============================================================
-    const ACTIVE_ROOM_SESSION_KEY = 'leastCountActiveRoomSession';
-
-    function saveActiveRoomSession() {
-        if (!roomCode || isSoloMode || !currentUser) return;
-        try { localStorage.setItem(ACTIVE_ROOM_SESSION_KEY, JSON.stringify({ roomCode, clientToken: myClientToken, playerId: currentUser.id || '', roomOwnerToken: roomOwnerToken || '', savedAt: Date.now() })); } catch (e) {}
-    }
-    function getActiveRoomSession() {
-        try { const raw = localStorage.getItem(ACTIVE_ROOM_SESSION_KEY); if (!raw) return null; const x = JSON.parse(raw); if (!x?.roomCode) return null; if (x.clientToken && x.clientToken !== myClientToken) return null; return x; } catch (e) { return null; }
-    }
-    function clearActiveRoomSession() { try { localStorage.removeItem(ACTIVE_ROOM_SESSION_KEY); } catch (e) {} }
-
-    async function restoreActiveRoomAfterRefresh() {
-        const session = getActiveRoomSession();
-        if (!session || !currentUser || !authSessionToken) return false;
-        const code = String(session.roomCode || '').trim().toUpperCase();
-        if (!code) return false;
-        isSoloMode = false; roomCode = code; myId = myClientToken; gameHistory = [];
-        try { roomOwnerToken = String(session.roomOwnerToken || localStorage.getItem(`leastCountRoomOwner:${roomCode}`) || '').trim(); } catch (e) {}
-        await loadPersistedGameState();
-        myIndex = players.findIndex(p => p && (p.clientToken === myClientToken || p.id === myClientToken));
-        if (myIndex < 0) { clearActiveRoomSession(); return false; }
-        const me = players[myIndex];
-        roomHostToken = String(roomHostToken || players.find(p => p?.isHost)?.clientToken || '').trim();
-        isHost = roomHostToken === myClientToken;
-        me.connected = true; me.viewOnly = false; me.rejoinPending = false;
-        if (isHost) me.isHost = true;
-        initRealtimeChannel(roomCode);
-        saveActiveRoomSession();
-        document.getElementById('lobby-screen')?.classList.add('hidden');
-        setHeaderAction(false);
-        document.getElementById('waiting-screen')?.classList.toggle('hidden', !!roundActive);
-        document.getElementById('game-board-screen')?.classList.toggle('hidden', !roundActive);
-        document.getElementById('room-badge')?.classList.remove('hidden');
-        document.getElementById('sticky-scores-wrapper')?.classList.remove('hidden');
-        const roomIdEl = document.getElementById('current-room-id'); if (roomIdEl) roomIdEl.innerText = roomCode;
-        const statusEl = document.getElementById('game-status-banner'); if (statusEl) { statusEl.classList.remove('hidden'); statusEl.innerText = roundActive ? 'Playing' : 'Room'; }
-        if (isHost) document.getElementById('host-controls')?.classList.remove('hidden'); else document.getElementById('host-controls')?.classList.add('hidden');
-        updateWaitingRoomUI(); renderGameBoard(); logTicker(`Reconnected to room ${roomCode} after refresh.`);
-        return true;
-    }
-
-    function buildPersistedGameState() {
-        return {
-            roomCode,
-            roomOwnerToken,
-            roomHostToken,
-            players,
-            deck,
-            discardPile,
-            currentTurnIndex,
-            turnPhase,
-            roundActive,
-            gameHistory,
-            gameHistoryHostName,
-            walletGameId,
-            gameOpponentCount,
-            cardsPerPlayer,
-            targetEliminationPoints,
-            includeJoker,
-            roundCounter,
-            maxPlayersLimit,
-            isSoloMode: !!isSoloMode
-        };
-    }
-
-    async function persistAuthoritativeGameState(force = false) {
-        if (!authSessionToken || !roomCode || isSoloMode || !isHost) return false;
-        if (!force && authoritativeStateVersion <= lastPersistedStateVersion) return true;
-
-        const state = buildPersistedGameState();
-        const version = Number(authoritativeStateVersion) || 0;
-        const status = roundActive ? 'playing' : (players.length ? 'round_over' : 'waiting');
-
-        persistencePromise = persistencePromise.then(async () => {
-            const { error } = await supabaseClient.rpc('upsert_least_count_game_state', {
-                p_session_token: authSessionToken,
-                p_room_code: roomCode,
-                p_state: state,
-                p_state_version: version,
-                p_status: status,
-                p_host_token: roomHostToken || myClientToken,
-                p_owner_token: roomOwnerToken || myClientToken
-            });
-            if (error) throw error;
-            lastPersistedStateVersion = Math.max(lastPersistedStateVersion, version);
-            saveActiveRoomSession();
-        }).catch(error => {
-            console.error('Authoritative state persistence failed:', error);
-            setConnectionIndicator('reconnecting');
-            logTicker('Game state is temporarily waiting for server persistence.');
-            return false;
-        });
-
-        await persistencePromise;
-        return lastPersistedStateVersion >= version;
-    }
-
-    async function loadPersistedGameState() {
-        if (!authSessionToken || !roomCode || isSoloMode) return false;
-        try {
-            const { data, error } = await supabaseClient.rpc('load_least_count_game_state', {
-                p_session_token: authSessionToken,
-                p_room_code: roomCode
-            });
-            if (error) throw error;
-            const row = Array.isArray(data) ? data[0] : data;
-            const state = row?.state;
-            const version = Number(row?.state_version || 0);
-            if (!state || version < Number(lastAppliedStateVersion || 0)) return false;
-            players = state.players || players;
-            deck = state.deck || deck;
-            discardPile = state.discardPile || discardPile;
-            currentTurnIndex = Number(state.currentTurnIndex ?? currentTurnIndex);
-            turnPhase = state.turnPhase || turnPhase;
-            roundActive = state.roundActive === true;
-            gameHistory = state.gameHistory || gameHistory;
-            gameHistoryHostName = state.gameHistoryHostName || gameHistoryHostName;
-            walletGameId = state.walletGameId || walletGameId;
-            gameOpponentCount = Number(state.gameOpponentCount || gameOpponentCount);
-            cardsPerPlayer = Number(state.cardsPerPlayer || cardsPerPlayer);
-            targetEliminationPoints = Number(state.targetEliminationPoints || targetEliminationPoints);
-            includeJoker = state.includeJoker === true;
-            roundCounter = Number(state.roundCounter || roundCounter);
-            maxPlayersLimit = Number(state.maxPlayersLimit || maxPlayersLimit);
-            if (state.roomOwnerToken) roomOwnerToken = String(state.roomOwnerToken);
-            if (state.roomHostToken) roomHostToken = String(state.roomHostToken);
-            lastAppliedStateVersion = version;
-            authoritativeStateVersion = Math.max(authoritativeStateVersion, version);
-            myIndex = players.findIndex(p => p && (p.id === myId || p.clientToken === myClientToken));
-            updateWaitingRoomUI();
-            renderGameBoard();
-            return true;
-        } catch (error) {
-            console.error('Persisted game state load failed:', error);
-            return false;
-        }
-    }
-
-    async function serverValidateGameAction(data) {
-        if (!authSessionToken || !roomCode || isSoloMode) return true;
-        try {
-            await persistencePromise;
-            const { data: result, error } = await supabaseClient.rpc('validate_least_count_game_action', {
-                p_session_token: authSessionToken,
-                p_room_code: roomCode,
-                p_action_id: String(data.actionId || ''),
-                p_client_token: String(data.clientToken || data.senderId || ''),
-                p_action: String(data.action || ''),
-                p_card_uid: data.cardUid ? String(data.cardUid) : null,
-                p_expected_state_version: Number(authoritativeStateVersion) || 0
-            });
-            if (error) throw error;
-            const row = Array.isArray(result) ? result[0] : result;
-            return row?.valid === true;
-        } catch (error) {
-            console.error('Server action validation failed:', error);
-            logTicker('Action rejected because server validation is unavailable.');
-            return false;
-        }
-    }
-
-    async function recordServerAction(actionId, action, clientToken, cardUid = '') {
-        if (!authSessionToken || !roomCode || isSoloMode) return;
-        try {
-            await supabaseClient.rpc('record_least_count_game_action', {
-                p_session_token: authSessionToken,
-                p_room_code: roomCode,
-                p_action_id: String(actionId || ''),
-                p_client_token: String(clientToken || ''),
-                p_action: String(action || ''),
-                p_card_uid: cardUid ? String(cardUid) : null,
-                p_state_version: Number(authoritativeStateVersion) || 0
-            });
-        } catch (error) {
-            console.error('Game action audit failed:', error);
-        }
-    }
 
     function renderWallets() {
         const botEl = document.getElementById('bot-wallet-balance');
@@ -1736,43 +1525,6 @@
             await handleCustomAuthenticatedUser(result);
         } catch (error) {
             console.error('Login failed:', error);
-
-            // The configured admin has a separate secure admin session. If the
-            // supplied mobile is the admin mobile, try the same entered password
-            // against the admin RPC without storing that password in the browser.
-            if (mobile === ADMIN_MOBILE) {
-                try {
-                    const { data: adminData, error: adminError } = await supabaseClient.rpc(
-                        'admin_login_least_count',
-                        { p_mobile: mobile, p_password: password }
-                    );
-                    if (!adminError) {
-                        const adminRow = Array.isArray(adminData) ? adminData[0] : adminData;
-                        if (adminRow?.session_token) {
-                            adminSessionToken = adminRow.session_token;
-                            adminAuthenticated = true;
-                            localStorage.setItem(ADMIN_TOKEN_KEY, adminSessionToken);
-                            currentUser = { id: 'admin', name: adminRow.display_name || 'Game Admin', mobile: ADMIN_MOBILE };
-                            currentProfile = { id: 'admin', name: adminRow.display_name || 'Game Admin', mobile: ADMIN_MOBILE };
-                            myName = currentProfile.name;
-                            nicknameInput.value = currentProfile.name;
-                            nicknameInput.readOnly = true;
-                            showAuthScreen(false);
-                            updateAdminVisibility();
-                            document.getElementById('logout-btn')?.classList.remove('hidden');
-                            setHeaderAction(true);
-                            renderWallets();
-                            refreshPublicRoomsList();
-                            logTicker('Admin access ready.');
-                            toggleAdminModal(true);
-                            return;
-                        }
-                    }
-                } catch (adminError) {
-                    console.error('Admin login fallback failed:', adminError);
-                }
-            }
-
             setAuthMessage('Invalid mobile or password.');
         } finally {
             setAuthButtonsBusy(false, 'login-btn');
@@ -1808,11 +1560,9 @@
 
         document.getElementById('logout-btn')?.classList.remove('hidden');
         showAuthScreen(false);
-        updateAdminVisibility();
 
-        // Restore an active multiplayer room after a browser refresh.
-        const restoredRoom = await restoreActiveRoomAfterRefresh();
-        if (!restoredRoom) setHeaderAction(true);
+        // A fresh login always lands in the lobby, never in a previous room header state.
+        setHeaderAction(true);
 
         if (account.bot_coins !== undefined) {
             botWallet = Number(account.bot_coins || 0);
@@ -1831,7 +1581,6 @@
         if (!token) {
             currentUser = null;
             currentProfile = null;
-            updateAdminVisibility();
             showAuthScreen(true);
             renderWallets();
             return;
@@ -1855,7 +1604,6 @@
             clearAuthSession();
             currentUser = null;
             currentProfile = null;
-            updateAdminVisibility();
             showAuthScreen(true);
             renderWallets();
         }
@@ -1972,270 +1720,14 @@
     // REALTIME MESSAGING WRAPPER
     // ============================================================
 
-    /*
-     * MULTIPLAYER STATE RELIABILITY
-     *
-     * The host is the single authoritative owner of the live game state.
-     * Guests send only intents (DROP / DRAW / SHOW). They never send a
-     * complete replacement deck/player/turn state.
-     *
-     * This prevents stale or delayed packets from overwriting a newer
-     * turn, which was the root cause of the game sometimes appearing
-     * stuck until a player exited and rejoined.
-     */
-    let roomChannelReady = false;
-    let realtimeOutboundQueue = [];
-    let authoritativeStateVersion = 0;
-    let lastAppliedStateVersion = 0;
-    const processedGameActionIds = new Set();
-    const pendingGameActionRetries = new Map();
-
-    function createGameActionId(actionType) {
-        return [
-            myClientToken || myId || 'client',
-            actionType || 'action',
-            Date.now().toString(36),
-            Math.random().toString(36).slice(2, 10)
-        ].join('-');
-    }
-
-    function sendGameActionWithRetry(payload, maxAttempts = 3) {
-        if (!payload || !payload.actionId) {
-            return sendRealtimeMessage(payload);
-        }
-
-        const actionId = String(payload.actionId);
-
-        if (pendingGameActionRetries.has(actionId)) {
-            return pendingGameActionRetries.get(actionId);
-        }
-
-        const promise = (async () => {
-            try {
-                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-
-                    if (!pendingGameActionRetries.has(actionId)) {
-                        return;
-                    }
-
-                    const result = await sendRealtimeMessage(payload);
-
-                    /*
-                     * Supabase normally returns "ok". Even if the transport
-                     * does not provide a positive result, the same action id
-                     * is safe to retry because the host deduplicates it.
-                     */
-                    if (
-                        result === 'ok' ||
-                        result?.status === 'ok'
-                    ) {
-                        return;
-                    }
-
-                    if (attempt < maxAttempts) {
-                        await new Promise(resolve => setTimeout(resolve, 350));
-                    }
-                }
-            } finally {
-                pendingGameActionRetries.delete(actionId);
-            }
-        })();
-
-        pendingGameActionRetries.set(actionId, promise);
-        return promise;
-    }
-
     function sendRealtimeMessage(payload) {
-        if (!roomChannel) {
-            return Promise.resolve(false);
-        }
-
-        if (!roomChannelReady) {
-            return new Promise(resolve => {
-                realtimeOutboundQueue.push({
-                    payload,
-                    resolve
-                });
+        if (roomChannel) {
+            return roomChannel.send({
+                type: 'broadcast',
+                event: 'game_event',
+                payload: payload
             });
         }
-
-        return roomChannel.send({
-            type: 'broadcast',
-            event: 'game_event',
-            payload
-        });
-    }
-
-    async function flushRealtimeOutboundQueue() {
-        if (!roomChannel || !roomChannelReady || !realtimeOutboundQueue.length) {
-            return;
-        }
-
-        const queue = realtimeOutboundQueue.splice(0);
-
-        for (const item of queue) {
-            try {
-                const result = await roomChannel.send({
-                    type: 'broadcast',
-                    event: 'game_event',
-                    payload: item.payload
-                });
-                item.resolve(result);
-            } catch (error) {
-                item.resolve(false);
-                console.error('Realtime queued message failed:', error);
-            }
-        }
-    }
-
-    function getPresentRoomClientTokens() {
-        if (!roomChannel || !roomChannel.presenceState) return new Set();
-
-        const present = new Set();
-        try {
-            const state = roomChannel.presenceState() || {};
-            Object.keys(state).forEach(key => {
-                const metas = Array.isArray(state[key]) ? state[key] : [];
-                metas.forEach(meta => {
-                    const token = String(
-                        meta?.clientToken ||
-                        meta?.presence_ref ||
-                        meta?.playerId ||
-                        key ||
-                        ''
-                    ).trim();
-                    if (token) present.add(token);
-                });
-            });
-        } catch (e) {}
-        return present;
-    }
-
-    function getPlayerRoomToken(player) {
-        return String(player?.clientToken || player?.id || '').trim();
-    }
-
-    function chooseDeterministicHostCandidate(presentTokens) {
-        const candidates = players
-            .map((player, index) => ({ player, index, token: getPlayerRoomToken(player) }))
-            .filter(({ player, token }) =>
-                token &&
-                presentTokens.has(token) &&
-                player.connected !== false &&
-                player.eliminated !== true &&
-                player.viewOnly !== true &&
-                player.isBot !== true
-            );
-
-        candidates.sort((a, b) => a.token.localeCompare(b.token));
-        return candidates[0] || null;
-    }
-
-    async function maybeElectNewHost(reason = 'host-disconnected') {
-        if (isSoloMode || !roomChannel || !roomChannelReady || !players.length) return;
-        if (hostTransferInProgress) return;
-
-        const currentHostToken = String(
-            roomHostToken ||
-            (players.find(p => p && p.isHost === true)?.clientToken ||
-             players.find(p => p && p.isHost === true)?.id ||
-             '')
-        ).trim();
-
-        if (!currentHostToken) return;
-
-        const presentTokens = getPresentRoomClientTokens();
-
-        // The current host is still present; nothing to do.
-        if (presentTokens.has(currentHostToken)) return;
-
-        const candidate = chooseDeterministicHostCandidate(presentTokens);
-        if (!candidate) return;
-
-        // Every client computes the same candidate. Only that candidate
-        // performs the takeover broadcast, preventing split-brain hosts.
-        if (candidate.token !== myClientToken) return;
-
-        // Recover the newest durable snapshot before taking authority.
-        await loadPersistedGameState();
-
-        hostTransferInProgress = true;
-        lastHostTransferAt = Date.now();
-
-        const oldHost = players.find(p => getPlayerRoomToken(p) === currentHostToken);
-        if (oldHost) {
-            oldHost.connected = false;
-            oldHost.viewOnly = false;
-            oldHost.rejoinPending = false;
-            oldHost.isHost = false;
-        }
-
-        // If the disconnected host owned the current turn, immediately
-        // move the turn forward so the game cannot remain blocked on them.
-        if (
-            roundActive &&
-            players[currentTurnIndex] &&
-            getPlayerRoomToken(players[currentTurnIndex]) === currentHostToken
-        ) {
-            advanceTurn();
-        }
-
-        players.forEach(p => { p.isHost = getPlayerRoomToken(p) === candidate.token; });
-        isHost = true;
-        roomHostToken = candidate.token;
-        candidate.player.connected = true;
-        candidate.player.viewOnly = false;
-        candidate.player.rejoinPending = false;
-
-        authoritativeStateVersion = Math.max(
-            Number(authoritativeStateVersion) || 0,
-            Number(lastAppliedStateVersion) || 0
-        ) + 1;
-
-        const takeoverPayload = {
-            type: 'HOST_TAKEOVER',
-            reason,
-            newHostToken: candidate.token,
-            oldHostToken: currentHostToken,
-            roomOwnerToken: roomOwnerToken || currentHostToken,
-            players,
-            deck,
-            discardPile,
-            currentTurnIndex,
-            turnPhase,
-            roundActive,
-            gameHistory,
-            gameHistoryHostName,
-            processedActionIds: Array.from(processedGameActionIds).slice(-500),
-            stateVersion: authoritativeStateVersion
-        };
-
-        try {
-            await supabaseClient.rpc('claim_least_count_room_host', {
-                p_session_token: authSessionToken,
-                p_room_code: roomCode,
-                p_host_token: candidate.token,
-                p_owner_token: roomOwnerToken || currentHostToken
-            });
-        } catch (e) {
-            console.error('Server host lease claim failed:', e);
-        }
-
-        persistAuthoritativeGameState(true);
-
-        try {
-            await sendRealtimeMessage(takeoverPayload);
-        } catch (e) {
-            console.error('Automatic host takeover broadcast failed:', e);
-        }
-
-        updateWaitingRoomUI();
-        renderGameBoard();
-        logTicker('Previous host disconnected. Game control transferred automatically.');
-
-        // Do not leave the takeover lock permanently set. Presence syncs
-        // after this point will see the new host as present.
-        setTimeout(() => { hostTransferInProgress = false; }, 1500);
     }
 
     function initRealtimeChannel(code) {
@@ -2245,24 +1737,11 @@
         // If this is only a reconnect to the same room, keep its current chat.
         resetRoomChatState(code);
 
-        roomChannelReady = false;
-        realtimeOutboundQueue = [];
-        authoritativeStateVersion = 0;
-        lastAppliedStateVersion = 0;
-        processedGameActionIds.clear();
-        roomHostToken = '';
-        // Preserve roomOwnerToken across reconnects to the same room.
-        // It is loaded by createRoom/joinRoom and must not be reset here.
-        hostTransferInProgress = false;
-        lastHostTransferAt = 0;
-
         if (roomChannel) {
-            try {
-                supabaseClient.removeChannel(roomChannel);
-            } catch (e) {}
+            supabaseClient.removeChannel(roomChannel);
         }
 
-        const channel = supabaseClient.channel(`room_${code}`, {
+        roomChannel = supabaseClient.channel(`room_${code}`, {
             config: {
                 broadcast: {
                     self: true
@@ -2270,21 +1749,7 @@
             }
         });
 
-        roomChannel = channel;
-
-        // Supabase Presence is used only for host-failure detection.
-        // It does not carry game state; the game state remains the
-        // authoritative snapshot already synchronized to every client.
-        channel.on(
-            'presence',
-            { event: 'sync' },
-            () => {
-                if (roomChannel !== channel || isSoloMode) return;
-                maybeElectNewHost('presence-sync');
-            }
-        );
-
-        channel
+        roomChannel
             .on(
                 'broadcast',
                 { event: 'game_event' },
@@ -2294,60 +1759,24 @@
             )
             .subscribe((status) => {
 
-                // Ignore callbacks from an old channel after a room/session
-                // has already created a replacement channel.
-                if (roomChannel !== channel) {
-                    return;
-                }
-
                 if (status === 'SUBSCRIBED') {
-                    roomChannelReady = true;
-                    setConnectionIndicator('connected');
-
-                    // Presence lets every client detect a host browser that
-                    // closes/crashes without pressing Exit.
-                    try {
-                        channel.track({
-                            clientToken: myClientToken,
-                            playerId: myId || myClientToken,
-                            roomCode: code,
-                            isHost: isHost === true
-                        });
-                    } catch (e) {
-                        console.warn('Could not track room presence:', e);
-                    }
-
-                    flushRealtimeOutboundQueue();
 
                     if (!isHost && !isSoloMode) {
-                        // Join is Realtime-first. Never wait for Supabase DB state.
-                        const sendJoinRequest = () => sendRealtimeMessage({
+
+                        /*
+                         * Existing player:
+                         * DO NOT automatically reconnect.
+                         *
+                         * The host must approve the rejoin.
+                         */
+                        sendRealtimeMessage({
                             type: 'JOIN_REQUEST',
                             name: myName,
                             clientToken: myClientToken,
                             senderId: myClientToken,
-                            rejoinRequest: true,
-                            refreshReconnect: true,
-                            joinRequestId: `join-${myClientToken}-${Date.now()}`
+                            rejoinRequest: true
                         });
-
-                        sendJoinRequest();
-                        // A short retry protects against a transient Realtime
-                        // publish race without changing the original room logic.
-                        setTimeout(() => {
-                            if (roomChannel === channel && !isHost && roomChannelReady) sendJoinRequest();
-                        }, 800);
-                        setTimeout(() => {
-                            if (roomChannel === channel && !isHost && roomChannelReady) sendJoinRequest();
-                        }, 1800);
                     }
-                } else if (
-                    status === 'CHANNEL_ERROR' ||
-                    status === 'TIMED_OUT' ||
-                    status === 'CLOSED'
-                ) {
-                    roomChannelReady = false;
-                    setConnectionIndicator(status === 'TIMED_OUT' ? 'reconnecting' : 'offline');
                 }
             });
     }
@@ -2808,7 +2237,6 @@
                 currentTurnIndex: currentTurnIndex,
                 turnPhase: turnPhase,
                 roundActive: roundActive,
-                stateVersion: authoritativeStateVersion,
                 gameHistory: gameHistory
             });
 
@@ -2840,7 +2268,6 @@
                 currentTurnIndex: currentTurnIndex,
                 turnPhase: turnPhase,
                 roundActive: roundActive,
-                stateVersion: authoritativeStateVersion,
                 gameHistory: gameHistory
             });
 
@@ -2885,26 +2312,15 @@
         } catch (e) {}
 
         roomChannel = null;
-        roomChannelReady = false;
-        realtimeOutboundQueue = [];
-        authoritativeStateVersion = 0;
-        lastAppliedStateVersion = 0;
-        processedGameActionIds.clear();
-        pendingGameActionRetries.clear();
 
         try {
             localStorage.removeItem('leastCountGameSession');
-            clearActiveRoomSession();
         } catch (e) {}
 
         updateGameOnlyFooterControls(false);
 
         isHost = false;
         isSoloMode = false;
-        roomHostToken = '';
-        roomOwnerToken = '';
-        hostTransferInProgress = false;
-        lastHostTransferAt = 0;
         myId = '';
         roomCode = '';
         resetRoomChatState('');
@@ -3166,16 +2582,6 @@
 
                     if (successor) {
 
-                        roomHostToken =
-                            successor.clientToken ||
-                            successor.id ||
-                            '';
-
-                        authoritativeStateVersion = Math.max(
-                            Number(authoritativeStateVersion) || 0,
-                            Number(lastAppliedStateVersion) || 0
-                        ) + 1;
-
                         await sendRealtimeMessage({
 
                             type:
@@ -3204,16 +2610,7 @@
                                 gameHistoryHostName,
 
                             roundActive:
-                                roundActive,
-
-                            gameHistory:
-                                gameHistory,
-
-                            processedActionIds:
-                                Array.from(processedGameActionIds).slice(-500),
-
-                            stateVersion:
-                                authoritativeStateVersion
+                                roundActive
                         });
                     }
 
@@ -3244,8 +2641,7 @@
             if (roomChannel) await supabaseClient.removeChannel(roomChannel);
         } catch (e) {}
         roomChannel = null;
-        try { localStorage.removeItem('leastCountGameSession');
-            clearActiveRoomSession(); } catch (e) {}
+        try { localStorage.removeItem('leastCountGameSession'); } catch (e) {}
         updateGameOnlyFooterControls(false);
 
         isHost = false;
@@ -3376,11 +2772,6 @@
 
             if (newHost) {
 
-                roomHostToken =
-                    newHost.clientToken ||
-                    newHost.id ||
-                    '';
-
                 isHost =
                     (
                         newHost.clientToken ===
@@ -3393,9 +2784,6 @@
 
                 type:
                     'HOST_TRANSFERRED',
-
-                roomOwnerToken:
-                    roomOwnerToken,
 
                 newHostToken:
                     newHost
@@ -3552,7 +2940,6 @@
 
         isSoloMode = true;
         isHost = true;
-        roomHostToken = myClientToken;
 
         myId = 'player-me';
 
@@ -3565,8 +2952,6 @@
             Math.random().toString(36).slice(2, 6).toUpperCase();
 
         setWalletGameId();
-
-        saveActiveRoomSession();
 
         gameHistoryHostName = myName;
 
@@ -3864,8 +3249,6 @@
             );
         }
 
-        // Keep the original working join flow: join the realtime room first.
-        // Do not block joining on the Supabase persisted-state RPC.
         isHost = false;
         myId = myClientToken;
         roomCode = codeInput;
@@ -4351,64 +3734,6 @@
                  */
                 if (existingPlayer) {
 
-                    if (data.refreshReconnect === true) {
-                        existingPlayer.connected = true;
-                        existingPlayer.viewOnly = false;
-                        existingPlayer.rejoinPending = false;
-                        existingPlayer.isHost = getPlayerRoomToken(existingPlayer) === String(roomHostToken || '').trim();
-                        myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
-                        saveActiveRoomSession();
-                        broadcastPlayerList(); updateWaitingRoomUI();
-                        sendRealtimeMessage({ type:'REJOIN_PERMISSION_RESPONSE', targetToken:myClientToken, permission:'play', players, deck, discardPile, currentTurnIndex, turnPhase, roundActive, gameHistory, gameHistoryHostName, roomHostToken, roomOwnerToken, stateVersion:authoritativeStateVersion });
-                        if (roundActive) broadcastGameState(`${existingPlayer.name} refreshed and reconnected.`);
-                        else logTicker(`${existingPlayer.name} refreshed and reconnected to the room.`);
-                        return;
-                    }
-
-                    // The original room owner is identified by the persistent
-                    // clientToken, never by name. If authority moved to another
-                    // player and the original host comes back, recover the exact
-                    // existing player record (hand, score, elimination state, etc.)
-                    // automatically. Do NOT create a duplicate player.
-                    const isReturningRoomOwner =
-                        !!roomOwnerToken &&
-                        String(data.clientToken || '').trim() === String(roomOwnerToken).trim();
-
-                    if (isReturningRoomOwner) {
-                        existingPlayer.connected = true;
-                        existingPlayer.viewOnly = false;
-                        existingPlayer.rejoinPending = false;
-                        // Returning owner does not automatically take authority
-                        // back from the current host. The current host remains host.
-                        existingPlayer.isHost =
-                            getPlayerRoomToken(existingPlayer) === String(roomHostToken || '').trim();
-
-                        myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
-
-                        broadcastPlayerList();
-                        updateWaitingRoomUI();
-
-                        sendRealtimeMessage({
-                            type: 'GAME_STATE_UPDATE',
-                            players,
-                            deck,
-                            discardPile,
-                            currentTurnIndex,
-                            turnPhase,
-                            stateVersion: authoritativeStateVersion,
-                            roundActive,
-                            gameHistory,
-                            gameHistoryHostName,
-                            walletGameId,
-                            gameOpponentCount,
-                            roomOwnerToken,
-                            message: `${existingPlayer.name} rejoined and recovered the existing player record.`
-                        });
-
-                        logTicker(`${existingPlayer.name} rejoined. Existing cards and score were restored.`);
-                        return;
-                    }
-
                     /*
                      * If the player is already connected,
                      * keep existing behavior.
@@ -4449,15 +3774,6 @@
 
                                 turnPhase:
                                     turnPhase,
-
-                                stateVersion:
-                                    authoritativeStateVersion,
-
-                                roundActive:
-                                    roundActive,
-
-                                gameHistory:
-                                    gameHistory,
 
                                 message:
                                     `${existingPlayer.name} is already connected.`
@@ -4589,15 +3905,6 @@
                     newPlayer
                 );
 
-                // Explicit acceptance makes the join deterministic even if
-                // the waiting-room list update is delayed on the guest.
-                sendRealtimeMessage({
-                    type: 'JOIN_ACCEPTED',
-                    targetToken: newPlayer.clientToken,
-                    roomCode: roomCode,
-                    player: newPlayer
-                });
-
                 broadcastPlayerList();
 
                 updateWaitingRoomUI();
@@ -4647,8 +3954,7 @@
             ) {
 
                 handleHostShowCall(
-                    data.peerId,
-                    data.actionId || ''
+                    data.peerId
                 );
             }
 
@@ -5002,14 +4308,6 @@
                         data.gameHistory ||
                         gameHistory;
 
-                    if (data.stateVersion !== undefined) {
-                        lastAppliedStateVersion =
-                            Math.max(
-                                Number(lastAppliedStateVersion) || 0,
-                                Number(data.stateVersion) || 0
-                            );
-                    }
-
                     myIndex =
                         players.findIndex(
                             p =>
@@ -5134,14 +4432,6 @@
                         data.gameHistory ||
                         gameHistory;
 
-                    if (data.stateVersion !== undefined) {
-                        lastAppliedStateVersion =
-                            Math.max(
-                                Number(lastAppliedStateVersion) || 0,
-                                Number(data.stateVersion) || 0
-                            );
-                    }
-
                     myIndex =
                         players.findIndex(
                             p =>
@@ -5229,13 +4519,9 @@
 
             case 'HOST_TRANSFERRED':
 
-                if (data.roomOwnerToken) roomOwnerToken = String(data.roomOwnerToken).trim();
-
                 players =
                     data.players ||
                     players;
-
-                roomHostToken = String(data.newHostToken || '').trim();
 
                 if (data.gameHistoryHostName)
                     gameHistoryHostName = data.gameHistoryHostName;
@@ -5282,75 +4568,6 @@
                 updateWaitingRoomUI();
                 renderGameBoard();
 
-                if (isHost && roundActive) {
-                    broadcastGameState('Host transferred. Game state remains unchanged.');
-                }
-
-                break;
-
-            // ----------------------------------------------------
-            // AUTOMATIC HOST TAKEOVER
-            // ----------------------------------------------------
-
-            case 'HOST_TAKEOVER':
-
-                if (
-                    data.stateVersion !== undefined &&
-                    Number(data.stateVersion) <= Number(lastAppliedStateVersion)
-                ) {
-                    break;
-                }
-
-                players = data.players || players;
-                deck = Array.isArray(data.deck) ? data.deck : deck;
-                discardPile = Array.isArray(data.discardPile) ? data.discardPile : discardPile;
-
-                if (data.currentTurnIndex !== undefined)
-                    currentTurnIndex = data.currentTurnIndex;
-                if (data.turnPhase !== undefined)
-                    turnPhase = data.turnPhase;
-                if (data.roundActive !== undefined)
-                    roundActive = data.roundActive;
-                if (Array.isArray(data.gameHistory))
-                    gameHistory = data.gameHistory;
-                if (data.gameHistoryHostName)
-                    gameHistoryHostName = data.gameHistoryHostName;
-                if (data.stateVersion !== undefined)
-                    lastAppliedStateVersion = Number(data.stateVersion) || lastAppliedStateVersion;
-
-                if (Array.isArray(data.processedActionIds)) {
-                    processedGameActionIds.clear();
-                    data.processedActionIds.forEach(id => {
-                        if (id) processedGameActionIds.add(String(id));
-                    });
-                }
-
-                roomHostToken = String(data.newHostToken || '').trim();
-                if (data.roomOwnerToken) roomOwnerToken = String(data.roomOwnerToken).trim();
-                players.forEach(p => {
-                    p.isHost = getPlayerRoomToken(p) === roomHostToken;
-                });
-
-                isHost = roomHostToken === myClientToken;
-
-                if (isHost) {
-                    const me = players.find(p => getPlayerRoomToken(p) === myClientToken);
-                    if (me) {
-                        me.connected = true;
-                        me.viewOnly = false;
-                        me.rejoinPending = false;
-                        me.isHost = true;
-                    }
-                    document.getElementById('host-controls').classList.remove('hidden');
-                    logTicker('Host disconnected. You are now the host. The game continues.');
-                } else {
-                    document.getElementById('host-controls').classList.add('hidden');
-                    logTicker('Host disconnected. A new host is managing the game.');
-                }
-
-                myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
-                updateWaitingRoomUI();
-                renderGameBoard();
                 break;
 
             // ----------------------------------------------------
@@ -5362,8 +4579,6 @@
                 players =
                     data.players ||
                     players;
-
-                roomHostToken = String(data.newHostToken || '').trim();
 
                 if (data.gameHistoryHostName)
                     gameHistoryHostName = data.gameHistoryHostName;
@@ -5396,28 +4611,6 @@
                 )
                     roundActive =
                         data.roundActive;
-
-                if (Array.isArray(data.gameHistory))
-                    gameHistory = data.gameHistory;
-
-                if (data.stateVersion !== undefined)
-                    lastAppliedStateVersion = Math.max(
-                        Number(lastAppliedStateVersion) || 0,
-                        Number(data.stateVersion) || 0
-                    );
-
-                if (Array.isArray(data.processedActionIds)) {
-                    processedGameActionIds.clear();
-                    data.processedActionIds.forEach(id => {
-                        if (id) processedGameActionIds.add(String(id));
-                    });
-                }
-
-                const departedHost = players.find(p => getPlayerRoomToken(p) === data.oldHostToken);
-                if (departedHost) {
-                    departedHost.connected = false;
-                    departedHost.rejoinPending = false;
-                }
 
                 players.forEach(p => {
 
@@ -5479,18 +4672,6 @@
                 break;
 
             // ----------------------------------------------------
-            // JOIN ACCEPTED
-            // ----------------------------------------------------
-
-            case 'JOIN_ACCEPTED':
-
-                if (data.targetToken === myClientToken) {
-                    resetJoinButtonState(true);
-                    logTicker(`Joined room ${roomCode}. Waiting for the host.`);
-                }
-                break;
-
-            // ----------------------------------------------------
             // UPDATE PLAYERS
             // ----------------------------------------------------
 
@@ -5498,12 +4679,6 @@
 
                 players =
                     data.players;
-
-                var synchronizedHost = players.find(p => p && p.isHost === true);
-                if (synchronizedHost) {
-                    roomHostToken = getPlayerRoomToken(synchronizedHost);
-                }
-
 
                 maxPlayersLimit =
                     data.maxPlayers;
@@ -5555,27 +4730,8 @@
 
             case 'START_GAME':
 
-                if (
-                    data.stateVersion !== undefined &&
-                    Number(data.stateVersion) < Number(lastAppliedStateVersion)
-                ) {
-                    break;
-                }
-
-                if (data.stateVersion !== undefined) {
-                    lastAppliedStateVersion =
-                        Number(data.stateVersion) || lastAppliedStateVersion;
-                    pendingGameActionRetries.clear();
-                }
-
                 players =
                     data.players;
-
-                var synchronizedHost = players.find(p => p && p.isHost === true);
-                if (synchronizedHost) {
-                    roomHostToken = getPlayerRoomToken(synchronizedHost);
-                }
-
 
                 walletGameId =
                     data.walletGameId ||
@@ -5676,31 +4832,8 @@
 
             case 'GAME_STATE_UPDATE':
 
-                /*
-                 * Ignore stale/out-of-order authoritative states.
-                 * The host increments stateVersion for every accepted
-                 * game-state transition.
-                 */
-                if (
-                    data.stateVersion !== undefined &&
-                    Number(data.stateVersion) <= Number(lastAppliedStateVersion)
-                ) {
-                    break;
-                }
-
-                if (data.stateVersion !== undefined) {
-                    lastAppliedStateVersion =
-                        Number(data.stateVersion) || lastAppliedStateVersion;
-                }
-
                 players =
                     data.players;
-
-                var synchronizedHost = players.find(p => p && p.isHost === true);
-                if (synchronizedHost) {
-                    roomHostToken = getPlayerRoomToken(synchronizedHost);
-                }
-
 
                 deck =
                     data.deck;
@@ -6052,10 +5185,6 @@
         roundCounter = 1;
         gameHistory = [];
 
-        authoritativeStateVersion = 0;
-        lastAppliedStateVersion = 0;
-        processedGameActionIds.clear();
-
         // One unique wallet settlement per online game session.
         setWalletGameId();
 
@@ -6109,18 +5238,10 @@
             'yes'
         );
 
-        /*
-         * Start is the first authoritative state of the game.
-         */
-        authoritativeStateVersion += 1;
-
         let startPayload = {
 
             type:
                 'START_GAME',
-
-            stateVersion:
-                authoritativeStateVersion,
 
             players:
                 players,
@@ -6156,8 +5277,6 @@
         sendRealtimeMessage(
             startPayload
         );
-
-        persistAuthoritativeGameState(true);
 
         document.getElementById(
             'waiting-screen'
@@ -6213,15 +5332,10 @@
 
     function broadcastGameState(msg) {
 
-        authoritativeStateVersion += 1;
-
         let payload = {
 
             type:
                 'GAME_STATE_UPDATE',
-
-            stateVersion:
-                authoritativeStateVersion,
 
             players:
                 players,
@@ -6238,12 +5352,6 @@
             turnPhase:
                 turnPhase,
 
-            roundActive:
-                roundActive,
-
-            gameHistory:
-                gameHistory,
-
             message:
                 msg
         };
@@ -6251,10 +5359,6 @@
         sendRealtimeMessage(
             payload
         );
-
-        // Persist every authoritative state transition. The queue keeps
-        // writes ordered and prevents an older snapshot from winning a race.
-        persistAuthoritativeGameState(false);
     }
 
     // ============================================================
@@ -6424,175 +5528,103 @@
     // CARD CLICK
     // ============================================================
 
-    function applyDropActionForPlayer(playerIndex, cardUid) {
-
-        if (!roundActive || turnPhase !== 'drop')
-            return false;
-
-        if (
-            playerIndex < 0 ||
-            playerIndex >= players.length ||
-            currentTurnIndex !== playerIndex
-        )
-            return false;
-
-        const player = players[playerIndex];
-
-        if (!isPlayerAllowedToPlay(player))
-            return false;
-
-        const cardIndex = Array.isArray(player.hand)
-            ? player.hand.findIndex(c => c && c.uid === cardUid)
-            : -1;
-
-        if (cardIndex === -1)
-            return false;
-
-        const selectedCard = player.hand[cardIndex];
-
-        const droppedCards = player.hand.filter(
-            c => c && c.val === selectedCard.val
-        );
-
-        player.hand = sortHandCards(
-            player.hand.filter(
-                c => !c || c.val !== selectedCard.val
-            )
-        );
-
-        const previousTopCard =
-            discardPile[discardPile.length - 1];
-
-        droppedCards.forEach(c => discardPile.push(c));
-
-        const matchesBoard =
-            !!previousTopCard &&
-            selectedCard.val === previousTopCard.val;
-
-        if (matchesBoard) {
-            turnPhase = 'drop';
-            advanceTurn();
-        } else {
-            turnPhase = 'draw';
-        }
-
-        return true;
-    }
-
-    function applyDrawActionForPlayer(playerIndex) {
-
-        if (!roundActive || turnPhase !== 'draw')
-            return false;
-
-        if (
-            playerIndex < 0 ||
-            playerIndex >= players.length ||
-            currentTurnIndex !== playerIndex
-        )
-            return false;
-
-        const player = players[playerIndex];
-
-        if (!isPlayerAllowedToPlay(player))
-            return false;
-
-        if (
-            deck.length === 0 &&
-            discardPile.length > 1
-        ) {
-            const top = discardPile.pop();
-
-            deck = discardPile;
-            discardPile = [top];
-        }
-
-        if (!deck.length)
-            return false;
-
-        player.hand.push(deck.pop());
-        player.hand = sortHandCards(player.hand);
-
-        turnPhase = 'drop';
-        advanceTurn();
-
-        return true;
-    }
-
-    // ============================================================
-    // CARD CLICK
-    // ============================================================
-
     function handleCardClick(cardUid) {
 
         if (!roundActive)
             return;
 
-        if (currentTurnIndex !== myIndex)
+        if (
+            currentTurnIndex !==
+            myIndex
+        )
             return;
 
-        const me = players[myIndex];
-
-        if (!isPlayerAllowedToPlay(me))
-            return;
-
-        if (turnPhase !== 'drop')
-            return;
-
-        const cardExists = Array.isArray(me.hand) &&
-            me.hand.some(c => c && c.uid === cardUid);
-
-        if (!cardExists)
-            return;
+        let me =
+            players[myIndex];
 
         /*
-         * Multiplayer guests send only the requested action.
-         * The host validates the turn and mutates the authoritative state.
+         * NEW:
+         * View-only players cannot interact.
          */
-        if (!isHost && !isSoloMode) {
-
-            const actionId = createGameActionId('DROP');
-
-            sendGameActionWithRetry({
-                type: 'PLAYER_ACTION',
-                action: 'DROP',
-                actionId,
-                clientToken: myClientToken,
-                senderId: myClientToken,
-                cardUid
-            });
-
-            logTicker('Card drop sent. Waiting for game state...');
-            return;
-        }
-
-        /*
-         * Host / solo mode applies the action immediately.
-         */
-        const changed = applyDropActionForPlayer(myIndex, cardUid);
-
-        if (!changed)
+        if (
+            me.eliminated ||
+            me.viewOnly === true ||
+            me.connected === false
+        )
             return;
 
-        if (turnPhase === 'draw') {
+        if (turnPhase === 'drop') {
 
-            renderGameBoard();
+            let cardIndex =
+                me.hand.findIndex(
+                    c =>
+                        c.uid ===
+                        cardUid
+                );
 
-            logTicker(
-                'Card dropped. Click stock deck to draw.'
+            if (cardIndex === -1)
+                return;
+
+            let selectedCard =
+                me.hand[cardIndex];
+
+            let droppedCards =
+                me.hand.filter(
+                    c =>
+                        c.val ===
+                        selectedCard.val
+                );
+
+            me.hand =
+                sortHandCards(
+                    me.hand.filter(
+                        c =>
+                            c.val !==
+                            selectedCard.val
+                    )
+                );
+
+            let previousTopCard =
+                discardPile[
+                    discardPile.length - 1
+                ];
+
+            droppedCards.forEach(
+                c =>
+                    discardPile.push(c)
             );
 
-        } else {
+            let matchesBoard =
+                previousTopCard &&
+                (
+                    selectedCard.val ===
+                    previousTopCard.val
+                );
 
-            broadcastGameState(
-                `${me.name} dropped matching board card.`
-            );
+            if (matchesBoard) {
 
-            renderGameBoard();
-            logTicker(
-                `${me.name} dropped matching board card.`
-            );
+                turnPhase =
+                    'drop';
 
-            checkBotTurn();
+                advanceTurn();
+
+                syncActionComplete(
+                    `${me.name} dropped matching board card.`
+                );
+
+                checkBotTurn();
+
+            } else {
+
+                turnPhase =
+                    'draw';
+
+                renderGameBoard();
+
+                logTicker(
+                    "Card dropped. Click stock deck to draw."
+                );
+            }
         }
     }
 
@@ -6605,49 +5637,64 @@
         if (!roundActive)
             return;
 
-        if (currentTurnIndex !== myIndex)
+        if (
+            currentTurnIndex !==
+            myIndex
+        )
             return;
 
-        const me = players[myIndex];
-
-        if (!isPlayerAllowedToPlay(me))
-            return;
-
-        if (turnPhase !== 'draw')
-            return;
+        let me =
+            players[myIndex];
 
         /*
-         * Multiplayer guests send only DRAW intent. This is deliberately
-         * not applied locally, because doing so could create a stale
-         * client state that later overwrites the host.
+         * NEW:
+         * View-only / disconnected players cannot draw.
          */
-        if (!isHost && !isSoloMode) {
-
-            const actionId = createGameActionId('DRAW');
-
-            sendGameActionWithRetry({
-                type: 'PLAYER_ACTION',
-                action: 'DRAW',
-                actionId,
-                clientToken: myClientToken,
-                senderId: myClientToken
-            });
-
-            logTicker('Draw request sent...');
+        if (
+            me.viewOnly === true ||
+            me.connected === false ||
+            me.eliminated
+        )
             return;
+
+        if (
+            turnPhase !== 'draw'
+        )
+            return;
+
+        if (
+            deck.length === 0 &&
+            discardPile.length > 1
+        ) {
+
+            let top =
+                discardPile.pop();
+
+            deck =
+                discardPile;
+
+            discardPile =
+                [top];
         }
 
-        const changed = applyDrawActionForPlayer(myIndex);
+        if (deck.length > 0)
+            me.hand.push(
+                deck.pop()
+            );
 
-        if (!changed) {
-            logTicker('No card could be drawn right now.');
-            return;
-        }
+        turnPhase =
+            'drop';
 
+        advanceTurn();
+
+        // Render the draw locally immediately. The host will still
+        // validate and broadcast the authoritative state, but the
+        // player should not wait for the realtime round-trip to see
+        // the card they just drew.
         renderGameBoard();
         logTicker(`${me.name} drew a card.`);
 
-        broadcastGameState(
+        syncActionComplete(
             `${me.name} drew a card.`
         );
 
@@ -6693,10 +5740,6 @@
     // ACTION SYNC
     // ============================================================
 
-    /*
-     * Kept for solo/bot compatibility. Multiplayer human actions no
-     * longer use this function to send a complete client-side state.
-     */
     function syncActionComplete(msg) {
 
         if (isHost) {
@@ -6705,11 +5748,17 @@
                 broadcastGameState(msg);
 
             renderGameBoard();
+
             logTicker(msg);
 
         } else {
 
-            const me = players[myIndex];
+            /*
+             * Extra protection:
+             * A view-only player cannot send a game action.
+             */
+            let me =
+                players[myIndex];
 
             if (
                 me &&
@@ -6720,138 +5769,96 @@
             )
                 return;
 
-            /*
-             * Backward-compatible fallback for any old internal caller.
-             * Normal multiplayer DROP/DRAW paths now use intent messages.
-             */
             sendRealtimeMessage({
-                type: 'PLAYER_ACTION',
-                action: 'STATE_SYNC',
-                actionId: createGameActionId('STATE_SYNC'),
-                clientToken: myClientToken,
-                senderId: myClientToken,
-                message: msg
+
+                type:
+                    'PLAYER_ACTION',
+
+                players:
+                    players,
+
+                deck:
+                    deck,
+
+                discardPile:
+                    discardPile,
+
+                currentTurnIndex:
+                    currentTurnIndex,
+
+                turnPhase:
+                    turnPhase,
+
+                message:
+                    msg
             });
         }
     }
 
-    async function handleHostAction(data) {
-
-        if (!isHost || isSoloMode || !roundActive)
-            return;
-
-        const actionId = String(data.actionId || '').trim();
+    function handleHostAction(data) {
 
         /*
-         * Every human action gets a unique id. Repeated broadcasts of the
-         * same action are ignored, making retries safe.
+         * Verify the player that sent the action is actually
+         * allowed to play.
          */
-        if (actionId) {
-
-            if (processedGameActionIds.has(actionId))
-                return;
-
-            processedGameActionIds.add(actionId);
-
-            // Keep memory bounded for very long games.
-            if (processedGameActionIds.size > 2000) {
-                const first = processedGameActionIds.values().next().value;
-                if (first) processedGameActionIds.delete(first);
-            }
-        }
-
-        const senderToken =
-            String(
-                data.clientToken ||
-                data.senderId ||
-                ''
-            ).trim();
-
-        const playerIndex =
-            players.findIndex(
+        let actionPlayer =
+            data.players &&
+            data.players.find(
                 p =>
-                    p &&
                     (
-                        p.clientToken === senderToken ||
-                        p.id === senderToken
+                        p.clientToken ||
+                        p.id
+                    ) ===
+                    (
+                        data.clientToken ||
+                        data.senderId
                     )
             );
 
-        if (playerIndex < 0)
-            return;
-
-        const actionPlayer = players[playerIndex];
-
-        // Server-side validation is an additional production gate. The host
-        // still applies the same existing game logic below, so game rules
-        // remain unchanged while forged/out-of-turn actions are rejected.
-        if (!(await serverValidateGameAction(data))) return;
-
         /*
-         * Authoritative validation:
-         * - sender must be the player whose turn it is
-         * - player must be eligible
-         * - requested action must match the current phase
+         * Preserve the existing behavior when the identity
+         * is not supplied by the older action payload.
          */
         if (
-            currentTurnIndex !== playerIndex ||
-            !isPlayerAllowedToPlay(actionPlayer)
+            actionPlayer &&
+            (
+                actionPlayer.viewOnly === true ||
+                actionPlayer.connected === false
+            )
         )
             return;
 
-        let changed = false;
-        let message = '';
+        players =
+            data.players;
 
-        if (data.action === 'DROP') {
+        deck =
+            data.deck;
 
-            changed = applyDropActionForPlayer(
-                playerIndex,
-                data.cardUid
-            );
+        discardPile =
+            data.discardPile;
 
-            if (changed) {
-                message =
-                    turnPhase === 'draw'
-                        ? `${actionPlayer.name} dropped a card.`
-                        : `${actionPlayer.name} dropped matching board card.`;
-            }
+        currentTurnIndex =
+            data.currentTurnIndex;
 
-        } else if (data.action === 'DRAW') {
+        turnPhase =
+            data.turnPhase;
 
-            changed = applyDrawActionForPlayer(
-                playerIndex
-            );
+        broadcastGameState(
+            data.message
+        );
 
-            if (changed) {
-                message =
-                    `${actionPlayer.name} drew a card.`;
-            }
-
-        } else {
-
-            /*
-             * Never accept a client-provided complete state.
-             * Unknown/legacy state-sync packets are intentionally ignored.
-             */
-            return;
-        }
-
-        if (!changed)
-            return;
-
-        await recordServerAction(actionId, data.action, senderToken, data.cardUid || '');
-        broadcastGameState(message);
         renderGameBoard();
-        logTicker(message);
 
-        checkBotTurn();
+        logTicker(
+            data.message
+        );
     }
 
     // ============================================================
     // CALL SHOW
     // ============================================================
 
-    async function callShow() {
+    function callShow() {
 
         let me =
             players[myIndex];
@@ -6890,30 +5897,30 @@
             return;
         }
 
-        const actionId = createGameActionId('SHOW');
+        if (
+            isHost ||
+            isSoloMode
+        ) {
 
-        if (isHost || isSoloMode) {
-            if (!isSoloMode && !(await serverValidateGameAction({
-                action: 'SHOW',
-                actionId,
-                clientToken: myClientToken,
-                senderId: myClientToken
-            }))) return;
-            await recordServerAction(actionId, 'SHOW', myClientToken);
-            executeShowRound(myId);
+            executeShowRound(
+                myId
+            );
+
         } else {
+
             sendRealtimeMessage({
-                type: 'CALL_SHOW',
-                peerId: myId,
-                clientToken: myClientToken,
-                actionId
+
+                type:
+                    'CALL_SHOW',
+
+                peerId:
+                    myId
             });
         }
     }
 
-    async function handleHostShowCall(
-        callerPeerId,
-        actionId = ''
+    function handleHostShowCall(
+        callerPeerId
     ) {
 
         /*
@@ -6937,16 +5944,9 @@
         )
             return;
 
-        const validation = await serverValidateGameAction({
-            action: 'SHOW',
-            actionId: actionId || createGameActionId('SHOW'),
-            clientToken: caller.clientToken || callerPeerId,
-            senderId: caller.clientToken || callerPeerId
-        });
-        if (!validation) return;
-
-        await recordServerAction(actionId || createGameActionId('SHOW'), 'SHOW', caller.clientToken || callerPeerId);
-        executeShowRound(callerPeerId);
+        executeShowRound(
+            callerPeerId
+        );
     }
 
     function escapeRoundResultHtml(value) {
@@ -7389,8 +6389,6 @@
                 payload
             );
         }
-
-        persistAuthoritativeGameState(true);
     }
 
     function showRoundOverModal(
@@ -7612,9 +6610,6 @@
 
             type:
                 'START_GAME',
-
-            roomOwnerToken:
-                roomOwnerToken,
 
             players:
                 players,
@@ -8270,71 +7265,6 @@
 
 
     <!-- ========================================================= -->
-    <!-- ADMIN-ONLY CONTROL CENTER                                -->
-    <!-- ========================================================= -->
-    <div id="admin-modal"
-         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[500]">
-        <div class="bg-zinc-950 border border-rose-500/30 w-full max-w-[1500px] h-[94vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
-                <div>
-                    <h2 class="text-lg sm:text-xl font-black text-rose-300">Admin Control Center</h2>
-                    <p class="text-[10px] sm:text-[11px] text-zinc-500 mt-1">Admin-only operational view of members, rooms, wallets, history, audit events and game actions.</p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <button id="admin-refresh-btn" onclick="loadAdminDashboard()" class="hidden px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-emerald-300 hover:bg-zinc-800">Refresh</button>
-                    <button id="admin-logout-btn" onclick="adminLogout()" class="hidden px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-rose-300 hover:bg-zinc-800">Admin Logout</button>
-                    <button onclick="toggleAdminModal(false)" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
-                </div>
-            </div>
-
-            <div id="admin-login-panel" class="flex-1 overflow-y-auto flex items-center justify-center p-5">
-                <div class="w-full max-w-sm bg-black border border-zinc-800 rounded-2xl p-5">
-                    <div class="text-center mb-5">
-                        <div class="text-2xl font-black text-rose-300">ADMIN LOGIN</div>
-                        <div class="text-[10px] text-zinc-500 mt-1">Only the configured admin account can open this dashboard.</div>
-                    </div>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Admin Mobile</label>
-                            <input id="admin-mobile-input" type="text" inputmode="numeric" autocomplete="username"
-                                   value="9912517895"
-                                   class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-rose-500 text-white text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Admin Password</label>
-                            <input id="admin-password-input" type="password" autocomplete="current-password"
-                                   class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-rose-500 text-white text-sm"
-                                   placeholder="Admin password">
-                        </div>
-                        <button onclick="adminLogin()" class="w-full py-2.5 bg-rose-500 hover:bg-rose-400 text-black font-black rounded-xl text-sm">Open Admin Dashboard</button>
-                        <div id="admin-login-message" class="min-h-[18px] text-center text-xs text-zinc-500"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="admin-dashboard-panel" class="hidden flex-1 overflow-y-auto p-3 sm:p-5">
-                <div id="admin-summary" class="text-xs text-zinc-400 mb-3">Loading...</div>
-                <div id="admin-dashboard-content" class="space-y-4"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ADMIN SELECTED-USER FULL DETAIL -->
-    <div id="admin-user-detail-modal"
-         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[600]">
-        <div class="bg-zinc-950 border border-emerald-500/30 w-full max-w-[1500px] h-[94vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
-                <div>
-                    <h2 id="admin-user-detail-title" class="text-lg sm:text-xl font-black text-emerald-300">Member Details</h2>
-                    <p id="admin-user-detail-subtitle" class="text-[10px] sm:text-[11px] text-zinc-500 mt-1">Complete available account, wallet, game, room and audit information.</p>
-                </div>
-                <button onclick="toggleAdminUserDetail(false)" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
-            </div>
-            <div id="admin-user-detail-content" class="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4"></div>
-        </div>
-    </div>
-
-    <!-- ========================================================= -->
     <!-- PLAYER ACCOUNT / COIN STATISTICS MODALS                 -->
     <!-- ========================================================= -->
 
@@ -8490,326 +7420,6 @@
 
     <script>
         // ============================================================
-        // PRODUCTION ADMIN DASHBOARD
-        // ============================================================
-
-        function isConfiguredAdminPlayer() {
-            return !!(currentProfile && String(currentProfile.mobile || '').trim() === ADMIN_MOBILE);
-        }
-
-        function updateAdminVisibility() {
-            const btn = document.getElementById('admin-nav-btn');
-            if (!btn) return;
-            btn.classList.toggle('hidden', !isConfiguredAdminPlayer());
-        }
-
-        function adminDashboardSectionsFromCache() {
-            return adminDashboardCache || { users: [], rooms: [], transactions: [], events: [], actions: [] };
-        }
-
-        function toggleAdminUserDetail(show) {
-            const modal = document.getElementById('admin-user-detail-modal');
-            if (!modal) return;
-            modal.classList.toggle('hidden', !show);
-            modal.classList.toggle('flex', show);
-        }
-
-        function adminDetailSection(title, bodyHtml) {
-            return `<section class="bg-black border border-zinc-800 rounded-2xl p-3 overflow-x-auto"><h3 class="font-black text-white mb-3">${escapeAccountStatsHtml(title)}</h3>${bodyHtml}</section>`;
-        }
-
-        async function openAdminUserDetail(playerId) {
-            if (!adminAuthenticated || !adminSessionToken) {
-                toggleAdminModal(true);
-                return;
-            }
-
-            const content = document.getElementById('admin-user-detail-content');
-            const title = document.getElementById('admin-user-detail-title');
-            const subtitle = document.getElementById('admin-user-detail-subtitle');
-            if (!content) return;
-
-            if (!adminDashboardCache) {
-                content.innerHTML = '<div class="text-center text-xs text-zinc-500 py-10">Loading member details...</div>';
-                toggleAdminUserDetail(true);
-                await loadAdminDashboard();
-            }
-
-            const d = adminDashboardSectionsFromCache();
-            const user = d.users.find(u => String(u.player_id) === String(playerId));
-            if (!user) {
-                content.innerHTML = '<div class="text-center text-xs text-rose-400 py-10">Selected member was not found in the admin data.</div>';
-                toggleAdminUserDetail(true);
-                return;
-            }
-
-            const tx = d.transactions.filter(x => String(x.player_id) === String(playerId));
-            const events = d.events.filter(x => String(x.player_id) === String(playerId));
-            const actions = d.actions.filter(x => String(x.player_id) === String(playerId));
-            const rooms = d.rooms.filter(room => {
-                if (String(room.owner_player_id || '') === String(playerId) || String(room.host_player_id || '') === String(playerId)) return true;
-                const ps = room?.state?.players;
-                return Array.isArray(ps) && ps.some(p => String(p?.playerId || p?.player_id || p?.id || '') === String(playerId) || String(p?.name || '') === String(user.name || ''));
-            });
-
-            title.textContent = `${user.name || 'Member'} — Complete Details`;
-            subtitle.textContent = `${user.mobile || '—'} · Player ID: ${user.player_id}`;
-
-            const b = Number(user.bot_coins || 0), r = Number(user.real_coins || 0);
-            const wins = tx.filter(x => x.result === 'win').length;
-            const losses = tx.filter(x => x.result === 'loss').length;
-            const netBot = tx.filter(x => x.wallet_type === 'bot').reduce((n,x) => n + Number(x.delta || 0), 0);
-            const netReal = tx.filter(x => x.wallet_type === 'real').reduce((n,x) => n + Number(x.delta || 0), 0);
-
-            let html = '';
-            html += adminDetailSection('Profile & Current Wallet', `<div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Name</div><div class="font-black text-white break-words">${escapeAccountStatsHtml(user.name)}</div></div>
-                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Mobile</div><div class="font-black text-white">${escapeAccountStatsHtml(user.mobile)}</div></div>
-                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Bot Coins</div><div class="font-black ${b < 0 ? 'text-rose-400' : 'text-indigo-300'}">${b}</div></div>
-                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Real Coins</div><div class="font-black ${r < 0 ? 'text-rose-400' : 'text-emerald-300'}">${r}</div></div>
-                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Bot Games</div><div class="font-black text-white">${Number(user.bot_games_played || 0)}</div></div>
-                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Real Games</div><div class="font-black text-white">${Number(user.real_games_played || 0)}</div></div>
-                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Active Sessions</div><div class="font-black ${Number(user.active_sessions || 0) ? 'text-emerald-300' : 'text-zinc-500'}">${Number(user.active_sessions || 0)}</div></div>
-                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Registered</div><div class="font-bold text-zinc-300">${escapeAccountStatsHtml(formatAccountDate(user.created_at))}</div></div>
-            </div>`);
-
-            html += adminDetailSection('Complete Coin / Game History', tx.length ? `<div class="space-y-2">${tx.map(x => `<div class="bg-zinc-900 rounded-xl p-3 text-xs"><div class="flex flex-wrap justify-between gap-2"><span class="font-black ${x.result === 'win' ? 'text-emerald-300' : 'text-rose-300'}">${escapeAccountStatsHtml(String(x.result || '').toUpperCase())}</span><span class="font-black ${Number(x.delta || 0) < 0 ? 'text-rose-400' : 'text-emerald-300'}">${Number(x.delta || 0) > 0 ? '+' : ''}${Number(x.delta || 0)}</span></div><div class="grid grid-cols-2 md:grid-cols-5 gap-2 mt-2 text-[10px] text-zinc-400"><span>Game: ${escapeAccountStatsHtml(x.game_id)}</span><span>Room: ${escapeAccountStatsHtml(x.game_code || '—')}</span><span>Wallet: ${escapeAccountStatsHtml(x.wallet_type)}</span><span>Opponents: ${Number(x.opponent_count || 0)}</span><span>${escapeAccountStatsHtml(formatAccountDate(x.created_at))}</span></div></div>`).join('')}</div>` : '<div class="text-xs text-zinc-600">No coin settlement records found.</div>');
-
-            html += adminDetailSection('Room Participation & Persisted Game State', rooms.length ? `<div class="space-y-2">${rooms.map(room => `<details class="bg-zinc-900 rounded-xl p-3"><summary class="cursor-pointer text-emerald-300 font-black">${escapeAccountStatsHtml(room.room_code)} · ${escapeAccountStatsHtml(room.status)} · ${escapeAccountStatsHtml(formatAccountDate(room.last_activity_at || room.updated_at))}</summary><pre class="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap text-[9px] text-zinc-400">${escapeAccountStatsHtml(JSON.stringify(room, null, 2))}</pre></details>`).join('')}</div>` : '<div class="text-xs text-zinc-600">No persisted room records for this member in the admin window.</div>');
-
-            html += adminDetailSection('Audit Events', events.length ? `<div class="space-y-2">${events.map(x => `<div class="bg-zinc-900 rounded-xl p-3 text-[10px]"><div><span class="text-rose-300 font-bold">${escapeAccountStatsHtml(x.event_type)}</span> · ${escapeAccountStatsHtml(x.room_code || '—')} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))}</div><pre class="mt-2 whitespace-pre-wrap text-zinc-500">${escapeAccountStatsHtml(JSON.stringify(x.event_data || {}, null, 2))}</pre></div>`).join('')}</div>` : '<div class="text-xs text-zinc-600">No audit events found.</div>');
-
-            html += adminDetailSection('Game Actions', actions.length ? `<div class="space-y-2">${actions.map(x => `<div class="bg-zinc-900 rounded-xl p-3 text-[10px]"><div><span class="text-amber-300 font-bold">${escapeAccountStatsHtml(x.action)}</span> · ${escapeAccountStatsHtml(x.room_code || '—')} · ${x.accepted ? '<span class="text-emerald-300">accepted</span>' : '<span class="text-rose-300">rejected</span>'} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))}</div><div class="text-zinc-500 mt-1">Card: ${escapeAccountStatsHtml(x.card_uid || '—')} · State version: ${Number(x.state_version || 0)}</div></div>`).join('')}</div>` : '<div class="text-xs text-zinc-600">No game actions found.</div>');
-
-            html += adminDetailSection('Calculated Summary', `<div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs"><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Wins</div><div class="font-black text-emerald-300">${wins}</div></div><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Losses</div><div class="font-black text-rose-300">${losses}</div></div><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Net Bot Ledger</div><div class="font-black ${netBot < 0 ? 'text-rose-400' : 'text-indigo-300'}">${netBot}</div></div><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Net Real Ledger</div><div class="font-black ${netReal < 0 ? 'text-rose-400' : 'text-emerald-300'}">${netReal}</div></div><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Audit / Actions</div><div class="font-black text-white">${events.length} / ${actions.length}</div></div></div>`);
-
-            content.innerHTML = html;
-            toggleAdminUserDetail(true);
-        }
-
-        function toggleAdminModal(show) {
-            const modal = document.getElementById('admin-modal');
-            if (!modal) return;
-            if (show) {
-                if (!isConfiguredAdminPlayer()) {
-                    updateAdminVisibility();
-                    return;
-                }
-                modal.classList.remove('hidden');
-                modal.classList.add('flex');
-                const saved = localStorage.getItem(ADMIN_TOKEN_KEY) || '';
-                if (saved) {
-                    adminSessionToken = saved;
-                    adminAuthenticated = true;
-                    showAdminDashboard();
-                } else {
-                    document.getElementById('admin-login-panel')?.classList.remove('hidden');
-                    document.getElementById('admin-dashboard-panel')?.classList.add('hidden');
-                    document.getElementById('admin-refresh-btn')?.classList.add('hidden');
-                    document.getElementById('admin-logout-btn')?.classList.add('hidden');
-                }
-            } else {
-                modal.classList.add('hidden');
-                modal.classList.remove('flex');
-            }
-        }
-
-        function showAdminDashboard() {
-            document.getElementById('admin-login-panel')?.classList.add('hidden');
-            document.getElementById('admin-dashboard-panel')?.classList.remove('hidden');
-            document.getElementById('admin-refresh-btn')?.classList.remove('hidden');
-            document.getElementById('admin-logout-btn')?.classList.remove('hidden');
-            loadAdminDashboard();
-        }
-
-        async function adminLogin() {
-            const mobile = String(document.getElementById('admin-mobile-input')?.value || '').trim();
-            const password = String(document.getElementById('admin-password-input')?.value || '');
-            const msg = document.getElementById('admin-login-message');
-            if (mobile !== ADMIN_MOBILE) {
-                if (msg) msg.innerText = 'This account is not the configured admin account.';
-                return;
-            }
-            if (msg) msg.innerText = 'Checking admin access...';
-            try {
-                const { data, error } = await supabaseClient.rpc('admin_login_least_count', { p_mobile: mobile, p_password: password });
-                if (error) throw error;
-                const row = Array.isArray(data) ? data[0] : data;
-                if (!row?.session_token) throw new Error('ADMIN_LOGIN_FAILED');
-                adminSessionToken = row.session_token;
-                adminAuthenticated = true;
-                localStorage.setItem(ADMIN_TOKEN_KEY, adminSessionToken);
-                if (msg) msg.innerText = 'Admin access granted.';
-                showAdminDashboard();
-            } catch (error) {
-                console.error('Admin login failed:', error);
-                adminAuthenticated = false;
-                adminSessionToken = '';
-                localStorage.removeItem(ADMIN_TOKEN_KEY);
-                if (msg) msg.innerText = 'Invalid admin credentials.';
-            }
-        }
-
-        async function adminLogout() {
-            try {
-                if (adminSessionToken) await supabaseClient.rpc('admin_logout_least_count', { p_session_token: adminSessionToken });
-            } catch (e) {}
-            adminSessionToken = '';
-            adminAuthenticated = false;
-            adminDashboardCache = null;
-            localStorage.removeItem(ADMIN_TOKEN_KEY);
-            document.getElementById('admin-login-panel')?.classList.remove('hidden');
-            document.getElementById('admin-dashboard-panel')?.classList.add('hidden');
-            document.getElementById('admin-refresh-btn')?.classList.add('hidden');
-            document.getElementById('admin-logout-btn')?.classList.add('hidden');
-            toggleAdminUserDetail(false);
-        }
-
-        async function loadAdminDashboard() {
-            if (!adminAuthenticated || !adminSessionToken) return;
-            const summary = document.getElementById('admin-summary');
-            const content = document.getElementById('admin-dashboard-content');
-            if (!summary || !content) return;
-            summary.innerText = 'Loading secure admin dashboard...';
-            try {
-                const { data, error } = await supabaseClient.rpc(
-                    'admin_get_least_count_dashboard',
-                    { p_session_token: adminSessionToken }
-                );
-                if (error) throw error;
-
-                const row = Array.isArray(data) ? data[0] : data;
-                const dashboard = row?.dashboard || row || {};
-                const users = Array.isArray(dashboard.users) ? dashboard.users : [];
-                const rooms = Array.isArray(dashboard.rooms) ? dashboard.rooms : [];
-                const transactions = Array.isArray(dashboard.transactions) ? dashboard.transactions : [];
-                const events = Array.isArray(dashboard.events) ? dashboard.events : [];
-                const actions = Array.isArray(dashboard.actions) ? dashboard.actions : [];
-                adminDashboardCache = { users, rooms, transactions, events, actions };
-
-                const onlineUsers = users.filter(u => Number(u.active_sessions || 0) > 0).length;
-                const playingRooms = rooms.filter(r => r.status === 'playing').length;
-
-                summary.innerHTML =
-                    `<span class="text-white font-bold">${users.length}</span> members` +
-                    ` · <span class="text-emerald-300 font-bold">${onlineUsers}</span> active sessions` +
-                    ` · <span class="text-amber-300 font-bold">${playingRooms}</span> currently playing rooms` +
-                    ` · <span class="text-rose-300 font-bold">${events.length}</span> audit events`;
-                content.innerHTML = '';
-
-                const makeSection = (title, html) => {
-                    const section = document.createElement('section');
-                    section.className = 'bg-black border border-zinc-800 rounded-2xl p-3 overflow-x-auto';
-                    section.innerHTML = `<h3 class="font-black text-white mb-3">${title}</h3>${html}`;
-                    content.appendChild(section);
-                    return section;
-                };
-
-                // MEMBERS: operational account information only. Passwords/password hashes
-                // are deliberately never returned by the admin RPC.
-                const userSection = makeSection(
-                    'All Members & Wallets',
-                    `<table class="w-full min-w-[1050px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500 uppercase text-[9px]"><th class="text-left p-2">Name</th><th class="text-left p-2">Mobile</th><th class="text-right p-2">Bot Coins</th><th class="text-right p-2">Real Coins</th><th class="text-right p-2">Bot Games</th><th class="text-right p-2">Real Games</th><th class="text-right p-2">Sessions</th><th class="text-left p-2">Registered</th></tr></thead><tbody></tbody></table>`
-                );
-                const tbody = userSection.querySelector('tbody');
-                users.forEach(u => {
-                    const tr = document.createElement('tr');
-                    tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/70 cursor-pointer';
-                    tr.title = 'Open complete member details';
-                    tr.onclick = () => openAdminUserDetail(u.player_id);
-                    const b = Number(u.bot_coins || 0), r = Number(u.real_coins || 0);
-                    tr.innerHTML =
-                        `<td class="p-2 font-bold text-white">${escapeAccountStatsHtml(u.name)}</td>` +
-                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(u.mobile)}</td>` +
-                        `<td class="p-2 text-right font-black ${b < 0 ? 'text-rose-400' : 'text-indigo-300'}">${b}</td>` +
-                        `<td class="p-2 text-right font-black ${r < 0 ? 'text-rose-400' : 'text-emerald-300'}">${r}</td>` +
-                        `<td class="p-2 text-right text-zinc-300">${Number(u.bot_games_played || 0)}</td>` +
-                        `<td class="p-2 text-right text-zinc-300">${Number(u.real_games_played || 0)}</td>` +
-                        `<td class="p-2 text-right ${Number(u.active_sessions || 0) ? 'text-emerald-300 font-bold' : 'text-zinc-500'}">${Number(u.active_sessions || 0)}</td>` +
-                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(formatAccountDate(u.created_at))}</td>`;
-                    tbody.appendChild(tr);
-                });
-
-                // CURRENT / RECENT ROOMS. The state is available to the admin only;
-                // it is displayed in a compact expandable JSON block for inspection.
-                const roomSection = makeSection(
-                    'Current Playing Rooms / Recent Rooms',
-                    `<table class="w-full min-w-[1100px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500 uppercase text-[9px]"><th class="text-left p-2">Room</th><th class="text-left p-2">Status</th><th class="text-left p-2">Host</th><th class="text-left p-2">Owner</th><th class="text-right p-2">Players</th><th class="text-right p-2">Version</th><th class="text-left p-2">Last Activity</th><th class="text-left p-2">State</th></tr></thead><tbody></tbody></table>`
-                );
-                const rt = roomSection.querySelector('tbody');
-                rooms.forEach(room => {
-                    const tr = document.createElement('tr');
-                    tr.className = 'border-b border-zinc-900 align-top';
-                    const state = room.state && typeof room.state === 'object' ? room.state : {};
-                    const roomPlayers = Array.isArray(state.players) ? state.players : [];
-                    const host = roomPlayers.find(p => p && p.isHost) || {};
-                    const ownerToken = room.owner_token ? String(room.owner_token).slice(0, 12) + '…' : '—';
-                    const stateHtml = `<details><summary class="cursor-pointer text-emerald-300 font-bold">Inspect</summary><pre class="mt-2 max-w-[520px] max-h-[260px] overflow-auto whitespace-pre-wrap text-[9px] text-zinc-400">${escapeAccountStatsHtml(JSON.stringify(state, null, 2))}</pre></details>`;
-                    tr.innerHTML =
-                        `<td class="p-2 font-black text-white">${escapeAccountStatsHtml(room.room_code)}</td>` +
-                        `<td class="p-2 ${room.status === 'playing' ? 'text-emerald-300 font-bold' : 'text-amber-300'}">${escapeAccountStatsHtml(room.status)}</td>` +
-                        `<td class="p-2 text-zinc-300">${escapeAccountStatsHtml(host.name || room.host_player_id || '—')}</td>` +
-                        `<td class="p-2 text-zinc-500 font-mono">${escapeAccountStatsHtml(ownerToken)}</td>` +
-                        `<td class="p-2 text-right text-white font-bold">${roomPlayers.length}</td>` +
-                        `<td class="p-2 text-right text-zinc-300">${Number(room.state_version || 0)}</td>` +
-                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(formatAccountDate(room.last_activity_at || room.updated_at))}</td>` +
-                        `<td class="p-2">${stateHtml}</td>`;
-                    rt.appendChild(tr);
-                });
-
-                // COMPLETE WALLET LEDGER / MEMBER HISTORY.
-                const txSection = makeSection(
-                    'Complete Coin / Game History',
-                    `<table class="w-full min-w-[1100px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500 uppercase text-[9px]"><th class="text-left p-2">Date</th><th class="text-left p-2">Member</th><th class="text-left p-2">Game ID</th><th class="text-left p-2">Room</th><th class="text-left p-2">Wallet</th><th class="text-left p-2">Result</th><th class="text-right p-2">Opponents</th><th class="text-right p-2">Delta</th></tr></thead><tbody></tbody></table>`
-                );
-                const tt = txSection.querySelector('tbody');
-                transactions.forEach(t => {
-                    const tr = document.createElement('tr');
-                    tr.className = 'border-b border-zinc-900';
-                    const delta = Number(t.delta || 0);
-                    tr.innerHTML =
-                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(formatAccountDate(t.created_at))}</td>` +
-                        `<td class="p-2 font-bold text-white">${escapeAccountStatsHtml(t.name || '—')}</td>` +
-                        `<td class="p-2 font-mono text-zinc-400">${escapeAccountStatsHtml(t.game_id)}</td>` +
-                        `<td class="p-2 text-zinc-400">${escapeAccountStatsHtml(t.game_code || '—')}</td>` +
-                        `<td class="p-2 ${t.wallet_type === 'real' ? 'text-emerald-300' : 'text-indigo-300'}">${escapeAccountStatsHtml(t.wallet_type)}</td>` +
-                        `<td class="p-2 ${t.result === 'win' ? 'text-emerald-300' : 'text-rose-300'}">${escapeAccountStatsHtml(t.result)}</td>` +
-                        `<td class="p-2 text-right text-zinc-300">${Number(t.opponent_count || 0)}</td>` +
-                        `<td class="p-2 text-right font-black ${delta < 0 ? 'text-rose-400' : 'text-emerald-300'}">${delta > 0 ? '+' : ''}${delta}</td>`;
-                    tt.appendChild(tr);
-                });
-
-                const eventSection = makeSection(
-                    'Recent Audit Events',
-                    `<div class="space-y-2"></div>`
-                );
-                const ec = eventSection.querySelector('div');
-                events.forEach(x => {
-                    const d = document.createElement('div');
-                    d.className = 'border-b border-zinc-900 pb-2 text-[10px] text-zinc-400';
-                    d.innerHTML = `<span class="text-rose-300 font-bold">${escapeAccountStatsHtml(x.event_type)}</span> · ${escapeAccountStatsHtml(x.room_code || '—')} · ${escapeAccountStatsHtml(x.player_name || x.player_id || '—')} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))}<div class="text-zinc-600 mt-1">${escapeAccountStatsHtml(JSON.stringify(x.event_data || {}))}</div>`;
-                    ec.appendChild(d);
-                });
-
-                const actionSection = makeSection(
-                    'Recent Game Actions',
-                    `<div class="space-y-2"></div>`
-                );
-                const ac = actionSection.querySelector('div');
-                actions.forEach(x => {
-                    const d = document.createElement('div');
-                    d.className = 'border-b border-zinc-900 pb-2 text-[10px] text-zinc-400';
-                    d.innerHTML = `<span class="text-amber-300 font-bold">${escapeAccountStatsHtml(x.action)}</span> · ${escapeAccountStatsHtml(x.room_code || '—')} · ${escapeAccountStatsHtml(x.player_name || x.player_id || '—')} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))} · ${x.accepted ? '<span class="text-emerald-300">accepted</span>' : '<span class="text-rose-300">rejected</span>'}`;
-                    ac.appendChild(d);
-                });
-            } catch (error) {
-                console.error('Admin dashboard load failed:', error);
-                summary.innerText = 'Admin session expired or dashboard unavailable.';
-                if (String(error?.message || '').includes('ADMIN_SESSION_EXPIRED')) adminLogout();
-            }
-        }
-
-        // ============================================================
         // ACCOUNT GAME HISTORY / USER STATISTICS
         // ============================================================
 
@@ -8940,8 +7550,6 @@
         }
 
         async function loadUsersStats() {
-            // Total Game Users is intentionally visible to every logged-in player,
-            // including the admin. Admin-only controls remain protected separately.
             const summary = document.getElementById('users-stats-summary');
             const list = document.getElementById('users-stats-list');
             if (!summary || !list) return;
@@ -8997,12 +7605,7 @@
 
                 rows.forEach(row => {
                     const tr = document.createElement('tr');
-                    const adminCanInspect = isConfiguredAdminPlayer() && adminAuthenticated && !!adminSessionToken;
-                    tr.className = `border-b border-zinc-900 hover:bg-zinc-900/60 ${adminCanInspect ? 'cursor-pointer hover:bg-zinc-900' : ''}`;
-                    if (adminCanInspect) {
-                        tr.title = 'Admin: open complete member history';
-                        tr.onclick = () => openAdminUserDetail(row.player_id);
-                    }
+                    tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/60';
                     const botCoins = Number(row.bot_coins || 0);
                     const realCoins = Number(row.real_coins || 0);
                     const botCoinsClass = botCoins < 0 ? 'text-rose-400' : 'text-indigo-300';
