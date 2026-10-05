@@ -306,7 +306,8 @@
 
                         <select id="cards-count-select"
                                 class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
-                            <option value="5" selected>5 Cards</option>
+<option value="1">1 Cards</option>                           
+						   <option value="5" selected>5 Cards</option>
                             <option value="7">7 Cards</option>
                             <option value="9">9 Cards</option>
                         </select>
@@ -336,6 +337,22 @@
                         <option value="no" selected>No Joker</option>
                         <option value="yes">Include 1 Joker (0 Points)</option>
                     </select>
+                </div>
+
+                <div class="mt-2 grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Game Type</label>
+                        <select id="bet-mode-select" onchange="toggleBetAmountSelect()" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
+                            <option value="free" selected>Free</option>
+                            <option value="bet">Bet</option>
+                        </select>
+                    </div>
+                    <div id="bet-amount-wrap" class="hidden">
+                        <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Bet Amount</label>
+                        <select id="bet-amount-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
+                            <option value="5">₹5</option><option value="10">₹10</option><option value="15">₹15</option><option value="20">₹20</option><option value="25">₹25</option><option value="30">₹30</option><option value="35">₹35</option><option value="40">₹40</option><option value="45">₹45</option><option value="50">₹50</option><option value="55">₹55</option><option value="60">₹60</option><option value="65">₹65</option><option value="70">₹70</option><option value="75">₹75</option><option value="80">₹80</option><option value="85">₹85</option><option value="90">₹90</option><option value="95">₹95</option><option value="100">₹100</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -430,6 +447,7 @@
                     <span id="display-target-pts">100</span> pts
                     • Joker:
                     <span id="display-joker-option">No</span>
+                    • <span id="display-bet-settings" class="text-emerald-300">Free Game</span>
                 </h3>
 
                 <ul id="player-list-ul"
@@ -456,6 +474,8 @@
             <!-- OPPONENTS HUD BAR -->
             <div id="opponents-hud"
                  class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 shrink-0"></div>
+
+            <div id="room-bet-banner" class="hidden w-full bg-zinc-950 border border-emerald-500/30 rounded-xl px-3 py-1.5 text-center text-[10px] sm:text-xs font-bold text-emerald-300 shrink-0">Free Game</div>
 
             <!-- CHAT MESSAGES DISPLAY BAR -->
             <div id="chat-messages-banner"
@@ -587,6 +607,9 @@
                     class="game-only-footer-control hidden bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
                 History
             </button>
+
+            <button id="bet-history-footer-btn" onclick="openBetHistoryModal()"
+                    class="game-only-footer-control hidden bg-zinc-900 hover:bg-zinc-800 text-emerald-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-emerald-500/20">💰 Who Owes Whom</button>
 
             <button onclick="toggleInstructionsModal(true)"
                     class="bg-zinc-900 hover:bg-zinc-800 text-emerald-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
@@ -1453,7 +1476,7 @@
         if (modal) modal.classList.add('hidden');
 
         if (isHost || isSoloMode) {
-            await createNewRoomWithSamePlayers();
+            await startNewGameInSameRoom();
             return;
         }
 
@@ -1463,7 +1486,74 @@
             roomCode
         });
 
-        logTicker('Requesting the host to start a new room with the same players...');
+        logTicker('Requesting the host to start the next game in the same room...');
+    }
+
+    // Start a fresh game without creating a new room. The room code and
+    // players stay the same; only the game state is reset. The cumulative
+    // bet ledger is deliberately preserved across games in this room.
+    async function startNewGameInSameRoom() {
+        if (!isHost && !isSoloMode) return;
+        if (roomSessionEnded) {
+            logTicker('This bet room has already been ended. Create a new room to play again.');
+            return;
+        }
+
+        const participants = (Array.isArray(players) ? players : []).filter(
+            p => p && (p.isBot || p.connected !== false) && p.viewOnly !== true
+        );
+
+        if (!isSoloMode && participants.length < 2) {
+            logTicker('At least 2 connected players are required to start again.');
+            return;
+        }
+
+        const hostToken = String(myClientToken || roomHostToken || '');
+
+        players = participants.map((p, index) => ({
+            id: String(p.id || p.clientToken || `player-${index}`),
+            name: String(p.name || 'Player'),
+            clientToken: String(p.clientToken || p.id || `player-${index}`),
+            connected: true,
+            isHost: isSoloMode ? index === 0 : String(p.clientToken || p.id) === hostToken,
+            scores: 0,
+            hand: [],
+            eliminated: false,
+            isBot: p.isBot === true,
+            viewOnly: false,
+            rejoinPending: false
+        }));
+
+        // Keep the SAME room code.
+        roomHostToken = hostToken;
+        roomOwnerToken = roomOwnerToken || hostToken;
+        isHost = true;
+        myIndex = players.findIndex(p => p.clientToken === myClientToken);
+        if (myIndex < 0 && isSoloMode) myIndex = 0;
+        myId = String(players[myIndex]?.id || myId || myClientToken);
+
+        gameHistory = [];
+        roundCounter = 0;
+        roundActive = false;
+        walletGameId = '';
+        gameOpponentCount = Math.max(1, participants.length - 1);
+        authoritativeStateVersion = 0;
+        lastAppliedStateVersion = 0;
+        processedGameActionIds.clear();
+        pendingGameActionRetries.clear();
+        tournamentWinnerShown = false;
+        tournamentWinnerRoomKey = String(roomCode || '').trim().toUpperCase();
+
+        document.getElementById('tournament-winner-modal')?.classList.add('hidden');
+        document.getElementById('round-over-modal')?.classList.add('hidden');
+        document.getElementById('waiting-screen')?.classList.add('hidden');
+        document.getElementById('lobby-screen')?.classList.add('hidden');
+
+        // startHostGame() creates the fresh deck, wallet game id and
+        // authoritative START_GAME packet. It does NOT clear betHistoryLedger.
+        await startHostGame();
+        registerPublicRoom('playing', isSoloMode ? 'yes' : 'no');
+        logTicker(`New game started in room ${roomCode}. Previous bet history is preserved.`);
     }
 
     async function createNewRoomWithSamePlayers() {
@@ -4718,6 +4808,7 @@
                             currentTurnIndex,
                             turnPhase,
                             stateVersion: authoritativeStateVersion,
+                            roomGameSequence: Number(roomGameSequence || 1),
                             roundActive,
                             gameHistory,
                             gameHistoryHostName,
@@ -5089,7 +5180,17 @@
 
             else if (data.type === 'START_AGAIN_REQUEST') {
                 if (isHost || isSoloMode) {
-                    await createNewRoomWithSamePlayers();
+                    await startNewGameInSameRoom();
+                }
+            }
+
+            // ----------------------------------------------------
+            // END BET ROOM REQUEST
+            // ----------------------------------------------------
+
+            else if (data.type === 'END_BET_ROOM_REQUEST') {
+                if (isHost || isSoloMode) {
+                    await endBetRoomSession(data.clientToken || 'Player');
                 }
             }
 
@@ -5106,6 +5207,60 @@
                     startNextRound();
             }
 
+            return;
+        }
+
+        // ========================================================
+        // ROOM BET HISTORY SYNC
+        // ========================================================
+        if (data.type === 'BET_ROOM_ENDED') {
+            const eventRoom = String(data.roomCode || '').trim().toUpperCase();
+            const currentRoom = String(roomCode || '').trim().toUpperCase();
+            if (!eventRoom || eventRoom !== currentRoom) return;
+            roomSessionEnded = true;
+            roomSessionEndedBy = String(data.roomSessionEndedBy || '');
+            roomSessionEndedAt = String(data.roomSessionEndedAt || '');
+            if (Array.isArray(data.betHistoryLedger)) betHistoryLedger = data.betHistoryLedger;
+            if (Array.isArray(data.roomCompletedGames)) {
+                roomCompletedGames = data.roomCompletedGames;
+                completedRoomGameIds = new Set(roomCompletedGames.map(game => String(game.gameId || '')));
+            }
+            if (data.betMode !== undefined) setBetSettings(data.betMode, data.betAmount);
+            if (data.roomGameSequence !== undefined) roomGameSequence = Math.max(Number(roomGameSequence || 0), Number(data.roomGameSequence || 0));
+            saveLocalRoomSession();
+            renderBetDisplays();
+            if (betMode === 'bet') openBetFinalSettlementModal('Room Closed');
+            return;
+        }
+
+        if (data.type === 'BET_ROOM_HISTORY_UPDATE') {
+            const eventRoom = String(data.roomCode || '').trim().toUpperCase();
+            const currentRoom = String(roomCode || '').trim().toUpperCase();
+            if (!eventRoom || eventRoom !== currentRoom) return;
+
+            if (data.betMode !== undefined) {
+                setBetSettings(data.betMode, data.betAmount);
+            }
+            if (Array.isArray(data.betHistoryLedger)) {
+                betHistoryLedger = data.betHistoryLedger;
+            }
+            if (Array.isArray(data.roomCompletedGames)) {
+                roomCompletedGames = data.roomCompletedGames;
+                completedRoomGameIds = new Set(
+                    roomCompletedGames.map(game => String(game.gameId || ''))
+                );
+            }
+            if (data.roomSessionEnded !== undefined) roomSessionEnded = data.roomSessionEnded === true;
+            if (data.roomSessionEndedBy !== undefined) roomSessionEndedBy = String(data.roomSessionEndedBy || '');
+            if (data.roomSessionEndedAt !== undefined) roomSessionEndedAt = String(data.roomSessionEndedAt || '');
+            if (data.roomGameSequence !== undefined) {
+                roomGameSequence = Math.max(
+                    Number(roomGameSequence || 0),
+                    Number(data.roomGameSequence || 0)
+                );
+            }
+            saveLocalRoomSession();
+            renderBetDisplays();
             return;
         }
 
@@ -5857,6 +6012,17 @@
                 includeJoker =
                     data.includeJoker === true;
 
+                if (data.betMode !== undefined) {
+                    setBetSettings(data.betMode, data.betAmount);
+                }
+                if (Array.isArray(data.roomCompletedGames)) {
+                    roomCompletedGames = data.roomCompletedGames;
+                    completedRoomGameIds = new Set(roomCompletedGames.map(game => String(game.gameId || '')));
+                }
+                if (data.roomGameSequence !== undefined) {
+                    roomGameSequence = Number(data.roomGameSequence) || roomCompletedGames.length || 0;
+                }
+
                 resetJoinButtonState(
                     true
                 );
@@ -5895,7 +6061,12 @@
 
             case 'START_GAME':
 
+                var incomingGameSequence = Number(data.roomGameSequence || 1);
+                var localGameSequence = Number(roomGameSequence || 0);
+                var isNewRoomGame = incomingGameSequence > localGameSequence;
+
                 if (
+                    !isNewRoomGame &&
                     data.stateVersion !== undefined &&
                     Number(data.stateVersion) < Number(lastAppliedStateVersion)
                 ) {
@@ -5949,6 +6120,33 @@
                     targetEliminationPoints;
                 includeJoker =
                     data.includeJoker === true;
+
+                if (data.betMode !== undefined) {
+                    setBetSettings(data.betMode, data.betAmount);
+                }
+                if (Array.isArray(data.betHistoryLedger)) {
+                    betHistoryLedger = data.betHistoryLedger;
+                }
+                if (Array.isArray(data.roomCompletedGames)) {
+                    roomCompletedGames = data.roomCompletedGames;
+                    completedRoomGameIds = new Set(roomCompletedGames.map(game => String(game.gameId || '')));
+                }
+                if (data.roomSessionEnded === true) {
+                    roomSessionEnded = true;
+                    roomSessionEndedBy = String(data.roomSessionEndedBy || roomSessionEndedBy || '');
+                    roomSessionEndedAt = String(data.roomSessionEndedAt || roomSessionEndedAt || '');
+                }
+                if (data.roomGameSequence !== undefined) {
+                    roomGameSequence = Number(data.roomGameSequence) || roomCompletedGames.length + 1 || 1;
+                }
+                currentGameParticipantsSnapshot = Array.isArray(data.players)
+                    ? data.players.filter(p => p && p.viewOnly !== true).map(p => ({
+                        name: String(p.name || 'Player'),
+                        id: String(p.id || ''),
+                        clientToken: String(p.clientToken || ''),
+                        isBot: p.isBot === true
+                    }))
+                    : currentGameParticipantsSnapshot;
 
                 gameHistory =
                     data.gameHistory ||
@@ -6017,19 +6215,27 @@
 
             case 'GAME_STATE_UPDATE':
 
-                /*
-                 * Ignore stale/out-of-order authoritative states.
-                 * The host increments stateVersion for every accepted
-                 * game-state transition.
-                 */
+                var incomingGameSequence = Number(
+                    data.roomGameSequence || roomGameSequence || 1
+                );
+                var localGameSequence = Number(roomGameSequence || 0);
+
+                if (incomingGameSequence < localGameSequence) {
+                    break;
+                }
+
                 if (
+                    incomingGameSequence === localGameSequence &&
                     data.stateVersion !== undefined &&
                     Number(data.stateVersion) <= Number(lastAppliedStateVersion)
                 ) {
                     break;
                 }
 
-                if (data.stateVersion !== undefined) {
+                if (incomingGameSequence > localGameSequence) {
+                    roomGameSequence = incomingGameSequence;
+                    lastAppliedStateVersion = Number(data.stateVersion) || 0;
+                } else if (data.stateVersion !== undefined) {
                     lastAppliedStateVersion =
                         Number(data.stateVersion) || lastAppliedStateVersion;
                 }
@@ -6269,6 +6475,14 @@
                             Math.trunc(Number(data.gameOpponentCount) || 1)
                         );
 
+                if (Array.isArray(data.roomCompletedGames)) {
+                    roomCompletedGames = data.roomCompletedGames;
+                    completedRoomGameIds = new Set(roomCompletedGames.map(game => String(game.gameId || '')));
+                }
+                if (data.roomGameSequence !== undefined) {
+                    roomGameSequence = Number(data.roomGameSequence) || roomCompletedGames.length || 0;
+                }
+
                 if (Array.isArray(data.players) && data.players.length) {
                     players = data.players;
                     myIndex = players.findIndex(
@@ -6477,8 +6691,15 @@
         roundCounter = 1;
         gameHistory = [];
 
-        authoritativeStateVersion = 0;
-        lastAppliedStateVersion = 0;
+        if (Number(roomGameSequence || 1) <= 1) {
+            authoritativeStateVersion = 0;
+            lastAppliedStateVersion = 0;
+        } else {
+            authoritativeStateVersion = Math.max(
+                Number(authoritativeStateVersion) || 0,
+                Number(lastAppliedStateVersion) || 0
+            );
+        }
         processedGameActionIds.clear();
 
         // One unique wallet settlement per online game session.
@@ -6551,6 +6772,9 @@
 
             stateVersion:
                 authoritativeStateVersion,
+
+            roomGameSequence:
+                Number(roomGameSequence || 1),
 
             players:
                 players,
@@ -6650,6 +6874,9 @@
 
             stateVersion:
                 authoritativeStateVersion,
+
+            roomGameSequence:
+                Number(roomGameSequence || 1),
 
             players:
                 players,
@@ -8955,6 +9182,8 @@
         }
         .database-history-view-btn:hover { background:rgba(16,185,129,.14); }
         .database-history-view-btn:active { transform:scale(.98); }
+        .database-history-bet-btn { border-color:rgba(245,158,11,.35); color:#fbbf24; background:rgba(245,158,11,.08); }
+        .database-history-bet-btn:hover { background:rgba(245,158,11,.15); }
         .database-history-detail-stat {
             min-width:0;
             padding:.55rem .6rem;
@@ -9536,6 +9765,303 @@
             `;
         }
 
+        function parseCumulativeDatabaseGames(historyText) {
+            const text = String(historyText || '').replace(/\r\n/g, '\n').trim();
+            if (!text) return [];
+
+            const marker = /^={3,}\s*GAME\s+(\d+)(?:\s*\(([^)]*)\))?\s*$/gim;
+            const matches = [...text.matchAll(marker)];
+            if (!matches.length) return [];
+
+            return matches.map((match, index) => {
+                const start = match.index + match[0].length;
+                const end = index + 1 < matches.length ? matches[index + 1].index : text.length;
+                const block = text.slice(start, end).trim();
+                const winner = (block.match(/^Winner:\s*(.*)$/im) || [, ''])[1].trim();
+                const playersLine = (block.match(/^Players:\s*(.*)$/im) || [, ''])[1].trim();
+                const betLine = (block.match(/^Bet:\s*(.*)$/im) || [, ''])[1].trim();
+                const rounds = [];
+                const roundMarker = /^\[ROUND\s+(\d+)\]$/gim;
+                const roundMatches = [...block.matchAll(roundMarker)];
+
+                roundMatches.forEach((rm, ri) => {
+                    const rs = rm.index + rm[0].length;
+                    const re = ri + 1 < roundMatches.length ? roundMatches[ri + 1].index : block.length;
+                    const rb = block.slice(rs, re).trim();
+                    const caller = (rb.match(/^Caller:\s*(.*)$/im) || [, ''])[1].trim();
+                    const callerSum = (rb.match(/^Caller Sum:\s*(.*)$/im) || [, ''])[1].trim();
+                    const outcome = (rb.match(/^Outcome:\s*(.*)$/im) || [, ''])[1].trim();
+                    const details = [];
+
+                    // Support the original history format used by the Admin Panel:
+                    // - PlayerName: Hand Sum = 10, Points Added = 5, Total Score = 15
+                    // Also keep support for the newer pipe-delimited format:
+                    // Player: PlayerName | Hand Sum: 10 | Points Added: 5 | Total Score: 15
+                    const legacyPlayerRe = /^[-]\s*(?!Caller\b)(.+?):\s*Hand Sum\s*=\s*(.*?),\s*Points Added\s*=\s*(.*?),\s*Total Score\s*=\s*(.*)$/gim;
+                    let dm;
+
+                    while ((dm = legacyPlayerRe.exec(rb)) !== null) {
+                        details.push({
+                            name: dm[1].trim(),
+                            sum: dm[2].trim(),
+                            pointsAdded: dm[3].trim(),
+                            totalAfterRound: dm[4].trim()
+                        });
+                    }
+
+                    const pipePlayerRe = /^Player:\s*(.*?)\s*\|\s*Hand Sum:\s*(.*?)\s*\|\s*Points Added:\s*(.*?)\s*\|\s*Total Score:\s*(.*)$/gim;
+
+                    while ((dm = pipePlayerRe.exec(rb)) !== null) {
+                        const duplicate = details.some(d =>
+                            d.name === dm[1].trim() &&
+                            d.sum === dm[2].trim() &&
+                            d.pointsAdded === dm[3].trim() &&
+                            d.totalAfterRound === dm[4].trim()
+                        );
+
+                        if (!duplicate) {
+                            details.push({
+                                name: dm[1].trim(),
+                                sum: dm[2].trim(),
+                                pointsAdded: dm[3].trim(),
+                                totalAfterRound: dm[4].trim()
+                            });
+                        }
+                    }
+
+                    rounds.push({ roundNumber: rm[1], caller, callerSum, outcome, details });
+                });
+
+                return { gameNumber: match[1], statusLabel: match[2] || '', winner, players: playersLine, bet: betLine, rounds };
+            });
+        }
+
+        function renderCumulativeDatabaseGamesHtml(historyText) {
+            const games = parseCumulativeDatabaseGames(historyText);
+            if (!games.length) return renderDatabaseHistoryRoundsHtml(historyText);
+
+            return games.map(game => `
+                <div class="mb-4 border border-zinc-700 rounded-xl overflow-hidden bg-black">
+                    <div class="px-3 py-2 bg-zinc-900 border-b border-zinc-700 flex flex-wrap items-center justify-between gap-2">
+                        <div class="font-black text-emerald-300">Game ${escapeDatabaseHistoryHtml(game.gameNumber)} · Winner: ${escapeDatabaseHistoryHtml(game.winner || 'In Progress')}</div>
+                        <div class="text-[9px] text-zinc-500">${escapeDatabaseHistoryHtml(game.rounds.length)} round(s)</div>
+                    </div>
+                    <div class="px-3 py-2 border-b border-zinc-800 text-[9px] text-zinc-500">Players: ${escapeDatabaseHistoryHtml(game.players || '—')} · Bet: ${escapeDatabaseHistoryHtml(game.bet || 'Free')}</div>
+                    ${game.rounds.length ? `
+                        <div class="database-round-history-table">
+                            <div class="database-round-history-grid database-round-history-header">
+                                <div>Round</div><div>Caller</div><div>Caller Sum</div><div>Outcome</div><div>Player Scores</div>
+                            </div>
+                            ${game.rounds.map(round => `
+                                <div class="database-round-history-grid database-round-history-row">
+                                    <div class="round-number-cell">${escapeDatabaseHistoryHtml(round.roundNumber)}</div>
+                                    <div>${escapeDatabaseHistoryHtml(round.caller || '—')}</div>
+                                    <div>${escapeDatabaseHistoryHtml(round.callerSum || '—')}</div>
+                                    <div class="break-anywhere">${escapeDatabaseHistoryHtml(round.outcome || '—')}</div>
+                                    <div class="round-player-scores">${round.details.length ? round.details.map(d => `<div class="round-player-score-line"><span>${escapeDatabaseHistoryHtml(d.name)}</span><span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)}</span></div>`).join('') : '<span class="text-zinc-600">No player details</span>'}</div>
+                                </div>`).join('')}
+                        </div>` : '<div class="p-3 text-xs text-zinc-600">No round records saved for this game.</div>'}
+                </div>
+            `).join('');
+        }
+
+        function isDatabaseBetGame(row) {
+            const history = String(row?.game_history || '');
+            const points = String(row?.game_points || '');
+            const players = String(row?.players_name || '');
+            return /Bet Mode\s*:\s*BET/i.test(history) ||
+                   /BET\s*GAME/i.test(history) ||
+                   /Bet Mode\s*:\s*BET/i.test(points) ||
+                   /Bet\s*:\s*₹?\s*[0-9]+/i.test(history) ||
+                   /Bet\s*Game/i.test(history) ||
+                   (row?.bet_mode === 'bet');
+        }
+
+        function parseDatabaseBetHistoryRecords(historyText) {
+            const text = String(historyText || '').replace(/\r\n/g, '\n');
+            const rows = [];
+            const blocks = text.split(/={10,}/);
+            blocks.forEach(block => {
+                const gm = block.match(/\bGAME\s+(\d+)/i);
+                const settlement = block.match(/BET SETTLEMENT\s*([\s\S]*?)(?=\n\s*={3,}|$)/i);
+                if (!settlement) return;
+                settlement[1].split(/\n/).forEach(line => {
+                    const m = line.trim().match(/^-?\s*(.+?)\s*->\s*(.+?)\s*:\s*₹?([0-9]+(?:\.[0-9]+)?)/);
+                    if (!m) return;
+                    const amount = Number(m[3]) || 0;
+                    if (amount <= 0) return;
+                    rows.push({
+                        gameNumber: gm ? gm[1] : '—',
+                        from: m[1].trim(),
+                        to: m[2].trim(),
+                        amount
+                    });
+                });
+            });
+
+            // Compatibility fallback for older cumulative histories that may
+            // use the same ledger wording without separator blocks.
+            if (!rows.length) {
+                const lineRe = /(?:Game\s*(\d+)\s*[-:]\s*)?(.+?)\s*->\s*(.+?)\s*:\s*₹?([0-9]+(?:\.[0-9]+)?)/gi;
+                let m;
+                while ((m = lineRe.exec(text)) !== null) {
+                    const amount = Number(m[4]) || 0;
+                    if (amount > 0) rows.push({ gameNumber: m[1] || '—', from: m[2].trim(), to: m[3].trim(), amount });
+                }
+            }
+            return rows;
+        }
+
+        function buildDatabaseBetRecords(historyText) {
+            const flat = parseDatabaseBetHistoryRecords(historyText);
+            const grouped = new Map();
+            flat.forEach(row => {
+                const key = String(row.gameNumber || '—');
+                if (!grouped.has(key)) grouped.set(key, { gameNumber: key, rows: [] });
+                grouped.get(key).rows.push({ from: row.from, to: row.to, amount: row.amount });
+            });
+            return Array.from(grouped.values()).sort((a, b) => {
+                const na = Number(a.gameNumber), nb = Number(b.gameNumber);
+                if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+                return String(a.gameNumber).localeCompare(String(b.gameNumber));
+            });
+        }
+
+        function renderDatabaseBetHistoryDetail(row) {
+            const records = buildDatabaseBetRecords(row?.game_history || '');
+            const flat = [];
+            records.forEach(game => game.rows.forEach(r => flat.push({ gameNumber: game.gameNumber, rows: [r] })));
+            const grossTotal = flat.reduce((sum, item) => sum + Number(item.rows?.[0]?.amount || 0), 0);
+
+            const paymentRows = flat.length ? `
+                <div class="overflow-x-auto rounded-xl border border-zinc-700">
+                    <table class="w-full text-[10px] sm:text-xs border-collapse">
+                        <thead><tr class="bg-zinc-900 text-emerald-300">
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Game</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Player Paying</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Winner</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-right">Amount</th>
+                        </tr></thead>
+                        <tbody>${flat.map(item => {
+                            const r = item.rows[0];
+                            return `<tr>
+                                <td class="border border-zinc-800 px-2 py-2 font-black">Game ${escapeDatabaseHistoryHtml(item.gameNumber)}</td>
+                                <td class="border border-zinc-800 px-2 py-2 font-bold text-white">${escapeDatabaseHistoryHtml(r.from)}</td>
+                                <td class="border border-zinc-800 px-2 py-2 font-bold text-emerald-300">${escapeDatabaseHistoryHtml(r.to)}</td>
+                                <td class="border border-zinc-800 px-2 py-2 text-right font-black text-amber-300">₹${Number(r.amount || 0).toFixed(0)}</td>
+                            </tr>`;
+                        }).join('')}</tbody>
+                    </table>
+                </div>` : `<div class="text-xs text-zinc-500 italic text-center py-5">No completed bet settlement has been saved for this room yet.</div>`;
+
+            // Net pair balances from every completed game in this same room.
+            const directed = {};
+            const names = new Set();
+            flat.forEach(item => {
+                const r = item.rows[0];
+                const from = String(r.from || '').trim();
+                const to = String(r.to || '').trim();
+                const amount = Number(r.amount || 0);
+                if (!from || !to || amount <= 0 || from === to) return;
+                names.add(from); names.add(to);
+                directed[`${from}|||${to}`] = (directed[`${from}|||${to}`] || 0) + amount;
+            });
+            const list = Array.from(names).sort((a,b) => a.localeCompare(b));
+            const netRows = [];
+            for (let i = 0; i < list.length; i++) {
+                for (let j = i + 1; j < list.length; j++) {
+                    const a = list[i], b = list[j];
+                    const aToB = Number(directed[`${a}|||${b}`] || 0);
+                    const bToA = Number(directed[`${b}|||${a}`] || 0);
+                    const diff = aToB - bToA;
+                    if (diff > 0) netRows.push({ from: b, to: a, amount: diff, settled: false });
+                    else if (diff < 0) netRows.push({ from: a, to: b, amount: Math.abs(diff), settled: false });
+                    else netRows.push({ from: a, to: b, amount: 0, settled: true });
+                }
+            }
+
+            const balanceMap = {};
+            flat.forEach(item => {
+                const r = item.rows[0];
+                const amount = Number(r.amount || 0);
+                balanceMap[r.from] = (balanceMap[r.from] || 0) - amount;
+                balanceMap[r.to] = (balanceMap[r.to] || 0) + amount;
+            });
+            const balances = Object.entries(balanceMap).sort((a,b) => a[0].localeCompare(b[0]));
+
+            const finalTable = netRows.length ? `
+                <div class="overflow-x-auto rounded-xl border border-zinc-700">
+                    <table class="w-full text-[10px] sm:text-xs border-collapse">
+                        <thead><tr class="bg-zinc-900 text-amber-300">
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Player</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Final Result</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Against</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-right">Net</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Status</th>
+                        </tr></thead>
+                        <tbody>${netRows.map(r => `<tr>
+                            <td class="border border-zinc-800 px-2 py-2 font-black text-white">${escapeDatabaseHistoryHtml(r.from)}</td>
+                            <td class="border border-zinc-800 px-2 py-2 ${r.settled ? 'text-zinc-400' : 'text-rose-300'} font-bold">${r.settled ? 'Settled' : 'Owes'}</td>
+                            <td class="border border-zinc-800 px-2 py-2 text-emerald-300 font-bold">${escapeDatabaseHistoryHtml(r.to)}</td>
+                            <td class="border border-zinc-800 px-2 py-2 text-right text-amber-300 font-black">₹${Number(r.amount || 0).toFixed(0)}</td>
+                            <td class="border border-zinc-800 px-2 py-2 ${r.settled ? 'text-emerald-300' : 'text-amber-300'} font-bold">${r.settled ? 'No payment required' : `${escapeDatabaseHistoryHtml(r.from)} → ${escapeDatabaseHistoryHtml(r.to)}`}</td>
+                        </tr>`).join('')}</tbody>
+                    </table>
+                </div>` : `<div class="text-xs text-zinc-500 italic text-center py-4">No final pair settlement can be calculated yet.</div>`;
+
+            const balanceTable = balances.length ? `
+                <div class="overflow-x-auto rounded-xl border border-zinc-700">
+                    <table class="w-full text-[10px] sm:text-xs border-collapse">
+                        <thead><tr class="bg-zinc-900 text-emerald-300">
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Player</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-right">Net Balance</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Meaning</th>
+                        </tr></thead>
+                        <tbody>${balances.map(([name, balance]) => {
+                            const n = Number(balance || 0);
+                            return `<tr>
+                                <td class="border border-zinc-800 px-2 py-2 font-bold text-white">${escapeDatabaseHistoryHtml(name)}</td>
+                                <td class="border border-zinc-800 px-2 py-2 text-right font-black ${n > 0 ? 'text-emerald-300' : n < 0 ? 'text-rose-300' : 'text-zinc-400'}">${n > 0 ? '+' : ''}₹${n.toFixed(0)}</td>
+                                <td class="border border-zinc-800 px-2 py-2 font-bold ${n > 0 ? 'text-emerald-300' : n < 0 ? 'text-rose-300' : 'text-zinc-400'}">${n > 0 ? 'Receives' : n < 0 ? 'Owes' : 'Settled · No payment required'}</td>
+                            </tr>`;
+                        }).join('')}</tbody>
+                    </table>
+                </div>` : `<div class="text-xs text-zinc-500 italic text-center py-4">No player balance is available yet.</div>`;
+
+            return `
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                    <div class="database-history-detail-stat"><div class="database-history-detail-label">Game Type</div><div class="database-history-detail-value text-amber-300">BET GAME</div></div>
+                    <div class="database-history-detail-stat"><div class="database-history-detail-label">Games Settled</div><div class="database-history-detail-value">${records.length}</div></div>
+                    <div class="database-history-detail-stat"><div class="database-history-detail-label">Gross Recorded</div><div class="database-history-detail-value text-amber-300">₹${grossTotal.toFixed(0)}</div></div>
+                </div>
+                <div class="mb-4">
+                    <div class="text-[10px] font-black uppercase tracking-wider text-emerald-300 mb-2">Complete Bet History</div>
+                    ${paymentRows}
+                </div>
+                <div class="mb-4">
+                    <div class="text-[10px] font-black uppercase tracking-wider text-amber-300 mb-2">Final · Who Owes How Much</div>
+                    ${finalTable}
+                </div>
+                <div>
+                    <div class="text-[10px] font-black uppercase tracking-wider text-emerald-300 mb-2">Player Final Balances</div>
+                    ${balanceTable}
+                </div>`;
+        }
+
+        function openDatabaseBetHistoryDetail(rowIndex) {
+            const row = (rowIndex && typeof rowIndex === 'object') ? rowIndex : databaseGameHistoryRows[rowIndex];
+            const modal = document.getElementById('database-history-detail-modal');
+            const subtitle = document.getElementById('database-history-detail-subtitle');
+            const content = document.getElementById('database-history-detail-content');
+            if (!row || !modal || !subtitle || !content) return;
+            subtitle.textContent = `${row.game_code || 'Game'} · Host: ${row.game_host || '—'} · Bet History`;
+            content.innerHTML = renderDatabaseBetHistoryDetail(row);
+            const heading = modal.querySelector('h2');
+            if (heading) heading.textContent = 'Complete Bet History';
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
         function openDatabaseHistoryDetail(rowIndex) {
             const row = (rowIndex && typeof rowIndex === 'object') ? rowIndex : databaseGameHistoryRows[rowIndex];
             const modal = document.getElementById('database-history-detail-modal');
@@ -9575,17 +10101,22 @@
 
                 <div class="border border-zinc-800 rounded-xl overflow-hidden bg-black">
                     <div class="px-3 py-2 border-b border-zinc-800 bg-zinc-900 text-[10px] font-black uppercase tracking-wider text-zinc-400">
-                        Round History ${inProgress ? '· Live / In Progress' : ''}
+                        ${parseCumulativeDatabaseGames(historyText).length ? 'All Games · Round History' : `Round History ${inProgress ? '· Live / In Progress' : ''}`}
                     </div>
                     <div class="p-2 sm:p-3">
-                        ${renderDatabaseHistoryRoundsHtml(historyText)}
+                        ${renderCumulativeDatabaseGamesHtml(historyText)}
                     </div>
                 </div>
+                <details class="mt-3 border border-zinc-800 rounded-xl bg-black overflow-hidden">
+                    <summary class="cursor-pointer px-3 py-2 bg-zinc-900 text-[10px] font-black uppercase tracking-wider text-zinc-400">Full Saved Game History</summary>
+                    <pre class="database-history-detail-pre m-0 p-3 whitespace-pre-wrap break-words">${escapeDatabaseHistoryHtml(historyText || 'No detailed history saved.')}</pre>
+                </details>
 
                 <div class="text-[9px] sm:text-[10px] text-zinc-600 mt-3 flex flex-wrap gap-x-4 gap-y-1">
                     <span>Game: ${escapeDatabaseHistoryHtml(row.game_code || '—')}</span>
                     <span>Saved: ${escapeDatabaseHistoryHtml(savedAt)}</span>
-                    <span>Rounds saved: ${parseDatabaseHistoryRounds(historyText).length}</span>
+                    <span>Games saved: ${Math.max(1, parseCumulativeDatabaseGames(historyText).length || 0)}</span>
+                    <span>Rounds saved: ${parseCumulativeDatabaseGames(historyText).length ? parseCumulativeDatabaseGames(historyText).reduce((n, g) => n + g.rounds.length, 0) : parseDatabaseHistoryRounds(historyText).length}</span>
                 </div>
             `;
 
@@ -9698,9 +10229,18 @@
                     <div class="database-history-cell points-cell">${escapeDatabaseHistoryHtml(row.game_points || '—')}</div>
                     <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeDatabaseHistoryHtml(inProgress ? 'In Progress' : winner)}</div>
                     <div class="database-history-cell history-action-cell">
-                        <button type="button" onclick="openDatabaseHistoryDetail(${rowIndex})" class="database-history-view-btn">
-                            View<br class="sm:hidden"> History
-                        </button>
+                        ${isDatabaseBetGame(row) ? `
+                            <div class="flex flex-col sm:flex-row gap-1.5 items-stretch justify-center">
+                                <button type="button" onclick="openDatabaseHistoryDetail(${rowIndex})" class="database-history-view-btn">
+                                    View<br class="sm:hidden"> History
+                                </button>
+                                <button type="button" onclick="openDatabaseBetHistoryDetail(${rowIndex})" class="database-history-view-btn database-history-bet-btn">
+                                    Bet<br class="sm:hidden"> History
+                                </button>
+                            </div>` : `
+                            <button type="button" onclick="openDatabaseHistoryDetail(${rowIndex})" class="database-history-view-btn">
+                                View<br class="sm:hidden"> History
+                            </button>`}
                     </div>
                 `;
                 table.appendChild(gridRow);
@@ -10104,6 +10644,68 @@
             return !winner || winner === 'in progress' || winner === 'in-progress' || winner === 'ongoing';
         }
 
+        function isAdminBetGame(row) {
+            // A game is treated as a BET game only when the saved room/game
+            // history explicitly says it is a bet room. Free rooms must show
+            // only "View History".
+            const history = String(row?.game_history || '');
+            const points = String(row?.game_points || '');
+            const combined = `${history}\n${points}`;
+
+            return /Bet Mode\s*:\s*BET(?:\s|₹|$)/i.test(combined) ||
+                   /(?:^|\n)Bet\s*:\s*₹\s*[0-9]+/i.test(combined) ||
+                   /BET\s*GAME/i.test(combined);
+        }
+
+        function extractAdminBetRows(historyText) {
+            const text = String(historyText || '');
+            const rows = [];
+            const blocks = text.split(/={10,}/);
+            blocks.forEach(block => {
+                const gm = block.match(/\bGAME\s+(\d+)/i);
+                const settlement = block.match(/BET SETTLEMENT\s*([\s\S]*?)(?=\n\s*={3,}|$)/i);
+                if (!settlement) return;
+                settlement[1].split(/\r?\n/).forEach(line => {
+                    const m = line.trim().match(/^(.+?)\s*->\s*(.+?)\s*:\s*₹?([0-9]+(?:\.[0-9]+)?)/);
+                    if (m) rows.push({ game: gm ? gm[1] : '—', from: m[1].trim(), to: m[2].trim(), amount: Number(m[3]) || 0 });
+                });
+            });
+            return rows;
+        }
+
+        function openAdminBetHistory(index) {
+            const row = (window.adminSelectedGames || [])[index];
+            const modal = document.getElementById('admin-history-modal');
+            const content = document.getElementById('admin-history-content');
+            const title = document.getElementById('admin-history-title');
+            if (!row || !modal || !content) return;
+
+            const flatRows = extractAdminBetRows(row.game_history).map(r => ({ gameNumber: r.game, from: r.from, to: r.to, amount: r.amount }));
+            const directed = {}, names = new Set();
+            flatRows.forEach(r => {
+                if (!r.from || !r.to || r.amount <= 0 || r.from === r.to) return;
+                names.add(r.from); names.add(r.to);
+                directed[`${r.from}|||${r.to}`] = (directed[`${r.from}|||${r.to}`] || 0) + r.amount;
+            });
+            const list = Array.from(names).sort((a,b) => a.localeCompare(b));
+            const net = [];
+            for (let i=0;i<list.length;i++) for (let j=i+1;j<list.length;j++) {
+                const a=list[i], b=list[j], ab=Number(directed[`${a}|||${b}`]||0), ba=Number(directed[`${b}|||${a}`]||0), d=ab-ba;
+                if (d>0) net.push({from:b,to:a,amount:d,settled:false});
+                else if (d<0) net.push({from:a,to:b,amount:Math.abs(d),settled:false});
+                else net.push({from:a,to:b,amount:0,settled:true});
+            }
+            const balances = {};
+            flatRows.forEach(r => { balances[r.from]=(balances[r.from]||0)-r.amount; balances[r.to]=(balances[r.to]||0)+r.amount; });
+            const total = flatRows.reduce((s,r)=>s+r.amount,0);
+            const table = flatRows.length ? `<div class="admin-player-table-wrap"><table class="admin-player-table"><thead><tr><th>Game</th><th>From</th><th>To Winner</th><th>Amount</th></tr></thead><tbody>${flatRows.map(r => `<tr><td>Game ${escapeAdminHtml(r.gameNumber)}</td><td>${escapeAdminHtml(r.from)}</td><td class="text-emerald-300 font-bold">${escapeAdminHtml(r.to)}</td><td class="text-amber-300 font-black">₹${r.amount.toFixed(0)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="text-xs text-zinc-500 py-6 text-center">No completed bet settlement has been saved for this game yet.</div>';
+            const finalTable = net.length ? `<div class="admin-player-table-wrap mt-2"><table class="admin-player-table"><thead><tr><th>Player</th><th>Final</th><th>Against</th><th>Net</th><th>Status</th></tr></thead><tbody>${net.map(r=>`<tr><td>${escapeAdminHtml(r.from)}</td><td class="${r.settled?'text-zinc-400':'text-rose-300'} font-bold">${r.settled?'Settled':'Owes'}</td><td class="text-emerald-300 font-bold">${escapeAdminHtml(r.to)}</td><td class="text-amber-300 font-black">₹${r.amount.toFixed(0)}</td><td class="${r.settled?'text-emerald-300':'text-amber-300'} font-bold">${r.settled?'No payment required':escapeAdminHtml(r.from)+' → '+escapeAdminHtml(r.to)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="text-xs text-zinc-500 py-4 text-center">No final pair settlement can be calculated yet.</div>';
+            const balanceTable = Object.entries(balances).sort((a,b)=>a[0].localeCompare(b[0])).length ? `<div class="admin-player-table-wrap mt-2"><table class="admin-player-table"><thead><tr><th>Player</th><th>Net Balance</th><th>Meaning</th></tr></thead><tbody>${Object.entries(balances).sort((a,b)=>a[0].localeCompare(b[0])).map(([name,b])=>`<tr><td>${escapeAdminHtml(name)}</td><td class="font-black ${b>0?'text-emerald-300':b<0?'text-rose-300':'text-zinc-400'}">${b>0?'+':''}₹${Number(b).toFixed(0)}</td><td class="font-bold ${b>0?'text-emerald-300':b<0?'text-rose-300':'text-zinc-400'}">${b>0?'Receives':b<0?'Owes':'Settled · No payment required'}</td></tr>`).join('')}</tbody></table></div>` : '';
+            if (title) title.textContent = `Bet History · ${row.game_code || 'Game'}`;
+            content.innerHTML = `<div class="grid grid-cols-2 gap-2 mb-3"><div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">BET GAME</div><div class="text-[10px] text-amber-300 mt-1 font-black">Yes</div></div><div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">TOTAL RECORDED</div><div class="text-[10px] text-amber-300 mt-1 font-black">₹${total.toFixed(0)}</div></div></div><div class="text-[10px] font-black uppercase tracking-wider text-emerald-300 mb-2">Complete Bet History</div>${table}<div class="text-[10px] font-black uppercase tracking-wider text-amber-300 mt-4 mb-2">Final · Who Owes How Much</div>${finalTable}<div class="text-[10px] font-black uppercase tracking-wider text-emerald-300 mt-4 mb-2">Player Final Balances</div>${balanceTable}`;
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+        }
+
         function isAdminBotGame(row) {
             const playersText = String(row?.players_name || '');
             const hostText = String(row?.game_host || '');
@@ -10204,7 +10806,14 @@
                                     <td class="min-w-[180px]">${escapeAdminHtml(row.players_name || '—')}</td>
                                     <td class="${isAdminInProgressGame(row) ? 'text-amber-300' : 'text-emerald-300'} font-bold">${escapeAdminHtml(row.game_winner || 'In Progress')}</td>
                                     <td class="min-w-[100px]">${escapeAdminHtml(row.game_points || '—')}</td>
-                                    <td><button type="button" onclick="openAdminHistory(${index})" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-300 whitespace-nowrap">Open</button></td>
+                                    <td>
+                                        ${isAdminBetGame(row)
+                                            ? `<div class="flex flex-col sm:flex-row gap-1.5 items-stretch justify-center">
+                                                <button type="button" onclick="openAdminHistory(${index})" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-300 whitespace-nowrap">View History</button>
+                                                <button type="button" onclick="openAdminBetHistory(${index})" class="px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[9px] font-black text-amber-300 whitespace-nowrap">Bet History</button>
+                                              </div>`
+                                            : `<button type="button" onclick="openAdminHistory(${index})" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-300 whitespace-nowrap">View History</button>`}
+                                    </td>
                                 </tr>`).join('') : '<tr><td colspan="7" class="text-center py-8 text-zinc-600">No game-history records currently contain this player.</td></tr>'}
                             </tbody>
                         </table>
@@ -10225,7 +10834,12 @@
             const content = document.getElementById('admin-history-content');
             const title = document.getElementById('admin-history-title');
             if (!row || !modal || !content) return;
+            const heading = modal.querySelector('h2');
+            if (heading) heading.textContent = 'Complete Game History';
             if (title) title.textContent = `Complete History · ${row.game_code || 'Game'}`;
+            const parsedGames = parseCumulativeDatabaseGames(row.game_history || '');
+            const historyView = renderCumulativeDatabaseGamesHtml(row.game_history || '');
+            const rawHistory = escapeDatabaseHistoryHtml(row.game_history || 'No detailed history saved.');
             content.innerHTML = `<div class="grid grid-cols-2 gap-2 mb-3">
                 <div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">DATE</div><div class="text-[10px] text-white mt-1">${escapeAdminHtml(formatAdminDate(row.created_at))}</div></div>
                 <div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">WINNER</div><div class="text-[10px] text-emerald-300 mt-1">${escapeAdminHtml(row.game_winner || 'In Progress')}</div></div>
@@ -10248,7 +10862,1084 @@
         // The actual credential check is inserted into the existing function below by
         // a lightweight event hook, so no existing authentication logic is replaced.
         document.addEventListener('DOMContentLoaded', restoreAdminSessionFlag);
-    </script>
+    
+    /* ============================================================
+       BET MODE + CUMULATIVE ROOM GAME HISTORY (ADDITIVE LAYER)
+       - Keeps the existing room code for the whole room session.
+       - Each completed game is stored inside roomCompletedGames.
+       - The same Supabase game-history row is updated with cumulative
+         room history while the room remains active.
+       - Starting Again never creates a new room.
+       ============================================================ */
+    let betMode = 'free';
+    let betAmount = 0;
+    let betHistoryLedger = [];
+    let betFinalWinner = '';
+
+    // One room can contain many completed games.
+    let roomCompletedGames = [];
+    let completedRoomGameIds = new Set();
+    let roomGameSequence = 0;
+    let currentGameParticipantsSnapshot = [];
+    let roomSessionEnded = false;
+    let roomSessionEndedBy = '';
+    let roomSessionEndedAt = '';
+
+    function getBetModeLabel() {
+        return betMode === 'bet'
+            ? `Bet Game · ₹${Number(betAmount || 0)}`
+            : 'Free Game';
+    }
+
+    function toggleBetAmountSelect() {
+        const mode = document.getElementById('bet-mode-select')?.value || 'free';
+        document.getElementById('bet-amount-wrap')?.classList.toggle('hidden', mode !== 'bet');
+    }
+
+    function readBetSettingsFromLobby() {
+        betMode = document.getElementById('bet-mode-select')?.value === 'bet' ? 'bet' : 'free';
+        betAmount = betMode === 'bet'
+            ? Math.min(100, Math.max(5, Number(document.getElementById('bet-amount-select')?.value || 5)))
+            : 0;
+    }
+
+    function setBetSettings(mode, amount) {
+        betMode = mode === 'bet' ? 'bet' : 'free';
+        betAmount = betMode === 'bet'
+            ? Math.min(100, Math.max(5, Number(amount) || 5))
+            : 0;
+
+        const modeSelect = document.getElementById('bet-mode-select');
+        const amountSelect = document.getElementById('bet-amount-select');
+        if (modeSelect) modeSelect.value = betMode;
+        if (amountSelect) amountSelect.value = String(betAmount || 5);
+        toggleBetAmountSelect();
+        renderBetDisplays();
+    }
+
+    function escapeBetHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function getCurrentRoomParticipants() {
+        return (Array.isArray(players) ? players : []).filter(p =>
+            p && p.name && p.viewOnly !== true && (p.connected !== false || p.isBot === true)
+        );
+    }
+
+    function buildBetSettlementRows(winner, amount, participants) {
+        const winnerName = String(winner || 'Winner').trim();
+        return (Array.isArray(participants) ? participants : getCurrentRoomParticipants())
+            .filter(p => p && p.name && String(p.name).trim() !== winnerName)
+            .map(p => ({
+                from: String(p.name),
+                to: winnerName,
+                amount: Number(amount || 0)
+            }));
+    }
+
+    function getCurrentGameBetSettlement(finalWinner = '') {
+        if (betMode !== 'bet' || Number(betAmount) <= 0 || !finalWinner) return null;
+
+        const participants = Array.isArray(currentGameParticipantsSnapshot) && currentGameParticipantsSnapshot.length
+            ? currentGameParticipantsSnapshot
+            : getCurrentRoomParticipants();
+
+        const rows = buildBetSettlementRows(finalWinner, betAmount, participants);
+        if (!rows.length) return null;
+
+        return {
+            roundNumber: gameHistory.length ? gameHistory[gameHistory.length - 1].roundNumber : 0,
+            winner: String(finalWinner),
+            amountPerLoser: Number(betAmount),
+            rows
+        };
+    }
+
+    function renderBetTable(records, empty = 'No bet payments recorded yet.') {
+        if (!Array.isArray(records) || !records.length) {
+            return `<div class="text-xs text-zinc-500 italic text-center py-4">${escapeBetHtml(empty)}</div>`;
+        }
+
+        return `
+            <div class="overflow-x-auto rounded-xl border border-zinc-700">
+                <table class="w-full text-[10px] sm:text-xs border-collapse">
+                    <thead>
+                        <tr class="bg-zinc-900 text-emerald-300">
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Game</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">From</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">To Winner</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-right">Pay</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${records.map(game => (game.rows || []).map(row => `
+                            <tr>
+                                <td class="border border-zinc-800 px-2 py-1.5 font-bold">Game ${escapeBetHtml(game.gameNumber ?? game.roundNumber ?? '—')}</td>
+                                <td class="border border-zinc-800 px-2 py-1.5 font-bold text-white">${escapeBetHtml(row.from)}</td>
+                                <td class="border border-zinc-800 px-2 py-1.5 text-emerald-300 font-bold">${escapeBetHtml(row.to)}</td>
+                                <td class="border border-zinc-800 px-2 py-1.5 text-right text-amber-300 font-black">₹${Number(row.amount || 0).toFixed(0)}</td>
+                            </tr>
+                        `).join('')).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+
+    function getAllBetHistoryRecords() {
+        const records = [];
+
+        roomCompletedGames.forEach(game => {
+            (Array.isArray(game.betSettlements) ? game.betSettlements : []).forEach(settlement => {
+                if (Array.isArray(settlement.rows) && settlement.rows.length) {
+                    records.push({
+                        gameNumber: game.gameNumber,
+                        roundNumber: settlement.roundNumber,
+                        winner: settlement.winner || game.winner || '',
+                        rows: settlement.rows
+                    });
+                }
+            });
+        });
+
+        // Compatibility fallback for older saved versions.
+        if (!records.length && Array.isArray(betHistoryLedger)) {
+            betHistoryLedger.forEach(item => {
+                if (Array.isArray(item.rows) && item.rows.length) {
+                    records.push({
+                        gameNumber: item.gameNumber || 1,
+                        roundNumber: item.roundNumber || 0,
+                        winner: item.winner || '',
+                        rows: item.rows
+                    });
+                }
+            });
+        }
+
+        return records;
+    }
+
+    // Net every pair across ALL completed games.
+    // Example: Game 1 P2 -> P1 ₹10 and Game 2 P1 -> P2 ₹10
+    // becomes a single settled row: P1 ↔ P2 = ₹0.
+    function calculateNetOwed(records) {
+        const directed = {};
+        const pairPlayers = new Set();
+
+        (Array.isArray(records) ? records : []).forEach(game => {
+            (game.rows || []).forEach(row => {
+                const from = String(row.from || '').trim();
+                const to = String(row.to || '').trim();
+                const amount = Number(row.amount || 0);
+                if (!from || !to || !Number.isFinite(amount) || amount <= 0 || from === to) return;
+                pairPlayers.add(from);
+                pairPlayers.add(to);
+                directed[`${from}|||${to}`] = (directed[`${from}|||${to}`] || 0) + amount;
+            });
+        });
+
+        const playersList = Array.from(pairPlayers).sort((a, b) => a.localeCompare(b));
+        const result = [];
+
+        for (let i = 0; i < playersList.length; i++) {
+            for (let j = i + 1; j < playersList.length; j++) {
+                const a = playersList[i];
+                const b = playersList[j];
+                const aToB = Number(directed[`${a}|||${b}`] || 0);
+                const bToA = Number(directed[`${b}|||${a}`] || 0);
+                const difference = aToB - bToA;
+
+                if (difference > 0) {
+                    result.push({ from: b, to: a, amount: difference, grossFromA: aToB, grossFromB: bToA, settled: false });
+                } else if (difference < 0) {
+                    result.push({ from: a, to: b, amount: Math.abs(difference), grossFromA: aToB, grossFromB: bToA, settled: false });
+                } else {
+                    result.push({ from: a, to: b, amount: 0, grossFromA: aToB, grossFromB: bToA, settled: true });
+                }
+            }
+        }
+
+        return result;
+    }
+
+    function renderNetSettlementTable(netRows) {
+        if (!Array.isArray(netRows) || !netRows.length) {
+            return `<div class="text-xs text-zinc-500 italic text-center py-3">No two-player settlement exists yet.</div>`;
+        }
+
+        return `
+            <div class="overflow-x-auto rounded-xl border border-zinc-700">
+                <table class="w-full text-[10px] sm:text-xs border-collapse">
+                    <thead>
+                        <tr class="bg-zinc-900 text-amber-300">
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Player</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Owes / Receives</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Against</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-right">Net Amount</th>
+                            <th class="border border-zinc-700 px-2 py-2 text-left">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${netRows.map(row => `
+                            <tr>
+                                <td class="border border-zinc-800 px-2 py-2 font-bold text-white">${escapeBetHtml(row.from)}</td>
+                                <td class="border border-zinc-800 px-2 py-2 ${row.settled ? 'text-zinc-400' : 'text-rose-300'} font-bold">${row.settled ? 'Settled' : 'Owes'}</td>
+                                <td class="border border-zinc-800 px-2 py-2 text-emerald-300 font-bold">${escapeBetHtml(row.to)}</td>
+                                <td class="border border-zinc-800 px-2 py-2 text-right text-amber-300 font-black">₹${Number(row.amount || 0).toFixed(0)}</td>
+                                <td class="border border-zinc-800 px-2 py-2 ${row.settled ? 'text-emerald-300' : 'text-amber-300'} font-bold">${row.settled ? 'No payment required' : `${escapeBetHtml(row.from)} → ${escapeBetHtml(row.to)}`}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+
+    function calculatePlayerNetBalances(records) {
+        const balances = {};
+        (Array.isArray(records) ? records : []).forEach(game => {
+            (game.rows || []).forEach(row => {
+                const from = String(row.from || '').trim();
+                const to = String(row.to || '').trim();
+                const amount = Number(row.amount || 0);
+                if (!from || !to || !Number.isFinite(amount) || amount <= 0) return;
+                balances[from] = (balances[from] || 0) - amount;
+                balances[to] = (balances[to] || 0) + amount;
+            });
+        });
+        return Object.entries(balances)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([name, balance]) => ({ name, balance }));
+    }
+
+    function renderBetDisplays() {
+        const label = getBetModeLabel();
+        const waitingDisplay = document.getElementById('display-bet-settings');
+        if (waitingDisplay) waitingDisplay.textContent = label;
+
+        const banner = document.getElementById('room-bet-banner');
+        if (banner) {
+            banner.innerHTML = betMode === 'bet'
+                ? `<div class="flex items-center justify-center gap-2 flex-wrap">
+                     <span>💰 BET GAME · ₹${Number(betAmount)} per completed game</span>
+                     <button type="button" onclick="openBetHistoryModal()" class="underline font-black text-amber-300 hover:text-amber-200">View Bet History</button>
+                     ${roomSessionEnded ? '<span class="text-rose-300 font-black">· ROOM COMPLETED</span>' : '<button type="button" onclick="openEndBetRoomConfirm()" class="underline font-black text-rose-300 hover:text-rose-200">End Game</button>'}
+                   </div>`
+                : 'FREE GAME · No cash settlement';
+            banner.classList.remove('hidden');
+        }
+
+        const subtitle = document.getElementById('bet-history-subtitle');
+        if (subtitle) {
+            subtitle.textContent = `${roomCode ? `Room ${roomCode} · ` : ''}${label} · ${roomCompletedGames.length} completed game(s)`;
+        }
+
+        const footerLink = document.getElementById('bet-history-footer-btn');
+        if (footerLink) footerLink.classList.toggle('hidden', betMode !== 'bet');
+    }
+
+    function renderRoomGameHistoryHtml() {
+        const completed = Array.isArray(roomCompletedGames)
+            ? roomCompletedGames.slice().sort((a,b) => Number(a.gameNumber || 0) - Number(b.gameNumber || 0))
+            : [];
+        const hasCurrent = Array.isArray(gameHistory) && gameHistory.length > 0;
+
+        if (!completed.length && !hasCurrent) {
+            return '<div class="text-xs text-zinc-500 italic text-center py-3">No game round history yet.</div>';
+        }
+
+        const renderRounds = (rounds) => {
+            if (!Array.isArray(rounds) || !rounds.length) {
+                return '<div class="p-3 text-xs text-zinc-600 text-center">No completed rounds saved for this game.</div>';
+            }
+            return `<div class="overflow-x-auto"><table class="w-full min-w-[760px] text-[9px] sm:text-[10px] border-collapse">
+                <thead><tr class="bg-zinc-900 text-zinc-400 uppercase">
+                    <th class="border border-zinc-800 px-2 py-2 text-center">Round</th>
+                    <th class="border border-zinc-800 px-2 py-2 text-left">Caller</th>
+                    <th class="border border-zinc-800 px-2 py-2 text-left">Caller Sum</th>
+                    <th class="border border-zinc-800 px-2 py-2 text-left">Outcome</th>
+                    <th class="border border-zinc-800 px-2 py-2 text-left">Complete Player Details</th>
+                </tr></thead>
+                <tbody>${rounds.map(round => `<tr class="align-top">
+                    <td class="border border-zinc-800 px-2 py-2 text-center font-black text-emerald-300">${escapeBetHtml(round.roundNumber)}</td>
+                    <td class="border border-zinc-800 px-2 py-2">${escapeBetHtml(round.callerName || '—')}</td>
+                    <td class="border border-zinc-800 px-2 py-2">${escapeBetHtml(round.callerSum ?? '—')}</td>
+                    <td class="border border-zinc-800 px-2 py-2 break-words">${escapeBetHtml(round.outcome || '—')}</td>
+                    <td class="border border-zinc-800 px-2 py-2">${(round.details || []).length ? (round.details || []).map(d => `<div class="flex justify-between gap-3 py-1 border-b border-dashed border-zinc-800 last:border-0"><span class="font-bold text-white">${escapeBetHtml(d.name || '—')}</span><span class="text-amber-300 text-right">Hand ${escapeBetHtml(d.sum ?? '—')} · +${escapeBetHtml(d.pointsAdded ?? '—')} · Total ${escapeBetHtml(d.totalAfterRound ?? '—')}</span></div>`).join('') : '—'}</td>
+                </tr>`).join('')}</tbody>
+            </table></div>`;
+        };
+
+        let html = '';
+        completed.forEach(game => {
+            const rounds = Array.isArray(game.rounds) ? game.rounds : [];
+            html += `<div class="mb-4 border border-zinc-700 rounded-xl overflow-hidden bg-black">
+                <div class="px-3 py-2 bg-zinc-900 border-b border-zinc-700 flex flex-wrap items-center justify-between gap-2">
+                    <div class="font-black text-emerald-300">GAME ${escapeBetHtml(game.gameNumber)} · WINNER: ${escapeBetHtml(game.winner || '—')}</div>
+                    <div class="text-[9px] text-emerald-300 font-bold">COMPLETED · ${rounds.length} round(s)</div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 p-3 border-b border-zinc-800 text-[9px]">
+                    <div><span class="text-zinc-500">Players:</span> <span class="text-zinc-200">${escapeBetHtml((game.players || []).map(p => p.name).join(', ') || '—')}</span></div>
+                    <div><span class="text-zinc-500">Bet:</span> <span class="text-amber-300 font-bold">${escapeBetHtml(game.betMode === 'bet' ? `₹${Number(game.betAmount || 0)}` : 'Free')}</span></div>
+                    <div><span class="text-zinc-500">Completed:</span> <span class="text-zinc-200">${escapeBetHtml(game.completedAt || '—')}</span></div>
+                </div>
+                ${renderRounds(rounds)}
+            </div>`;
+        });
+
+        if (hasCurrent) {
+            const currentNumber = Number(roomGameSequence || completed.length + 1 || 1);
+            html += `<div class="mb-3 border border-amber-500/30 rounded-xl overflow-hidden bg-black">
+                <div class="px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 flex flex-wrap items-center justify-between gap-2">
+                    <div class="font-black text-amber-300">GAME ${escapeBetHtml(currentNumber)} · WINNER: IN PROGRESS</div>
+                    <div class="text-[9px] text-amber-300 font-bold">CURRENT GAME</div>
+                </div>
+                ${renderRounds(gameHistory)}
+            </div>`;
+        }
+
+        return html;
+    }
+
+    async function openBetHistoryModal() {
+        const modal = document.getElementById('bet-history-modal');
+        const content = document.getElementById('bet-history-content');
+        if (!modal || !content) return;
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        content.innerHTML = '<div class="py-8 text-center text-xs text-zinc-500">Loading room bet history...</div>';
+
+        if (roomCode) {
+            try {
+                const snapshot = await loadPersistentRoomState(roomCode);
+                if (snapshot) {
+                    if (Array.isArray(snapshot.betHistoryLedger)) {
+                        betHistoryLedger = snapshot.betHistoryLedger;
+                    }
+                    if (Array.isArray(snapshot.roomCompletedGames)) {
+                        roomCompletedGames = snapshot.roomCompletedGames;
+                        completedRoomGameIds = new Set(
+                            roomCompletedGames.map(game => String(game.gameId || ''))
+                        );
+                    }
+                    if (snapshot.betMode !== undefined) {
+                        setBetSettings(snapshot.betMode, snapshot.betAmount);
+                    }
+                    if (snapshot.roomGameSequence !== undefined) {
+                        roomGameSequence = Math.max(
+                            Number(roomGameSequence || 0),
+                            Number(snapshot.roomGameSequence || 0)
+                        );
+                    }
+                }
+            } catch (e) {
+                console.warn('Could not refresh bet history from Supabase:', e);
+            }
+        }
+
+
+        const records = getAllBetHistoryRecords();
+        const net = calculateNetOwed(records);
+
+        content.innerHTML = `
+            <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-3 mb-3">
+                <div class="text-[9px] uppercase tracking-wider text-zinc-500">Room Session</div>
+                <div class="font-mono font-black text-emerald-300 text-lg">${escapeBetHtml(roomCode || '—')}</div>
+                <div class="text-xs text-zinc-300 mt-1">${escapeBetHtml(getBetModeLabel())}</div>
+                <div class="text-[10px] text-zinc-500 mt-1">${roomCompletedGames.length} completed game(s) in this room</div>
+            </div>
+
+            <div class="flex items-center justify-between mb-2">
+                <h4 class="text-xs font-black text-emerald-300">WHO OWES WHOM</h4>
+                <span class="text-[9px] text-zinc-500">All games in this room</span>
+            </div>
+            ${renderBetTable(records, 'No completed bet payments yet.')}
+
+            <div class="mt-4 flex items-center justify-between mb-2">
+                <h4 class="text-xs font-black text-amber-300">FINAL CUMULATIVE SETTLEMENT</h4>
+                <span class="text-[9px] text-zinc-500">Opposite payments are netted</span>
+            </div>
+            ${net.length ? renderNetSettlementTable(net) : '<div class="text-xs text-zinc-500 italic text-center py-3">No settlement pairs yet.</div>'}
+
+            <div class="mt-4 flex items-center justify-between mb-2">
+                <h4 class="text-xs font-black text-sky-300">PLAYER BALANCES</h4>
+                <span class="text-[9px] text-zinc-500">+ receive · − pay</span>
+            </div>
+            ${(() => {
+                const balances = calculatePlayerNetBalances(records);
+                if (!balances.length) return '<div class="text-xs text-zinc-500 italic text-center py-3">No balances yet.</div>';
+                return `<div class="overflow-x-auto rounded-xl border border-zinc-700"><table class="w-full text-[10px] sm:text-xs border-collapse"><thead><tr class="bg-zinc-900 text-sky-300"><th class="border border-zinc-700 px-2 py-2 text-left">Player</th><th class="border border-zinc-700 px-2 py-2 text-right">Net</th><th class="border border-zinc-700 px-2 py-2 text-left">Meaning</th></tr></thead><tbody>${balances.map(b => `<tr><td class="border border-zinc-800 px-2 py-2 font-bold text-white">${escapeBetHtml(b.name)}</td><td class="border border-zinc-800 px-2 py-2 text-right font-black ${b.balance > 0 ? 'text-emerald-300' : b.balance < 0 ? 'text-rose-300' : 'text-zinc-400'}">${b.balance > 0 ? '+' : ''}₹${Number(b.balance).toFixed(0)}</td><td class="border border-zinc-800 px-2 py-2">${b.balance > 0 ? 'Receives' : b.balance < 0 ? 'Pays' : 'Settled'}</td></tr>`).join('')}</tbody></table></div>`;
+            })()}
+
+        `;
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function closeBetHistoryModal() {
+        const modal = document.getElementById('bet-history-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+    }
+
+    function openBetFinalSettlementModal(winner) {
+        if (betMode !== 'bet') return;
+
+        const modal = document.getElementById('bet-final-settlement-modal');
+        const title = document.getElementById('bet-final-winner-text');
+        const content = document.getElementById('bet-final-settlement-content');
+        if (!modal || !content) return;
+
+        betFinalWinner = winner || 'Winner';
+        const records = getAllBetHistoryRecords();
+        const net = calculateNetOwed(records);
+        const total = records.reduce((sum, game) =>
+            sum + (game.rows || []).reduce((s, row) => s + Number(row.amount || 0), 0), 0);
+
+        if (title) {
+            title.textContent = betFinalWinner === 'Room Closed' ? `Room completed · Total recorded payments: ₹${total}` : `${betFinalWinner} is the final winner · Total recorded payments: ₹${total}`;
+        }
+
+        content.innerHTML = `
+            <div class="mb-3 text-xs text-zinc-300">
+                Room <strong class="text-emerald-300">${escapeBetHtml(roomCode)}</strong> is completed.
+                The table below contains the cumulative settlement for every completed game in this room.
+            </div>
+            ${renderBetTable(records, 'No completed bet games yet.')}
+            <div class="mt-4 text-xs font-black text-amber-300">Final net settlement</div>
+            <div class="mt-2">${net.length ? renderNetSettlementTable(net) : '<div class="text-xs text-zinc-500 italic py-3">No payment entries.</div>'}</div>
+            <button type="button" onclick="closeBetFinalSettlementModal();openBetHistoryModal();" class="mt-3 w-full text-center text-xs font-black text-emerald-300 hover:text-emerald-200 underline">View complete Bet History</button>
+        `;
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function closeBetFinalSettlementModal() {
+        const modal = document.getElementById('bet-final-settlement-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+    }
+
+    function cloneJson(value, fallback) {
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function getCurrentGameIdentity() {
+        return String(walletGameId || `${roomCode}-game-${roomGameSequence || 1}`);
+    }
+
+    async function recordCompletedRoomGame(finalWinner) {
+        if (!isHost || !roomCode || !finalWinner || finalWinner === 'Nobody') return false;
+
+        const gameId = getCurrentGameIdentity();
+        if (completedRoomGameIds.has(gameId)) return false;
+
+        const gameNumber = roomGameSequence || (roomCompletedGames.length + 1) || 1;
+        const betSettlement = getCurrentGameBetSettlement(finalWinner);
+
+        const snapshot = {
+            gameId,
+            gameNumber,
+            roomCode: String(roomCode),
+            winner: String(finalWinner),
+            completedAt: new Date().toISOString(),
+            players: cloneJson(
+                Array.isArray(currentGameParticipantsSnapshot) && currentGameParticipantsSnapshot.length
+                    ? currentGameParticipantsSnapshot
+                    : getCurrentRoomParticipants().map(p => ({ name: p.name, id: p.id })),
+                []
+            ),
+            betMode,
+            betAmount: Number(betAmount || 0),
+            // Exactly ONE settlement per completed game.
+            betSettlements: betSettlement ? [betSettlement] : [],
+            rounds: cloneJson(gameHistory, [])
+        };
+
+        roomCompletedGames.push(snapshot);
+        completedRoomGameIds.add(gameId);
+
+        if (betSettlement) {
+            betHistoryLedger.push({
+                gameNumber,
+                roundNumber: betSettlement.roundNumber,
+                winner: betSettlement.winner,
+                amountPerLoser: betSettlement.amountPerLoser,
+                rows: cloneJson(betSettlement.rows, []),
+                type: 'completed-game'
+            });
+        }
+
+        saveLocalRoomSession();
+        await syncGameHistoryToSupabase(finalWinner);
+
+        try {
+            sendRealtimeMessage({
+                type: 'BET_ROOM_HISTORY_UPDATE',
+                roomCode,
+                betMode,
+                betAmount,
+                betHistoryLedger: cloneJson(betHistoryLedger, []),
+                roomCompletedGames: cloneJson(roomCompletedGames, []),
+                roomGameSequence: Number(roomGameSequence || 0)
+            });
+        } catch (e) {
+            console.warn('Bet history realtime broadcast failed:', e);
+        }
+
+        return true;
+    }
+
+    // ============================================================
+    // DATABASE / ROOM HISTORY — ADMIN-PANEL FORMAT
+    // Keep one room code, but store every completed game and every
+    // round inside the same game_history field. The admin panel reads
+    // this as a chronological text record, so the player-facing history
+    // uses the same structure and terminology.
+    // ============================================================
+    function buildCumulativeRoomHistoryText(finalWinner = '') {
+        const hostName = getGameHistoryHostName();
+        const roomPlayers = Array.isArray(players) ? players : [];
+        const completed = Array.isArray(roomCompletedGames)
+            ? roomCompletedGames.slice().sort((a,b) => Number(a.gameNumber || 0) - Number(b.gameNumber || 0))
+            : [];
+
+        let text = '';
+        text += `=== ROOM SESSION ===\n`;
+        text += `Host: ${hostName}\n`;
+        text += `Game Code: ${roomCode}\n`;
+        text += `Players: ${roomPlayers.map(p => p && p.name).filter(Boolean).join(', ')}\n`;
+        text += `Bet Mode: ${betMode === 'bet' ? `BET ₹${Number(betAmount || 0)}` : 'FREE'}\n`;
+        text += `Completed Games: ${completed.length}\n\n`;
+
+        completed.forEach(game => {
+            text += `==================================================\n`;
+            text += `GAME ${game.gameNumber || '?'}\n`;
+            text += `Game Code: ${roomCode}\n`;
+            text += `Host: ${hostName}\n`;
+            text += `Players: ${(game.players || []).map(p => p && p.name).filter(Boolean).join(', ')}\n`;
+            text += `Bet: ${game.betMode === 'bet' ? `₹${Number(game.betAmount || 0)}` : 'Free'}\n`;
+            text += `Completed At: ${game.completedAt || 'N/A'}\n`;
+            text += `Winner: ${game.winner || 'N/A'}\n`;
+            text += `Status: Completed\n`;
+            text += `--------------------------------------------------\n`;
+
+            const rounds = Array.isArray(game.rounds) ? game.rounds : [];
+            if (!rounds.length) {
+                text += `No completed rounds saved for this game.\n`;
+            } else {
+                rounds.forEach(round => {
+                    text += `[ROUND ${round.roundNumber}]\n`;
+                    text += `- Caller: ${round.callerName || 'N/A'}\n`;
+                    text += `- Caller Sum: ${round.callerSum ?? 'N/A'}\n`;
+                    text += `- Outcome: ${round.outcome || 'N/A'}\n`;
+                    if (Array.isArray(round.details) && round.details.length) {
+                        round.details.forEach(detail => {
+                            text += `- ${detail.name || 'N/A'}: Hand Sum = ${detail.sum ?? 'N/A'}, Points Added = ${detail.pointsAdded ?? 'N/A'}, Total Score = ${detail.totalAfterRound ?? 'N/A'}\n`;
+                        });
+                    } else {
+                        text += `- Player Details: N/A\n`;
+                    }
+                    text += `\n`;
+                });
+            }
+
+            if (Array.isArray(game.betSettlements) && game.betSettlements.length) {
+                text += `BET SETTLEMENT\n`;
+                game.betSettlements.forEach(settlement => {
+                    (settlement.rows || []).forEach(row => {
+                        text += `- ${row.from || 'N/A'} -> ${row.to || 'N/A'}: ₹${Number(row.amount || 0)}\n`;
+                    });
+                });
+                text += `\n`;
+            }
+
+            // Explicit per-game final result, matching the admin panel's
+            // FINAL RESULT terminology.
+            text += `=== GAME ${game.gameNumber || '?'} FINAL RESULT ===\n`;
+            text += `Winner: ${game.winner || 'N/A'}\n`;
+            text += `Status: Completed\n\n`;
+        });
+
+        const currentGameNumber = Number(roomGameSequence || completed.length + 1 || 1);
+        const hasCurrentRounds = Array.isArray(gameHistory) && gameHistory.length > 0;
+        // Once the room is explicitly ended, the current unfinished game is not
+        // presented as "In Progress" in the database history. Only completed
+        // games are part of the final cumulative settlement.
+        if (hasCurrentRounds && !finalWinner && !roomSessionEnded) {
+            text += `==================================================\n`;
+            text += `GAME ${currentGameNumber} (CURRENT / IN PROGRESS)\n`;
+            text += `Game Code: ${roomCode}\n`;
+            text += `Host: ${hostName}\n`;
+            text += `Players: ${roomPlayers.map(p => p && p.name).filter(Boolean).join(', ')}\n`;
+            text += `Bet: ${betMode === 'bet' ? `₹${Number(betAmount || 0)}` : 'Free'}\n`;
+            text += `Winner: In Progress\n`;
+            text += `Status: In Progress\n`;
+            text += `--------------------------------------------------\n`;
+
+            gameHistory.forEach(round => {
+                text += `[ROUND ${round.roundNumber}]\n`;
+                text += `- Caller: ${round.callerName || 'N/A'}\n`;
+                text += `- Caller Sum: ${round.callerSum ?? 'N/A'}\n`;
+                text += `- Outcome: ${round.outcome || 'N/A'}\n`;
+                (round.details || []).forEach(detail => {
+                    text += `- ${detail.name || 'N/A'}: Hand Sum = ${detail.sum ?? 'N/A'}, Points Added = ${detail.pointsAdded ?? 'N/A'}, Total Score = ${detail.totalAfterRound ?? 'N/A'}\n`;
+                });
+                text += `\n`;
+            });
+        }
+
+        text += `==================================================\n`;
+        text += `=== FINAL RESULT ===\n`;
+        if (roomSessionEnded) {
+            text += `Winner: ${completed.length ? completed.map(g => `Game ${g.gameNumber}: ${g.winner}`).join(' | ') : 'No completed game'}\n`;
+            text += `Status: Room Completed\n`;
+            text += `Ended By: ${roomSessionEndedBy || 'N/A'}\n`;
+            text += `Ended At: ${roomSessionEndedAt || 'N/A'}\n`;
+            text += `Cumulative Bet Settlement: Calculated from all completed games.\n`;
+        } else if (finalWinner && completed.length) {
+            text += `Winner: ${finalWinner}\n`;
+            text += `Status: Room Closed\n`;
+        } else if (completed.length) {
+            text += `Winner: ${completed.map(g => `Game ${g.gameNumber}: ${g.winner}`).join(' | ')}\n`;
+            text += `Status: Room Active\n`;
+        } else if (hasCurrentRounds) {
+            text += `Winner: In Progress\n`;
+            text += `Status: Room Active\n`;
+        } else {
+            text += `Winner: No completed game yet\n`;
+            text += `Status: Room Active\n`;
+        }
+
+        return text.trim();
+    }
+
+    const _betBaseBuildGameHistoryPayload = buildGameHistoryPayload;
+    buildGameHistoryPayload = function(finalWinner = '') {
+        const safePlayers = Array.isArray(players) ? players : [];
+        const completed = Array.isArray(roomCompletedGames)
+            ? roomCompletedGames.slice().sort((a,b) => Number(a.gameNumber || 0) - Number(b.gameNumber || 0))
+            : [];
+
+        // IMPORTANT: game_winner must never become just "In Progress" after
+        // previous games have already completed. The DB record therefore keeps
+        // every completed winner in the same room row, while the detailed
+        // game_history contains the complete round-by-round record.
+        let winnerSummary = '';
+        if (roomSessionEnded) {
+            winnerSummary = `Room Completed${completed.length ? ' | ' + completed.map(game => `Game ${game.gameNumber}: ${game.winner}`).join(' | ') : ''}`;
+        } else if (finalWinner && completed.length) {
+            winnerSummary = completed.map(game => `Game ${game.gameNumber}: ${game.winner}`).join(' | ');
+            winnerSummary += ` | Final Winner: ${finalWinner}`;
+        } else if (completed.length) {
+            winnerSummary = completed.map(game => `Game ${game.gameNumber}: ${game.winner}`).join(' | ');
+            if (Array.isArray(gameHistory) && gameHistory.length) {
+                winnerSummary += ` | Current Game ${roomGameSequence || completed.length + 1}: In Progress`;
+            }
+        } else if (Array.isArray(gameHistory) && gameHistory.length) {
+            winnerSummary = `Current Game ${roomGameSequence || 1}: In Progress`;
+        }
+
+        return {
+            game_host: getGameHistoryHostName(),
+            game_code: roomCode,
+            game_winner: winnerSummary,
+            players_name: safePlayers.map(p => p.name).filter(Boolean).join(', '),
+            game_points: safePlayers.map(p => `${p.name}: ${p.scores || 0} pts`).join(', '),
+            game_history: buildCumulativeRoomHistoryText(finalWinner)
+        };
+    };
+
+    // Preserve all room-session data across refresh/rejoin.
+    const _betBaseBuildSnapshot = buildPersistentRoomSnapshot;
+    buildPersistentRoomSnapshot = function() {
+        const snapshot = _betBaseBuildSnapshot();
+        if (snapshot) {
+            snapshot.betMode = betMode;
+            snapshot.betAmount = Number(betAmount || 0);
+            snapshot.betHistoryLedger = cloneJson(betHistoryLedger, []);
+            snapshot.roomCompletedGames = cloneJson(roomCompletedGames, []);
+            snapshot.completedRoomGameIds = Array.from(completedRoomGameIds);
+            snapshot.roomGameSequence = Number(roomGameSequence || 0);
+            snapshot.currentGameParticipantsSnapshot = cloneJson(currentGameParticipantsSnapshot, []);
+            snapshot.roomSessionEnded = !!roomSessionEnded;
+            snapshot.roomSessionEndedBy = roomSessionEndedBy;
+            snapshot.roomSessionEndedAt = roomSessionEndedAt;
+        }
+        return snapshot;
+    };
+
+    const _betBaseApplySnapshot = applyPersistentRoomSnapshot;
+    applyPersistentRoomSnapshot = function(snapshot) {
+        const ok = _betBaseApplySnapshot(snapshot);
+        if (!ok) return ok;
+
+        setBetSettings(snapshot.betMode || 'free', snapshot.betAmount || 0);
+        betHistoryLedger = Array.isArray(snapshot.betHistoryLedger)
+            ? snapshot.betHistoryLedger
+            : [];
+        roomCompletedGames = Array.isArray(snapshot.roomCompletedGames)
+            ? snapshot.roomCompletedGames
+            : [];
+        completedRoomGameIds = new Set(
+            Array.isArray(snapshot.completedRoomGameIds)
+                ? snapshot.completedRoomGameIds.map(String)
+                : roomCompletedGames.map(game => String(game.gameId || ''))
+        );
+        roomGameSequence = Number(snapshot.roomGameSequence || roomCompletedGames.length || 0);
+        currentGameParticipantsSnapshot = Array.isArray(snapshot.currentGameParticipantsSnapshot)
+            ? snapshot.currentGameParticipantsSnapshot
+            : currentGameParticipantsSnapshot;
+        roomSessionEnded = snapshot.roomSessionEnded === true;
+        roomSessionEndedBy = String(snapshot.roomSessionEndedBy || '');
+        roomSessionEndedAt = String(snapshot.roomSessionEndedAt || '');
+        renderBetDisplays();
+        return ok;
+    };
+
+    // Every realtime packet carries the cumulative room history. This means
+    // a guest entering/rejoining receives the same bet/game history as host.
+    const _betBaseSendRealtimeMessage = sendRealtimeMessage;
+    sendRealtimeMessage = function(message) {
+        if (message && typeof message === 'object') {
+            message.betMode = betMode;
+            message.betAmount = Number(betAmount || 0);
+            message.betHistoryLedger = cloneJson(betHistoryLedger, []);
+            message.roomCompletedGames = cloneJson(roomCompletedGames, []);
+            message.roomGameSequence = Number(roomGameSequence || 0);
+            message.roomSessionEnded = !!roomSessionEnded;
+            message.roomSessionEndedBy = roomSessionEndedBy;
+            message.roomSessionEndedAt = roomSessionEndedAt;
+        }
+        return _betBaseSendRealtimeMessage(message);
+    };
+
+    // Starting a new room resets the room-level history.
+    const _betBaseCreateRoom = createRoom;
+    createRoom = async function() {
+        readBetSettingsFromLobby();
+        betHistoryLedger = [];
+        roomCompletedGames = [];
+        completedRoomGameIds = new Set();
+        roomGameSequence = 0;
+        currentGameParticipantsSnapshot = [];
+        roomSessionEnded = false;
+        roomSessionEndedBy = '';
+        roomSessionEndedAt = '';
+        const result = await _betBaseCreateRoom();
+        renderBetDisplays();
+        try { saveLocalRoomSession(); } catch (e) {}
+        return result;
+    };
+
+    const _betBaseUpdateWaitingRoomUI = updateWaitingRoomUI;
+    updateWaitingRoomUI = function() {
+        _betBaseUpdateWaitingRoomUI();
+        renderBetDisplays();
+    };
+
+    const _betBaseRenderGameBoard = renderGameBoard;
+    renderGameBoard = function() {
+        _betBaseRenderGameBoard();
+        renderBetDisplays();
+    };
+
+    function openEndBetRoomConfirm() {
+        if (betMode !== 'bet' || roomSessionEnded) return;
+        const modal = document.getElementById('end-bet-room-confirm-modal');
+        if (modal) { modal.classList.remove('hidden'); modal.classList.add('flex'); }
+    }
+
+    function closeEndBetRoomConfirm() {
+        const modal = document.getElementById('end-bet-room-confirm-modal');
+        if (modal) { modal.classList.add('hidden'); modal.classList.remove('flex'); }
+    }
+
+    async function confirmEndBetRoom() {
+        closeEndBetRoomConfirm();
+        if (betMode !== 'bet' || roomSessionEnded) return;
+        if (isHost || isSoloMode) {
+            await endBetRoomSession((players[myIndex] && players[myIndex].name) || 'Host');
+        } else {
+            await sendRealtimeMessage({ type: 'END_BET_ROOM_REQUEST', clientToken: myClientToken, roomCode });
+            logTicker('End Game requested. Waiting for the host to confirm and close the room...');
+        }
+    }
+
+    async function endBetRoomSession(endedBy) {
+        if (!isHost && !isSoloMode) return;
+        if (roomSessionEnded) return;
+        roomSessionEnded = true;
+        roomSessionEndedBy = String(endedBy || (players[myIndex]?.name || 'Host'));
+        roomSessionEndedAt = new Date().toISOString();
+        closeEndBetRoomConfirm();
+
+        // The current unfinished game is NOT charged. Only already completed games
+        // participate in the final cumulative settlement.
+        try {
+            saveLocalRoomSession();
+            await syncGameHistoryToSupabase('');
+            await persistRoomStateToSupabase();
+        } catch (e) {
+            console.warn('Failed to persist completed bet room:', e);
+        }
+
+        try {
+            sendRealtimeMessage({
+                type: 'BET_ROOM_ENDED',
+                roomCode,
+                roomSessionEnded: true,
+                roomSessionEndedBy,
+                roomSessionEndedAt,
+                betMode,
+                betAmount,
+                betHistoryLedger: cloneJson(betHistoryLedger, []),
+                roomCompletedGames: cloneJson(roomCompletedGames, []),
+                roomGameSequence: Number(roomGameSequence || 0)
+            });
+        } catch (e) {}
+
+        renderBetDisplays();
+        if (betMode === 'bet') openBetFinalSettlementModal('Room Closed');
+        logTicker(`Bet room ${roomCode} completed. Cumulative settlement is ready.`);
+    }
+
+    // Correct same-room Start Again flow. The host is the only authority that
+    // actually starts the new game. A guest's click is sent to the host and
+    // the resulting START_GAME packet automatically moves everyone into play.
+    startNewGameInSameRoom = async function() {
+        if (!isHost && !isSoloMode) return;
+
+        const participants = getCurrentRoomParticipants();
+        if (!isSoloMode && participants.length < 2) {
+            logTicker('At least 2 connected players are required to start again.');
+            return;
+        }
+
+        // Ensure the just-completed game has already been persisted before
+        // resetting the current game state.
+        if (roomCompletedGames.length === 0 && betMode === 'bet') {
+            // No-op for the first game; there is nothing to archive yet.
+        }
+
+        players = participants.map((p, index) => ({
+            id: String(p.id || p.clientToken || `player-${index}`),
+            name: String(p.name || 'Player'),
+            clientToken: String(p.clientToken || p.id || `player-${index}`),
+            connected: true,
+            isHost: isSoloMode
+                ? index === 0
+                : String(p.clientToken || p.id) === String(myClientToken),
+            scores: 0,
+            hand: [],
+            eliminated: false,
+            isBot: p.isBot === true,
+            viewOnly: false,
+            rejoinPending: false
+        }));
+
+        // SAME room code. Only the game state changes.
+        roomHostToken = String(myClientToken || roomHostToken || '');
+        roomOwnerToken = roomOwnerToken || roomHostToken;
+        isHost = true;
+        myIndex = players.findIndex(p => p.clientToken === myClientToken);
+        if (myIndex < 0 && isSoloMode) myIndex = 0;
+        myId = String(players[myIndex]?.id || myId || myClientToken);
+
+        gameHistory = [];
+        roundCounter = 0;
+        roundActive = false;
+        walletGameId = '';
+        gameOpponentCount = Math.max(1, participants.length - 1);
+        authoritativeStateVersion = Math.max(
+            Number(authoritativeStateVersion) || 0,
+            Number(lastAppliedStateVersion) || 0
+        );
+        processedGameActionIds.clear();
+        pendingGameActionRetries.clear();
+        tournamentWinnerShown = false;
+
+        roomGameSequence = roomCompletedGames.length + 1;
+        currentGameParticipantsSnapshot = players.map(p => ({
+            name: String(p.name || 'Player'),
+            id: String(p.id || ''),
+            clientToken: String(p.clientToken || ''),
+            isBot: p.isBot === true
+        }));
+
+        document.getElementById('tournament-winner-modal')?.classList.add('hidden');
+        document.getElementById('bet-final-settlement-modal')?.classList.add('hidden');
+        document.getElementById('round-over-modal')?.classList.add('hidden');
+        document.getElementById('waiting-screen')?.classList.add('hidden');
+        document.getElementById('lobby-screen')?.classList.add('hidden');
+        document.getElementById('game-board-screen')?.classList.remove('hidden');
+
+        await startHostGame();
+        registerPublicRoom('playing', isSoloMode ? 'yes' : 'no');
+        renderBetDisplays();
+        logTicker(`Game ${roomGameSequence} started automatically in room ${roomCode}.`);
+    };
+
+    // Guest clicks Start Again -> host receives request -> host broadcasts
+    // START_GAME -> every connected guest automatically switches to game board.
+    const _betBaseStartAgainSamePlayers = startAgainSamePlayers;
+    startAgainSamePlayers = async function() {
+        document.getElementById('tournament-winner-modal')?.classList.add('hidden');
+
+        if (isHost || isSoloMode) {
+            await startNewGameInSameRoom();
+            return;
+        }
+
+        const me = players[myIndex];
+        if (me && (me.viewOnly === true || me.connected === false)) return;
+
+        await sendRealtimeMessage({
+            type: 'START_AGAIN_REQUEST',
+            clientToken: myClientToken,
+            roomCode
+        });
+
+        logTicker('Start Again requested. Waiting for the host to start everyone in the same room...');
+    };
+
+    // The existing START_GAME handler already moves guests from waiting screen
+    // to game board. This wrapper adds the cumulative room data before render.
+    const _betBaseSyncHistory = syncGameHistoryToSupabase;
+    syncGameHistoryToSupabase = async function(finalWinner = '') {
+        return _betBaseSyncHistory(finalWinner);
+    };
+
+    // Archive a completed game exactly once before showing the winner popup.
+    const _betBaseShowTournamentWinnerPopup = showTournamentWinnerPopup;
+    showTournamentWinnerPopup = function(winner, eventRoomCode = '', roundPlayers = null, callerName = '') {
+        // The original final-winner popup is invoked before the original
+        // executeShowRound returns, so archive the game here. Bet settlement
+        // is calculated ONCE for the completed game, not once per round.
+        const shown = _betBaseShowTournamentWinnerPopup(winner, eventRoomCode, roundPlayers, callerName);
+        if (shown && isHost && winner && winner !== 'Nobody') {
+            recordCompletedRoomGame(winner).then(() => {
+                if (betMode === 'bet' && Number(betAmount) > 0) {
+                    setTimeout(() => openBetFinalSettlementModal(winner), 120);
+                }
+            }).catch(error => console.error('Room game archive failed:', error));
+        }
+        return shown;
+    };
+
+    // Add bet settlement to every completed SHOW round. We do this after the
+    // original game logic so the existing scoring rules are untouched.
+    const _betBaseExecuteShowRound = executeShowRound;
+    executeShowRound = async function(callerPeerId) {
+        return _betBaseExecuteShowRound(callerPeerId);
+    };
+
+    // Show the current round settlement and provide a direct Bet History link.
+    const _betBaseShowRoundOverModal = showRoundOverModal;
+    showRoundOverModal = function(htmlContent, callerName, tournamentWinnerName = '') {
+        let extra = '';
+        if (betMode === 'bet' && Number(betAmount) > 0) {
+            extra = `
+                <div class="mt-3 pt-3 border-t border-emerald-500/20 text-center">
+                    <div class="text-emerald-300 font-black mb-1.5">💰 Bet Game · ₹${Number(betAmount)} per completed game</div>
+                    <button type="button" onclick="openBetHistoryModal()" class="text-[10px] text-emerald-300 hover:text-emerald-200 underline font-black">View complete Bet History for this room</button>
+                </div>`;
+        }
+
+        return _betBaseShowRoundOverModal(
+            String(htmlContent || '') + extra,
+            callerName,
+            tournamentWinnerName
+        );
+    };
+
+    const _betBaseStartHostGame = startHostGame;
+    startHostGame = async function() {
+        if (!roomGameSequence) roomGameSequence = roomCompletedGames.length + 1 || 1;
+
+        currentGameParticipantsSnapshot = getCurrentRoomParticipants().map(p => ({
+            name: String(p.name || 'Player'),
+            id: String(p.id || ''),
+            clientToken: String(p.clientToken || ''),
+            isBot: p.isBot === true
+        }));
+
+        const result = await _betBaseStartHostGame();
+        renderBetDisplays();
+        try {
+            saveLocalRoomSession();
+            await persistRoomStateToSupabase();
+        } catch (e) {
+            console.warn('Bet room state save failed:', e);
+        }
+        return result;
+    };
+
+    // Keep the old function available, but ensure it is never used to create
+    // a new room when the user selects Start Again.
+    createNewRoomWithSamePlayers = startNewGameInSameRoom;
+
+    // Restore cumulative history from realtime START_GAME packets.
+    // This is intentionally done by patching the existing guest handler's
+    // assignment below; the actual START_GAME UI transition remains original.
+    toggleBetAmountSelect();
+    renderBetDisplays();
+
+    window.toggleBetAmountSelect = toggleBetAmountSelect;
+    window.openBetHistoryModal = openBetHistoryModal;
+    window.closeBetHistoryModal = closeBetHistoryModal;
+    window.openBetFinalSettlementModal = openBetFinalSettlementModal;
+    window.closeBetFinalSettlementModal = closeBetFinalSettlementModal;
+    window.startAgainSamePlayers = startAgainSamePlayers;
+    window.openEndBetRoomConfirm = openEndBetRoomConfirm;
+    window.closeEndBetRoomConfirm = closeEndBetRoomConfirm;
+    window.confirmEndBetRoom = confirmEndBetRoom;
+
+
+</script>
+
+
+    <div id="end-bet-room-confirm-modal" class="fixed inset-0 bg-black/95 backdrop-blur-md hidden items-center justify-center p-4 z-[210]">
+      <div class="bg-black border border-rose-500/40 w-full max-w-sm rounded-2xl p-5 shadow-2xl text-center">
+        <div class="text-3xl mb-2">⚠️</div>
+        <h3 class="text-lg font-black text-rose-300">End Bet Game?</h3>
+        <p class="text-xs text-zinc-400 mt-2 leading-relaxed">This will close the current room session. Only completed games will be included in the cumulative settlement. You cannot start another game in this room after closing it.</p>
+        <div class="flex gap-2 mt-5">
+          <button type="button" onclick="closeEndBetRoomConfirm()" class="flex-1 py-2.5 bg-zinc-800 text-white rounded-xl text-xs font-black">No</button>
+          <button type="button" onclick="confirmEndBetRoom()" class="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-black">Yes, End Game</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="bet-history-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-[180]">
+      <div class="bg-black border border-emerald-500/30 w-full max-w-2xl rounded-2xl p-4 sm:p-5 shadow-2xl max-h-[88vh] overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-zinc-800 pb-2 mb-3"><div><h3 class="text-base sm:text-lg font-black text-emerald-300">Bet History</h3><div id="bet-history-subtitle" class="text-[9px] text-zinc-500 mt-0.5"></div></div><button onclick="closeBetHistoryModal()" class="text-zinc-400 hover:text-white font-bold text-xl px-2">&times;</button></div>
+        <div id="bet-history-content"></div>
+        <div class="flex justify-end pt-3"><button onclick="closeBetHistoryModal()" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-bold">Close</button></div>
+      </div>
+    </div>
+    <div id="bet-final-settlement-modal" class="fixed inset-0 bg-black/95 backdrop-blur-md hidden items-center justify-center p-3 sm:p-4 z-[190]">
+      <div class="bg-black border border-amber-400/50 w-full max-w-lg rounded-2xl p-5 shadow-2xl">
+        <div class="text-center mb-4"><div class="text-3xl">💰🏆</div><h3 class="text-xl font-black text-amber-300 mt-1">Final Payment</h3><p id="bet-final-winner-text" class="text-xs text-zinc-400 mt-1"></p></div>
+        <div id="bet-final-settlement-content"></div>
+        <div class="flex justify-end pt-4"><button onclick="closeBetFinalSettlementModal()" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-black">Done</button></div>
+      </div>
+    </div>
 
 </body>
 </html>
