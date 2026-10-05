@@ -1111,10 +1111,16 @@
     let myId = '';
     let myName = '';
     let myClientToken = '';
+    // Authoritative host identity for the current multiplayer room.
+    let roomHostToken = '';
+    // Permanent owner identity for the room. It does not change when host authority changes.
+    let roomOwnerToken = '';
+    let hostTransferInProgress = false;
+    let lastHostTransferAt = 0;
 
     try {
         myClientToken =
-            sessionStorage.getItem('leastCountClientToken') || '';
+            localStorage.getItem('leastCountClientToken') || '';
 
         if (!myClientToken) {
             myClientToken =
@@ -1122,11 +1128,16 @@
                 Math.random().toString(36).slice(2) +
                 Date.now().toString(36);
 
-            sessionStorage.setItem(
+            localStorage.setItem(
                 'leastCountClientToken',
                 myClientToken
             );
         }
+
+        // Keep a sessionStorage copy for compatibility with older sessions.
+        try {
+            sessionStorage.setItem('leastCountClientToken', myClientToken);
+        } catch (e) {}
     } catch (e) {
         myClientToken =
             'client-' +
@@ -1720,14 +1731,254 @@
     // REALTIME MESSAGING WRAPPER
     // ============================================================
 
+    /*
+     * MULTIPLAYER STATE RELIABILITY
+     *
+     * The host is the single authoritative owner of the live game state.
+     * Guests send only intents (DROP / DRAW / SHOW). They never send a
+     * complete replacement deck/player/turn state.
+     *
+     * This prevents stale or delayed packets from overwriting a newer
+     * turn, which was the root cause of the game sometimes appearing
+     * stuck until a player exited and rejoined.
+     */
+    let roomChannelReady = false;
+    let realtimeOutboundQueue = [];
+    let authoritativeStateVersion = 0;
+    let lastAppliedStateVersion = 0;
+    const processedGameActionIds = new Set();
+    const pendingGameActionRetries = new Map();
+
+    function createGameActionId(actionType) {
+        return [
+            myClientToken || myId || 'client',
+            actionType || 'action',
+            Date.now().toString(36),
+            Math.random().toString(36).slice(2, 10)
+        ].join('-');
+    }
+
+    function sendGameActionWithRetry(payload, maxAttempts = 3) {
+        if (!payload || !payload.actionId) {
+            return sendRealtimeMessage(payload);
+        }
+
+        const actionId = String(payload.actionId);
+
+        if (pendingGameActionRetries.has(actionId)) {
+            return pendingGameActionRetries.get(actionId);
+        }
+
+        const promise = (async () => {
+            try {
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+
+                    if (!pendingGameActionRetries.has(actionId)) {
+                        return;
+                    }
+
+                    const result = await sendRealtimeMessage(payload);
+
+                    /*
+                     * Supabase normally returns "ok". Even if the transport
+                     * does not provide a positive result, the same action id
+                     * is safe to retry because the host deduplicates it.
+                     */
+                    if (
+                        result === 'ok' ||
+                        result?.status === 'ok'
+                    ) {
+                        return;
+                    }
+
+                    if (attempt < maxAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, 350));
+                    }
+                }
+            } finally {
+                pendingGameActionRetries.delete(actionId);
+            }
+        })();
+
+        pendingGameActionRetries.set(actionId, promise);
+        return promise;
+    }
+
     function sendRealtimeMessage(payload) {
-        if (roomChannel) {
-            return roomChannel.send({
-                type: 'broadcast',
-                event: 'game_event',
-                payload: payload
+        if (!roomChannel) {
+            return Promise.resolve(false);
+        }
+
+        if (!roomChannelReady) {
+            return new Promise(resolve => {
+                realtimeOutboundQueue.push({
+                    payload,
+                    resolve
+                });
             });
         }
+
+        return roomChannel.send({
+            type: 'broadcast',
+            event: 'game_event',
+            payload
+        });
+    }
+
+    async function flushRealtimeOutboundQueue() {
+        if (!roomChannel || !roomChannelReady || !realtimeOutboundQueue.length) {
+            return;
+        }
+
+        const queue = realtimeOutboundQueue.splice(0);
+
+        for (const item of queue) {
+            try {
+                const result = await roomChannel.send({
+                    type: 'broadcast',
+                    event: 'game_event',
+                    payload: item.payload
+                });
+                item.resolve(result);
+            } catch (error) {
+                item.resolve(false);
+                console.error('Realtime queued message failed:', error);
+            }
+        }
+    }
+
+    function getPresentRoomClientTokens() {
+        if (!roomChannel || !roomChannel.presenceState) return new Set();
+
+        const present = new Set();
+        try {
+            const state = roomChannel.presenceState() || {};
+            Object.keys(state).forEach(key => {
+                const metas = Array.isArray(state[key]) ? state[key] : [];
+                metas.forEach(meta => {
+                    const token = String(
+                        meta?.clientToken ||
+                        meta?.presence_ref ||
+                        meta?.playerId ||
+                        key ||
+                        ''
+                    ).trim();
+                    if (token) present.add(token);
+                });
+            });
+        } catch (e) {}
+        return present;
+    }
+
+    function getPlayerRoomToken(player) {
+        return String(player?.clientToken || player?.id || '').trim();
+    }
+
+    function chooseDeterministicHostCandidate(presentTokens) {
+        const candidates = players
+            .map((player, index) => ({ player, index, token: getPlayerRoomToken(player) }))
+            .filter(({ player, token }) =>
+                token &&
+                presentTokens.has(token) &&
+                player.connected !== false &&
+                player.eliminated !== true &&
+                player.viewOnly !== true &&
+                player.isBot !== true
+            );
+
+        candidates.sort((a, b) => a.token.localeCompare(b.token));
+        return candidates[0] || null;
+    }
+
+    async function maybeElectNewHost(reason = 'host-disconnected') {
+        if (isSoloMode || !roomChannel || !roomChannelReady || !players.length) return;
+        if (hostTransferInProgress) return;
+
+        const currentHostToken = String(
+            roomHostToken ||
+            (players.find(p => p && p.isHost === true)?.clientToken ||
+             players.find(p => p && p.isHost === true)?.id ||
+             '')
+        ).trim();
+
+        if (!currentHostToken) return;
+
+        const presentTokens = getPresentRoomClientTokens();
+
+        // The current host is still present; nothing to do.
+        if (presentTokens.has(currentHostToken)) return;
+
+        const candidate = chooseDeterministicHostCandidate(presentTokens);
+        if (!candidate) return;
+
+        // Every client computes the same candidate. Only that candidate
+        // performs the takeover broadcast, preventing split-brain hosts.
+        if (candidate.token !== myClientToken) return;
+
+        hostTransferInProgress = true;
+        lastHostTransferAt = Date.now();
+
+        const oldHost = players.find(p => getPlayerRoomToken(p) === currentHostToken);
+        if (oldHost) {
+            oldHost.connected = false;
+            oldHost.viewOnly = false;
+            oldHost.rejoinPending = false;
+            oldHost.isHost = false;
+        }
+
+        // If the disconnected host owned the current turn, immediately
+        // move the turn forward so the game cannot remain blocked on them.
+        if (
+            roundActive &&
+            players[currentTurnIndex] &&
+            getPlayerRoomToken(players[currentTurnIndex]) === currentHostToken
+        ) {
+            advanceTurn();
+        }
+
+        players.forEach(p => { p.isHost = getPlayerRoomToken(p) === candidate.token; });
+        isHost = true;
+        roomHostToken = candidate.token;
+        candidate.player.connected = true;
+        candidate.player.viewOnly = false;
+        candidate.player.rejoinPending = false;
+
+        authoritativeStateVersion = Math.max(
+            Number(authoritativeStateVersion) || 0,
+            Number(lastAppliedStateVersion) || 0
+        ) + 1;
+
+        const takeoverPayload = {
+            type: 'HOST_TAKEOVER',
+            reason,
+            newHostToken: candidate.token,
+            oldHostToken: currentHostToken,
+            roomOwnerToken: roomOwnerToken || currentHostToken,
+            players,
+            deck,
+            discardPile,
+            currentTurnIndex,
+            turnPhase,
+            roundActive,
+            gameHistory,
+            gameHistoryHostName,
+            processedActionIds: Array.from(processedGameActionIds).slice(-500),
+            stateVersion: authoritativeStateVersion
+        };
+
+        try {
+            await sendRealtimeMessage(takeoverPayload);
+        } catch (e) {
+            console.error('Automatic host takeover broadcast failed:', e);
+        }
+
+        updateWaitingRoomUI();
+        renderGameBoard();
+        logTicker('Previous host disconnected. Game control transferred automatically.');
+
+        // Do not leave the takeover lock permanently set. Presence syncs
+        // after this point will see the new host as present.
+        setTimeout(() => { hostTransferInProgress = false; }, 1500);
     }
 
     function initRealtimeChannel(code) {
@@ -1737,11 +1988,24 @@
         // If this is only a reconnect to the same room, keep its current chat.
         resetRoomChatState(code);
 
+        roomChannelReady = false;
+        realtimeOutboundQueue = [];
+        authoritativeStateVersion = 0;
+        lastAppliedStateVersion = 0;
+        processedGameActionIds.clear();
+        roomHostToken = '';
+        // Preserve roomOwnerToken across reconnects to the same room.
+        // It is loaded by createRoom/joinRoom and must not be reset here.
+        hostTransferInProgress = false;
+        lastHostTransferAt = 0;
+
         if (roomChannel) {
-            supabaseClient.removeChannel(roomChannel);
+            try {
+                supabaseClient.removeChannel(roomChannel);
+            } catch (e) {}
         }
 
-        roomChannel = supabaseClient.channel(`room_${code}`, {
+        const channel = supabaseClient.channel(`room_${code}`, {
             config: {
                 broadcast: {
                     self: true
@@ -1749,7 +2013,21 @@
             }
         });
 
-        roomChannel
+        roomChannel = channel;
+
+        // Supabase Presence is used only for host-failure detection.
+        // It does not carry game state; the game state remains the
+        // authoritative snapshot already synchronized to every client.
+        channel.on(
+            'presence',
+            { event: 'sync' },
+            () => {
+                if (roomChannel !== channel || isSoloMode) return;
+                maybeElectNewHost('presence-sync');
+            }
+        );
+
+        channel
             .on(
                 'broadcast',
                 { event: 'game_event' },
@@ -1759,10 +2037,31 @@
             )
             .subscribe((status) => {
 
+                // Ignore callbacks from an old channel after a room/session
+                // has already created a replacement channel.
+                if (roomChannel !== channel) {
+                    return;
+                }
+
                 if (status === 'SUBSCRIBED') {
+                    roomChannelReady = true;
+
+                    // Presence lets every client detect a host browser that
+                    // closes/crashes without pressing Exit.
+                    try {
+                        channel.track({
+                            clientToken: myClientToken,
+                            playerId: myId || myClientToken,
+                            roomCode: code,
+                            isHost: isHost === true
+                        });
+                    } catch (e) {
+                        console.warn('Could not track room presence:', e);
+                    }
+
+                    flushRealtimeOutboundQueue();
 
                     if (!isHost && !isSoloMode) {
-
                         /*
                          * Existing player:
                          * DO NOT automatically reconnect.
@@ -1777,6 +2076,12 @@
                             rejoinRequest: true
                         });
                     }
+                } else if (
+                    status === 'CHANNEL_ERROR' ||
+                    status === 'TIMED_OUT' ||
+                    status === 'CLOSED'
+                ) {
+                    roomChannelReady = false;
                 }
             });
     }
@@ -2237,6 +2542,7 @@
                 currentTurnIndex: currentTurnIndex,
                 turnPhase: turnPhase,
                 roundActive: roundActive,
+                stateVersion: authoritativeStateVersion,
                 gameHistory: gameHistory
             });
 
@@ -2268,6 +2574,7 @@
                 currentTurnIndex: currentTurnIndex,
                 turnPhase: turnPhase,
                 roundActive: roundActive,
+                stateVersion: authoritativeStateVersion,
                 gameHistory: gameHistory
             });
 
@@ -2312,6 +2619,12 @@
         } catch (e) {}
 
         roomChannel = null;
+        roomChannelReady = false;
+        realtimeOutboundQueue = [];
+        authoritativeStateVersion = 0;
+        lastAppliedStateVersion = 0;
+        processedGameActionIds.clear();
+        pendingGameActionRetries.clear();
 
         try {
             localStorage.removeItem('leastCountGameSession');
@@ -2321,6 +2634,10 @@
 
         isHost = false;
         isSoloMode = false;
+        roomHostToken = '';
+        roomOwnerToken = '';
+        hostTransferInProgress = false;
+        lastHostTransferAt = 0;
         myId = '';
         roomCode = '';
         resetRoomChatState('');
@@ -2582,6 +2899,16 @@
 
                     if (successor) {
 
+                        roomHostToken =
+                            successor.clientToken ||
+                            successor.id ||
+                            '';
+
+                        authoritativeStateVersion = Math.max(
+                            Number(authoritativeStateVersion) || 0,
+                            Number(lastAppliedStateVersion) || 0
+                        ) + 1;
+
                         await sendRealtimeMessage({
 
                             type:
@@ -2610,7 +2937,16 @@
                                 gameHistoryHostName,
 
                             roundActive:
-                                roundActive
+                                roundActive,
+
+                            gameHistory:
+                                gameHistory,
+
+                            processedActionIds:
+                                Array.from(processedGameActionIds).slice(-500),
+
+                            stateVersion:
+                                authoritativeStateVersion
                         });
                     }
 
@@ -2772,6 +3108,11 @@
 
             if (newHost) {
 
+                roomHostToken =
+                    newHost.clientToken ||
+                    newHost.id ||
+                    '';
+
                 isHost =
                     (
                         newHost.clientToken ===
@@ -2784,6 +3125,9 @@
 
                 type:
                     'HOST_TRANSFERRED',
+
+                roomOwnerToken:
+                    roomOwnerToken,
 
                 newHostToken:
                     newHost
@@ -2940,6 +3284,7 @@
 
         isSoloMode = true;
         isHost = true;
+        roomHostToken = myClientToken;
 
         myId = 'player-me';
 
@@ -3110,9 +3455,15 @@
 
         isHost = true;
         myId = myClientToken;
+        roomHostToken = myClientToken;
+        roomOwnerToken = myClientToken;
 
         roomCode =
             generateShortCode();
+
+        try {
+            localStorage.setItem(`leastCountRoomOwner:${roomCode}`, roomOwnerToken);
+        } catch (e) {}
 
         gameHistoryHostName = myName;
 
@@ -3250,9 +3601,18 @@
         }
 
         isHost = false;
+        roomHostToken = '';
         myId = myClientToken;
         roomCode = codeInput;
         gameHistory = [];
+
+        // Recover the permanent room-owner identity when this browser created
+        // the room earlier. Host authority may have moved to another player.
+        try {
+            roomOwnerToken = localStorage.getItem(`leastCountRoomOwner:${roomCode}`) || '';
+        } catch (e) {
+            roomOwnerToken = '';
+        }
 
         initRealtimeChannel(roomCode);
     }
@@ -3734,6 +4094,50 @@
                  */
                 if (existingPlayer) {
 
+                    // The original room owner is identified by the persistent
+                    // clientToken, never by name. If authority moved to another
+                    // player and the original host comes back, recover the exact
+                    // existing player record (hand, score, elimination state, etc.)
+                    // automatically. Do NOT create a duplicate player.
+                    const isReturningRoomOwner =
+                        !!roomOwnerToken &&
+                        String(data.clientToken || '').trim() === String(roomOwnerToken).trim();
+
+                    if (isReturningRoomOwner) {
+                        existingPlayer.connected = true;
+                        existingPlayer.viewOnly = false;
+                        existingPlayer.rejoinPending = false;
+                        // Returning owner does not automatically take authority
+                        // back from the current host. The current host remains host.
+                        existingPlayer.isHost =
+                            getPlayerRoomToken(existingPlayer) === String(roomHostToken || '').trim();
+
+                        myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
+
+                        broadcastPlayerList();
+                        updateWaitingRoomUI();
+
+                        sendRealtimeMessage({
+                            type: 'GAME_STATE_UPDATE',
+                            players,
+                            deck,
+                            discardPile,
+                            currentTurnIndex,
+                            turnPhase,
+                            stateVersion: authoritativeStateVersion,
+                            roundActive,
+                            gameHistory,
+                            gameHistoryHostName,
+                            walletGameId,
+                            gameOpponentCount,
+                            roomOwnerToken,
+                            message: `${existingPlayer.name} rejoined and recovered the existing player record.`
+                        });
+
+                        logTicker(`${existingPlayer.name} rejoined. Existing cards and score were restored.`);
+                        return;
+                    }
+
                     /*
                      * If the player is already connected,
                      * keep existing behavior.
@@ -3774,6 +4178,15 @@
 
                                 turnPhase:
                                     turnPhase,
+
+                                stateVersion:
+                                    authoritativeStateVersion,
+
+                                roundActive:
+                                    roundActive,
+
+                                gameHistory:
+                                    gameHistory,
 
                                 message:
                                     `${existingPlayer.name} is already connected.`
@@ -4308,6 +4721,14 @@
                         data.gameHistory ||
                         gameHistory;
 
+                    if (data.stateVersion !== undefined) {
+                        lastAppliedStateVersion =
+                            Math.max(
+                                Number(lastAppliedStateVersion) || 0,
+                                Number(data.stateVersion) || 0
+                            );
+                    }
+
                     myIndex =
                         players.findIndex(
                             p =>
@@ -4432,6 +4853,14 @@
                         data.gameHistory ||
                         gameHistory;
 
+                    if (data.stateVersion !== undefined) {
+                        lastAppliedStateVersion =
+                            Math.max(
+                                Number(lastAppliedStateVersion) || 0,
+                                Number(data.stateVersion) || 0
+                            );
+                    }
+
                     myIndex =
                         players.findIndex(
                             p =>
@@ -4519,9 +4948,13 @@
 
             case 'HOST_TRANSFERRED':
 
+                if (data.roomOwnerToken) roomOwnerToken = String(data.roomOwnerToken).trim();
+
                 players =
                     data.players ||
                     players;
+
+                roomHostToken = String(data.newHostToken || '').trim();
 
                 if (data.gameHistoryHostName)
                     gameHistoryHostName = data.gameHistoryHostName;
@@ -4568,6 +5001,75 @@
                 updateWaitingRoomUI();
                 renderGameBoard();
 
+                if (isHost && roundActive) {
+                    broadcastGameState('Host transferred. Game state remains unchanged.');
+                }
+
+                break;
+
+            // ----------------------------------------------------
+            // AUTOMATIC HOST TAKEOVER
+            // ----------------------------------------------------
+
+            case 'HOST_TAKEOVER':
+
+                if (
+                    data.stateVersion !== undefined &&
+                    Number(data.stateVersion) <= Number(lastAppliedStateVersion)
+                ) {
+                    break;
+                }
+
+                players = data.players || players;
+                deck = Array.isArray(data.deck) ? data.deck : deck;
+                discardPile = Array.isArray(data.discardPile) ? data.discardPile : discardPile;
+
+                if (data.currentTurnIndex !== undefined)
+                    currentTurnIndex = data.currentTurnIndex;
+                if (data.turnPhase !== undefined)
+                    turnPhase = data.turnPhase;
+                if (data.roundActive !== undefined)
+                    roundActive = data.roundActive;
+                if (Array.isArray(data.gameHistory))
+                    gameHistory = data.gameHistory;
+                if (data.gameHistoryHostName)
+                    gameHistoryHostName = data.gameHistoryHostName;
+                if (data.stateVersion !== undefined)
+                    lastAppliedStateVersion = Number(data.stateVersion) || lastAppliedStateVersion;
+
+                if (Array.isArray(data.processedActionIds)) {
+                    processedGameActionIds.clear();
+                    data.processedActionIds.forEach(id => {
+                        if (id) processedGameActionIds.add(String(id));
+                    });
+                }
+
+                roomHostToken = String(data.newHostToken || '').trim();
+                if (data.roomOwnerToken) roomOwnerToken = String(data.roomOwnerToken).trim();
+                players.forEach(p => {
+                    p.isHost = getPlayerRoomToken(p) === roomHostToken;
+                });
+
+                isHost = roomHostToken === myClientToken;
+
+                if (isHost) {
+                    const me = players.find(p => getPlayerRoomToken(p) === myClientToken);
+                    if (me) {
+                        me.connected = true;
+                        me.viewOnly = false;
+                        me.rejoinPending = false;
+                        me.isHost = true;
+                    }
+                    document.getElementById('host-controls').classList.remove('hidden');
+                    logTicker('Host disconnected. You are now the host. The game continues.');
+                } else {
+                    document.getElementById('host-controls').classList.add('hidden');
+                    logTicker('Host disconnected. A new host is managing the game.');
+                }
+
+                myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
+                updateWaitingRoomUI();
+                renderGameBoard();
                 break;
 
             // ----------------------------------------------------
@@ -4579,6 +5081,8 @@
                 players =
                     data.players ||
                     players;
+
+                roomHostToken = String(data.newHostToken || '').trim();
 
                 if (data.gameHistoryHostName)
                     gameHistoryHostName = data.gameHistoryHostName;
@@ -4611,6 +5115,28 @@
                 )
                     roundActive =
                         data.roundActive;
+
+                if (Array.isArray(data.gameHistory))
+                    gameHistory = data.gameHistory;
+
+                if (data.stateVersion !== undefined)
+                    lastAppliedStateVersion = Math.max(
+                        Number(lastAppliedStateVersion) || 0,
+                        Number(data.stateVersion) || 0
+                    );
+
+                if (Array.isArray(data.processedActionIds)) {
+                    processedGameActionIds.clear();
+                    data.processedActionIds.forEach(id => {
+                        if (id) processedGameActionIds.add(String(id));
+                    });
+                }
+
+                const departedHost = players.find(p => getPlayerRoomToken(p) === data.oldHostToken);
+                if (departedHost) {
+                    departedHost.connected = false;
+                    departedHost.rejoinPending = false;
+                }
 
                 players.forEach(p => {
 
@@ -4680,6 +5206,12 @@
                 players =
                     data.players;
 
+                var synchronizedHost = players.find(p => p && p.isHost === true);
+                if (synchronizedHost) {
+                    roomHostToken = getPlayerRoomToken(synchronizedHost);
+                }
+
+
                 maxPlayersLimit =
                     data.maxPlayers;
 
@@ -4730,8 +5262,27 @@
 
             case 'START_GAME':
 
+                if (
+                    data.stateVersion !== undefined &&
+                    Number(data.stateVersion) < Number(lastAppliedStateVersion)
+                ) {
+                    break;
+                }
+
+                if (data.stateVersion !== undefined) {
+                    lastAppliedStateVersion =
+                        Number(data.stateVersion) || lastAppliedStateVersion;
+                    pendingGameActionRetries.clear();
+                }
+
                 players =
                     data.players;
+
+                var synchronizedHost = players.find(p => p && p.isHost === true);
+                if (synchronizedHost) {
+                    roomHostToken = getPlayerRoomToken(synchronizedHost);
+                }
+
 
                 walletGameId =
                     data.walletGameId ||
@@ -4832,8 +5383,31 @@
 
             case 'GAME_STATE_UPDATE':
 
+                /*
+                 * Ignore stale/out-of-order authoritative states.
+                 * The host increments stateVersion for every accepted
+                 * game-state transition.
+                 */
+                if (
+                    data.stateVersion !== undefined &&
+                    Number(data.stateVersion) <= Number(lastAppliedStateVersion)
+                ) {
+                    break;
+                }
+
+                if (data.stateVersion !== undefined) {
+                    lastAppliedStateVersion =
+                        Number(data.stateVersion) || lastAppliedStateVersion;
+                }
+
                 players =
                     data.players;
+
+                var synchronizedHost = players.find(p => p && p.isHost === true);
+                if (synchronizedHost) {
+                    roomHostToken = getPlayerRoomToken(synchronizedHost);
+                }
+
 
                 deck =
                     data.deck;
@@ -5185,6 +5759,10 @@
         roundCounter = 1;
         gameHistory = [];
 
+        authoritativeStateVersion = 0;
+        lastAppliedStateVersion = 0;
+        processedGameActionIds.clear();
+
         // One unique wallet settlement per online game session.
         setWalletGameId();
 
@@ -5238,10 +5816,18 @@
             'yes'
         );
 
+        /*
+         * Start is the first authoritative state of the game.
+         */
+        authoritativeStateVersion += 1;
+
         let startPayload = {
 
             type:
                 'START_GAME',
+
+            stateVersion:
+                authoritativeStateVersion,
 
             players:
                 players,
@@ -5332,10 +5918,15 @@
 
     function broadcastGameState(msg) {
 
+        authoritativeStateVersion += 1;
+
         let payload = {
 
             type:
                 'GAME_STATE_UPDATE',
+
+            stateVersion:
+                authoritativeStateVersion,
 
             players:
                 players,
@@ -5351,6 +5942,12 @@
 
             turnPhase:
                 turnPhase,
+
+            roundActive:
+                roundActive,
+
+            gameHistory:
+                gameHistory,
 
             message:
                 msg
@@ -5528,103 +6125,175 @@
     // CARD CLICK
     // ============================================================
 
+    function applyDropActionForPlayer(playerIndex, cardUid) {
+
+        if (!roundActive || turnPhase !== 'drop')
+            return false;
+
+        if (
+            playerIndex < 0 ||
+            playerIndex >= players.length ||
+            currentTurnIndex !== playerIndex
+        )
+            return false;
+
+        const player = players[playerIndex];
+
+        if (!isPlayerAllowedToPlay(player))
+            return false;
+
+        const cardIndex = Array.isArray(player.hand)
+            ? player.hand.findIndex(c => c && c.uid === cardUid)
+            : -1;
+
+        if (cardIndex === -1)
+            return false;
+
+        const selectedCard = player.hand[cardIndex];
+
+        const droppedCards = player.hand.filter(
+            c => c && c.val === selectedCard.val
+        );
+
+        player.hand = sortHandCards(
+            player.hand.filter(
+                c => !c || c.val !== selectedCard.val
+            )
+        );
+
+        const previousTopCard =
+            discardPile[discardPile.length - 1];
+
+        droppedCards.forEach(c => discardPile.push(c));
+
+        const matchesBoard =
+            !!previousTopCard &&
+            selectedCard.val === previousTopCard.val;
+
+        if (matchesBoard) {
+            turnPhase = 'drop';
+            advanceTurn();
+        } else {
+            turnPhase = 'draw';
+        }
+
+        return true;
+    }
+
+    function applyDrawActionForPlayer(playerIndex) {
+
+        if (!roundActive || turnPhase !== 'draw')
+            return false;
+
+        if (
+            playerIndex < 0 ||
+            playerIndex >= players.length ||
+            currentTurnIndex !== playerIndex
+        )
+            return false;
+
+        const player = players[playerIndex];
+
+        if (!isPlayerAllowedToPlay(player))
+            return false;
+
+        if (
+            deck.length === 0 &&
+            discardPile.length > 1
+        ) {
+            const top = discardPile.pop();
+
+            deck = discardPile;
+            discardPile = [top];
+        }
+
+        if (!deck.length)
+            return false;
+
+        player.hand.push(deck.pop());
+        player.hand = sortHandCards(player.hand);
+
+        turnPhase = 'drop';
+        advanceTurn();
+
+        return true;
+    }
+
+    // ============================================================
+    // CARD CLICK
+    // ============================================================
+
     function handleCardClick(cardUid) {
 
         if (!roundActive)
             return;
 
-        if (
-            currentTurnIndex !==
-            myIndex
-        )
+        if (currentTurnIndex !== myIndex)
             return;
 
-        let me =
-            players[myIndex];
+        const me = players[myIndex];
+
+        if (!isPlayerAllowedToPlay(me))
+            return;
+
+        if (turnPhase !== 'drop')
+            return;
+
+        const cardExists = Array.isArray(me.hand) &&
+            me.hand.some(c => c && c.uid === cardUid);
+
+        if (!cardExists)
+            return;
 
         /*
-         * NEW:
-         * View-only players cannot interact.
+         * Multiplayer guests send only the requested action.
+         * The host validates the turn and mutates the authoritative state.
          */
-        if (
-            me.eliminated ||
-            me.viewOnly === true ||
-            me.connected === false
-        )
+        if (!isHost && !isSoloMode) {
+
+            const actionId = createGameActionId('DROP');
+
+            sendGameActionWithRetry({
+                type: 'PLAYER_ACTION',
+                action: 'DROP',
+                actionId,
+                clientToken: myClientToken,
+                senderId: myClientToken,
+                cardUid
+            });
+
+            logTicker('Card drop sent. Waiting for game state...');
+            return;
+        }
+
+        /*
+         * Host / solo mode applies the action immediately.
+         */
+        const changed = applyDropActionForPlayer(myIndex, cardUid);
+
+        if (!changed)
             return;
 
-        if (turnPhase === 'drop') {
+        if (turnPhase === 'draw') {
 
-            let cardIndex =
-                me.hand.findIndex(
-                    c =>
-                        c.uid ===
-                        cardUid
-                );
+            renderGameBoard();
 
-            if (cardIndex === -1)
-                return;
-
-            let selectedCard =
-                me.hand[cardIndex];
-
-            let droppedCards =
-                me.hand.filter(
-                    c =>
-                        c.val ===
-                        selectedCard.val
-                );
-
-            me.hand =
-                sortHandCards(
-                    me.hand.filter(
-                        c =>
-                            c.val !==
-                            selectedCard.val
-                    )
-                );
-
-            let previousTopCard =
-                discardPile[
-                    discardPile.length - 1
-                ];
-
-            droppedCards.forEach(
-                c =>
-                    discardPile.push(c)
+            logTicker(
+                'Card dropped. Click stock deck to draw.'
             );
 
-            let matchesBoard =
-                previousTopCard &&
-                (
-                    selectedCard.val ===
-                    previousTopCard.val
-                );
+        } else {
 
-            if (matchesBoard) {
+            broadcastGameState(
+                `${me.name} dropped matching board card.`
+            );
 
-                turnPhase =
-                    'drop';
+            renderGameBoard();
+            logTicker(
+                `${me.name} dropped matching board card.`
+            );
 
-                advanceTurn();
-
-                syncActionComplete(
-                    `${me.name} dropped matching board card.`
-                );
-
-                checkBotTurn();
-
-            } else {
-
-                turnPhase =
-                    'draw';
-
-                renderGameBoard();
-
-                logTicker(
-                    "Card dropped. Click stock deck to draw."
-                );
-            }
+            checkBotTurn();
         }
     }
 
@@ -5637,64 +6306,49 @@
         if (!roundActive)
             return;
 
-        if (
-            currentTurnIndex !==
-            myIndex
-        )
+        if (currentTurnIndex !== myIndex)
             return;
 
-        let me =
-            players[myIndex];
+        const me = players[myIndex];
+
+        if (!isPlayerAllowedToPlay(me))
+            return;
+
+        if (turnPhase !== 'draw')
+            return;
 
         /*
-         * NEW:
-         * View-only / disconnected players cannot draw.
+         * Multiplayer guests send only DRAW intent. This is deliberately
+         * not applied locally, because doing so could create a stale
+         * client state that later overwrites the host.
          */
-        if (
-            me.viewOnly === true ||
-            me.connected === false ||
-            me.eliminated
-        )
+        if (!isHost && !isSoloMode) {
+
+            const actionId = createGameActionId('DRAW');
+
+            sendGameActionWithRetry({
+                type: 'PLAYER_ACTION',
+                action: 'DRAW',
+                actionId,
+                clientToken: myClientToken,
+                senderId: myClientToken
+            });
+
+            logTicker('Draw request sent...');
             return;
-
-        if (
-            turnPhase !== 'draw'
-        )
-            return;
-
-        if (
-            deck.length === 0 &&
-            discardPile.length > 1
-        ) {
-
-            let top =
-                discardPile.pop();
-
-            deck =
-                discardPile;
-
-            discardPile =
-                [top];
         }
 
-        if (deck.length > 0)
-            me.hand.push(
-                deck.pop()
-            );
+        const changed = applyDrawActionForPlayer(myIndex);
 
-        turnPhase =
-            'drop';
+        if (!changed) {
+            logTicker('No card could be drawn right now.');
+            return;
+        }
 
-        advanceTurn();
-
-        // Render the draw locally immediately. The host will still
-        // validate and broadcast the authoritative state, but the
-        // player should not wait for the realtime round-trip to see
-        // the card they just drew.
         renderGameBoard();
         logTicker(`${me.name} drew a card.`);
 
-        syncActionComplete(
+        broadcastGameState(
             `${me.name} drew a card.`
         );
 
@@ -5740,6 +6394,10 @@
     // ACTION SYNC
     // ============================================================
 
+    /*
+     * Kept for solo/bot compatibility. Multiplayer human actions no
+     * longer use this function to send a complete client-side state.
+     */
     function syncActionComplete(msg) {
 
         if (isHost) {
@@ -5748,17 +6406,11 @@
                 broadcastGameState(msg);
 
             renderGameBoard();
-
             logTicker(msg);
 
         } else {
 
-            /*
-             * Extra protection:
-             * A view-only player cannot send a game action.
-             */
-            let me =
-                players[myIndex];
+            const me = players[myIndex];
 
             if (
                 me &&
@@ -5769,89 +6421,125 @@
             )
                 return;
 
+            /*
+             * Backward-compatible fallback for any old internal caller.
+             * Normal multiplayer DROP/DRAW paths now use intent messages.
+             */
             sendRealtimeMessage({
-
-                type:
-                    'PLAYER_ACTION',
-
-                players:
-                    players,
-
-                deck:
-                    deck,
-
-                discardPile:
-                    discardPile,
-
-                currentTurnIndex:
-                    currentTurnIndex,
-
-                turnPhase:
-                    turnPhase,
-
-                message:
-                    msg
+                type: 'PLAYER_ACTION',
+                action: 'STATE_SYNC',
+                actionId: createGameActionId('STATE_SYNC'),
+                clientToken: myClientToken,
+                senderId: myClientToken,
+                message: msg
             });
         }
     }
 
     function handleHostAction(data) {
 
+        if (!isHost || isSoloMode || !roundActive)
+            return;
+
+        const actionId = String(data.actionId || '').trim();
+
         /*
-         * Verify the player that sent the action is actually
-         * allowed to play.
+         * Every human action gets a unique id. Repeated broadcasts of the
+         * same action are ignored, making retries safe.
          */
-        let actionPlayer =
-            data.players &&
-            data.players.find(
+        if (actionId) {
+
+            if (processedGameActionIds.has(actionId))
+                return;
+
+            processedGameActionIds.add(actionId);
+
+            // Keep memory bounded for very long games.
+            if (processedGameActionIds.size > 2000) {
+                const first = processedGameActionIds.values().next().value;
+                if (first) processedGameActionIds.delete(first);
+            }
+        }
+
+        const senderToken =
+            String(
+                data.clientToken ||
+                data.senderId ||
+                ''
+            ).trim();
+
+        const playerIndex =
+            players.findIndex(
                 p =>
+                    p &&
                     (
-                        p.clientToken ||
-                        p.id
-                    ) ===
-                    (
-                        data.clientToken ||
-                        data.senderId
+                        p.clientToken === senderToken ||
+                        p.id === senderToken
                     )
             );
 
+        if (playerIndex < 0)
+            return;
+
+        const actionPlayer = players[playerIndex];
+
         /*
-         * Preserve the existing behavior when the identity
-         * is not supplied by the older action payload.
+         * Authoritative validation:
+         * - sender must be the player whose turn it is
+         * - player must be eligible
+         * - requested action must match the current phase
          */
         if (
-            actionPlayer &&
-            (
-                actionPlayer.viewOnly === true ||
-                actionPlayer.connected === false
-            )
+            currentTurnIndex !== playerIndex ||
+            !isPlayerAllowedToPlay(actionPlayer)
         )
             return;
 
-        players =
-            data.players;
+        let changed = false;
+        let message = '';
 
-        deck =
-            data.deck;
+        if (data.action === 'DROP') {
 
-        discardPile =
-            data.discardPile;
+            changed = applyDropActionForPlayer(
+                playerIndex,
+                data.cardUid
+            );
 
-        currentTurnIndex =
-            data.currentTurnIndex;
+            if (changed) {
+                message =
+                    turnPhase === 'draw'
+                        ? `${actionPlayer.name} dropped a card.`
+                        : `${actionPlayer.name} dropped matching board card.`;
+            }
 
-        turnPhase =
-            data.turnPhase;
+        } else if (data.action === 'DRAW') {
 
-        broadcastGameState(
-            data.message
-        );
+            changed = applyDrawActionForPlayer(
+                playerIndex
+            );
 
+            if (changed) {
+                message =
+                    `${actionPlayer.name} drew a card.`;
+            }
+
+        } else {
+
+            /*
+             * Never accept a client-provided complete state.
+             * Unknown/legacy state-sync packets are intentionally ignored.
+             */
+            return;
+        }
+
+        if (!changed)
+            return;
+
+        broadcastGameState(message);
         renderGameBoard();
+        logTicker(message);
 
-        logTicker(
-            data.message
-        );
+        checkBotTurn();
     }
 
     // ============================================================
@@ -6610,6 +7298,9 @@
 
             type:
                 'START_GAME',
+
+            roomOwnerToken:
+                roomOwnerToken,
 
             players:
                 players,
@@ -7862,6 +8553,526 @@
                     </div>`;
             }
         }
+    
+    (function () {
+        const LC_ROOM_RECOVERY_KEY = 'leastCountRoomRecoveryV2';
+        const LC_ROOM_RECOVERY_MAX_AGE = 2 * 60 * 60 * 1000;
+        let lcRecoveryRestored = false;
+        let lcRecoveryWaitingForHost = false;
+        let lcRecoveryTimer = null;
+        let lcRecoverySaveTimer = null;
+
+        function lcSafeClone(value) {
+            try {
+                return JSON.parse(JSON.stringify(value));
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function lcGetRecovery() {
+            try {
+                const raw = localStorage.getItem(LC_ROOM_RECOVERY_KEY);
+                if (!raw) return null;
+                const data = JSON.parse(raw);
+                if (!data || !data.roomCode || !data.savedAt) return null;
+                if (Date.now() - Number(data.savedAt) > LC_ROOM_RECOVERY_MAX_AGE) {
+                    localStorage.removeItem(LC_ROOM_RECOVERY_KEY);
+                    return null;
+                }
+                return data;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function lcClearRecovery() {
+            try {
+                localStorage.removeItem(LC_ROOM_RECOVERY_KEY);
+            } catch (e) {}
+            if (lcRecoverySaveTimer) {
+                clearInterval(lcRecoverySaveTimer);
+                lcRecoverySaveTimer = null;
+            }
+        }
+
+        function lcSaveRecovery() {
+            if (isSoloMode || !roomCode || !myClientToken || !currentUser) return;
+
+            const snapshot = {
+                version: 2,
+                savedAt: Date.now(),
+                roomCode: String(roomCode).trim().toUpperCase(),
+                myClientToken: myClientToken,
+                myId: myId || myClientToken,
+                myName: myName || String(currentProfile?.name || '').trim(),
+                isHost: isHost === true,
+                roomHostToken: roomHostToken || '',
+                roomOwnerToken: roomOwnerToken || '',
+                maxPlayersLimit: maxPlayersLimit,
+                cardsPerPlayer: cardsPerPlayer,
+                targetEliminationPoints: targetEliminationPoints,
+                includeJoker: includeJoker === true,
+                players: lcSafeClone(players) || [],
+                deck: lcSafeClone(deck) || [],
+                discardPile: lcSafeClone(discardPile) || [],
+                currentTurnIndex: Number(currentTurnIndex) || 0,
+                roundActive: roundActive === true,
+                turnPhase: turnPhase || 'drop',
+                gameHistory: lcSafeClone(gameHistory) || [],
+                roundCounter: Number(roundCounter) || 0,
+                gameHistoryHostName: gameHistoryHostName || '',
+                walletGameId: walletGameId || '',
+                gameOpponentCount: Number(gameOpponentCount) || 1,
+                authoritativeStateVersion: Number(authoritativeStateVersion) || 0,
+                lastAppliedStateVersion: Number(lastAppliedStateVersion) || 0
+            };
+
+            try {
+                localStorage.setItem(
+                    LC_ROOM_RECOVERY_KEY,
+                    JSON.stringify(snapshot)
+                );
+            } catch (e) {
+                console.warn('Room recovery snapshot could not be saved:', e);
+            }
+        }
+
+        function lcApplySnapshot(data) {
+            if (!data || !data.roomCode) return false;
+
+            roomCode = String(data.roomCode).trim().toUpperCase();
+            myId = data.myId || myClientToken;
+            myName = data.myName || String(currentProfile?.name || '').trim();
+
+            isSoloMode = false;
+            isHost = data.isHost === true;
+            roomHostToken = String(data.roomHostToken || '').trim();
+            roomOwnerToken = String(data.roomOwnerToken || '').trim();
+
+            maxPlayersLimit = Number(data.maxPlayersLimit) || maxPlayersLimit;
+            cardsPerPlayer = Number(data.cardsPerPlayer) || cardsPerPlayer;
+            targetEliminationPoints =
+                Number(data.targetEliminationPoints) || targetEliminationPoints;
+            includeJoker = data.includeJoker === true;
+
+            players = Array.isArray(data.players) ? data.players : [];
+            deck = Array.isArray(data.deck) ? data.deck : [];
+            discardPile = Array.isArray(data.discardPile) ? data.discardPile : [];
+            currentTurnIndex = Number(data.currentTurnIndex) || 0;
+            roundActive = data.roundActive === true;
+            turnPhase = data.turnPhase || 'drop';
+            gameHistory = Array.isArray(data.gameHistory) ? data.gameHistory : [];
+            roundCounter = Number(data.roundCounter) || 0;
+            gameHistoryHostName = data.gameHistoryHostName || '';
+            walletGameId = data.walletGameId || '';
+            gameOpponentCount = Math.max(1, Number(data.gameOpponentCount) || 1);
+            authoritativeStateVersion =
+                Number(data.authoritativeStateVersion) || 0;
+            lastAppliedStateVersion =
+                Number(data.lastAppliedStateVersion) || 0;
+
+            myIndex = players.findIndex(
+                p => getPlayerRoomToken(p) === myClientToken
+            );
+
+            if (myIndex < 0 && data.myName) {
+                myIndex = players.findIndex(
+                    p => String(p.name || '').trim() === String(data.myName || '').trim()
+                );
+            }
+
+            if (myIndex >= 0) {
+                players[myIndex].connected = true;
+                players[myIndex].rejoinPending = false;
+                players[myIndex].viewOnly = false;
+                if (isHost) players[myIndex].isHost = true;
+            }
+
+            return true;
+        }
+
+        function lcShowRecoveredRoom() {
+            const lobby = document.getElementById('lobby-screen');
+            const waiting = document.getElementById('waiting-screen');
+            const board = document.getElementById('game-board-screen');
+
+            lobby?.classList.add('hidden');
+
+            if (roundActive) {
+                waiting?.classList.add('hidden');
+                board?.classList.remove('hidden');
+                document.getElementById('room-badge')?.classList.remove('hidden');
+                document.getElementById('sticky-scores-wrapper')?.classList.remove('hidden');
+                document.getElementById('game-status-banner')?.classList.remove('hidden');
+                const status = document.getElementById('game-status-banner');
+                if (status) status.innerText = 'Playing';
+            } else {
+                waiting?.classList.remove('hidden');
+                board?.classList.add('hidden');
+                document.getElementById('room-badge')?.classList.add('hidden');
+                document.getElementById('max-count').innerText = maxPlayersLimit;
+                document.getElementById('display-room-code').innerText = roomCode;
+                document.getElementById('display-cards-count').innerText = cardsPerPlayer;
+                document.getElementById('display-target-pts').innerText =
+                    targetEliminationPoints;
+                document.getElementById('host-controls')?.classList.toggle(
+                    'hidden',
+                    !isHost
+                );
+            }
+
+            document.getElementById('current-room-id').innerText = roomCode;
+            setHeaderAction(false);
+            updateWaitingRoomUI();
+            renderGameBoard();
+        }
+
+        function lcSendRecoveryState(targetToken) {
+            if (!roomChannel || !roomChannelReady || !isHost) return;
+
+            sendRealtimeMessage({
+                type: 'ROOM_RECOVERY_STATE',
+                targetToken: targetToken || '',
+                roomCode: roomCode,
+                roomHostToken: roomHostToken || myClientToken,
+                roomOwnerToken: roomOwnerToken || myClientToken,
+                players: players,
+                deck: deck,
+                discardPile: discardPile,
+                currentTurnIndex: currentTurnIndex,
+                turnPhase: turnPhase,
+                roundActive: roundActive,
+                gameHistory: gameHistory,
+                gameHistoryHostName: gameHistoryHostName,
+                walletGameId: walletGameId,
+                gameOpponentCount: gameOpponentCount,
+                maxPlayersLimit: maxPlayersLimit,
+                cardsPerPlayer: cardsPerPlayer,
+                targetEliminationPoints: targetEliminationPoints,
+                includeJoker: includeJoker,
+                stateVersion: Math.max(
+                    Number(authoritativeStateVersion) || 0,
+                    Number(lastAppliedStateVersion) || 0
+                )
+            });
+        }
+
+        function lcWrapIncomingNetworkData() {
+            if (typeof handleIncomingNetworkData !== 'function') return;
+            if (handleIncomingNetworkData.__lcRecoveryWrapped) return;
+
+            const originalHandler = handleIncomingNetworkData;
+
+            const wrappedHandler = async function (data) {
+                if (data && data.type === 'ROOM_RECOVERY_REQUEST') {
+                    if (
+                        !isSoloMode &&
+                        isHost &&
+                        roomCode &&
+                        String(data.roomCode || '').toUpperCase() ===
+                            String(roomCode || '').toUpperCase()
+                    ) {
+                        lcSendRecoveryState(data.clientToken || '');
+                    }
+                    return;
+                }
+
+                if (data && data.type === 'ROOM_RECOVERY_STATE') {
+                    if (
+                        !isSoloMode &&
+                        String(data.roomCode || '').toUpperCase() ===
+                            String(roomCode || '').toUpperCase() &&
+                        String(data.targetToken || '') === String(myClientToken || '')
+                    ) {
+                        lcRecoveryWaitingForHost = false;
+
+                        players = Array.isArray(data.players) ? data.players : players;
+                        deck = Array.isArray(data.deck) ? data.deck : deck;
+                        discardPile = Array.isArray(data.discardPile)
+                            ? data.discardPile
+                            : discardPile;
+                        currentTurnIndex =
+                            data.currentTurnIndex !== undefined
+                                ? data.currentTurnIndex
+                                : currentTurnIndex;
+                        turnPhase = data.turnPhase || turnPhase;
+                        roundActive =
+                            data.roundActive !== undefined
+                                ? data.roundActive
+                                : roundActive;
+                        gameHistory = Array.isArray(data.gameHistory)
+                            ? data.gameHistory
+                            : gameHistory;
+                        gameHistoryHostName =
+                            data.gameHistoryHostName || gameHistoryHostName;
+                        walletGameId = data.walletGameId || walletGameId;
+                        gameOpponentCount =
+                            Number(data.gameOpponentCount) || gameOpponentCount;
+
+                        maxPlayersLimit =
+                            Number(data.maxPlayersLimit) || maxPlayersLimit;
+                        cardsPerPlayer =
+                            Number(data.cardsPerPlayer) || cardsPerPlayer;
+                        targetEliminationPoints =
+                            Number(data.targetEliminationPoints) ||
+                            targetEliminationPoints;
+                        includeJoker = data.includeJoker === true;
+
+                        roomHostToken = String(data.roomHostToken || '').trim();
+                        roomOwnerToken =
+                            String(data.roomOwnerToken || roomOwnerToken || '').trim();
+
+                        players.forEach(p => {
+                            p.isHost =
+                                getPlayerRoomToken(p) === roomHostToken;
+                        });
+
+                        isHost = roomHostToken === myClientToken;
+
+                        myIndex = players.findIndex(
+                            p => getPlayerRoomToken(p) === myClientToken
+                        );
+
+                        if (myIndex >= 0) {
+                            players[myIndex].connected = true;
+                            players[myIndex].rejoinPending = false;
+                            players[myIndex].viewOnly = false;
+                        }
+
+                        lcShowRecoveredRoom();
+                        lcSaveRecovery();
+
+                        if (isHost) {
+                            logTicker('Room recovered. You are the current host.');
+                        } else {
+                            logTicker('Room recovered. You are back in the room.');
+                        }
+                    }
+                    return;
+                }
+
+                return originalHandler(data);
+            };
+
+            wrappedHandler.__lcRecoveryWrapped = true;
+            handleIncomingNetworkData = wrappedHandler;
+        }
+
+        function lcStartRecoverySaveLoop() {
+            if (lcRecoverySaveTimer) return;
+            lcRecoverySaveTimer = setInterval(() => {
+                if (roomCode && currentUser && !isSoloMode) {
+                    lcSaveRecovery();
+                }
+            }, 1000);
+        }
+
+        function lcStartRecoveredRoom(data) {
+            if (lcRecoveryRestored || !data) return;
+
+            lcRecoveryRestored = true;
+            lcApplySnapshot(data);
+            lcWrapIncomingNetworkData();
+            lcShowRecoveredRoom();
+            lcStartRecoverySaveLoop();
+
+            /*
+             * Reconnect to the existing room channel using the same room code.
+             * For a normal player this causes the existing JOIN_REQUEST path
+             * to restore the player. For the previous host it also allows an
+             * existing replacement host to return the authoritative state.
+             */
+            initRealtimeChannel(roomCode);
+
+            // initRealtimeChannel intentionally resets only the transient
+            // host token. Restore the persisted authority immediately so
+            // the refreshed host can continue without a gap.
+            roomHostToken = String(data.roomHostToken || (data.isHost ? myClientToken : '')).trim();
+            roomOwnerToken = String(data.roomOwnerToken || roomOwnerToken || '').trim();
+            isHost = data.isHost === true;
+
+            setTimeout(() => {
+                if (!roomChannelReady || !roomChannel) return;
+
+                if (isHost) {
+                    /*
+                     * The previous host has returned. Presence is tracked with
+                     * the same permanent client token, so the existing takeover
+                     * system sees this browser immediately.
+                     */
+                    try {
+                        roomChannel.track({
+                            clientToken: myClientToken,
+                            playerId: myId || myClientToken,
+                            roomCode: roomCode,
+                            isHost: true
+                        });
+                    } catch (e) {}
+
+                    lcRecoveryWaitingForHost = true;
+
+                    sendRealtimeMessage({
+                        type: 'ROOM_RECOVERY_REQUEST',
+                        roomCode: roomCode,
+                        clientToken: myClientToken,
+                        previousHostToken: myClientToken
+                    });
+
+                    /*
+                     * If nobody answers, this means there was no replacement
+                     * host. Keep the previous host role from the saved snapshot.
+                     */
+                    clearTimeout(lcRecoveryTimer);
+                    lcRecoveryTimer = setTimeout(() => {
+                        if (
+                            lcRecoveryWaitingForHost &&
+                            roomCode &&
+                            roomChannelReady
+                        ) {
+                            lcRecoveryWaitingForHost = false;
+                            isHost = true;
+                            roomHostToken = myClientToken;
+
+                            players.forEach(p => {
+                                p.isHost =
+                                    getPlayerRoomToken(p) === myClientToken;
+                            });
+
+                            const me = players.find(
+                                p => getPlayerRoomToken(p) === myClientToken
+                            );
+                            if (me) {
+                                me.connected = true;
+                                me.isHost = true;
+                                me.viewOnly = false;
+                                me.rejoinPending = false;
+                            }
+
+                            try {
+                                roomChannel.track({
+                                    clientToken: myClientToken,
+                                    playerId: myId || myClientToken,
+                                    roomCode: roomCode,
+                                    isHost: true
+                                });
+                            } catch (e) {}
+
+                            updateWaitingRoomUI();
+                            renderGameBoard();
+                            lcSaveRecovery();
+                            logTicker('Room recovered. You are the host again.');
+                        }
+                    }, 1400);
+
+                } else {
+                    sendRealtimeMessage({
+                        type: 'JOIN_REQUEST',
+                        name: myName,
+                        clientToken: myClientToken,
+                        senderId: myClientToken,
+                        rejoinRequest: true,
+                        browserRefresh: true
+                    });
+                }
+            }, 500);
+        }
+
+        function lcTryRestoreAfterLogin() {
+            if (lcRecoveryRestored || isSoloMode || !currentUser) return;
+
+            const data = lcGetRecovery();
+            if (!data) return;
+
+            if (
+                String(data.myClientToken || '') !==
+                String(myClientToken || '')
+            ) {
+                return;
+            }
+
+            lcStartRecoveredRoom(data);
+        }
+
+        /*
+         * Wait for the existing authentication restore to finish. No auth
+         * logic is replaced; this only waits for currentUser to become ready.
+         */
+        const lcAuthWait = setInterval(() => {
+            if (lcRecoveryRestored) {
+                clearInterval(lcAuthWait);
+                return;
+            }
+
+            if (currentUser) {
+                lcTryRestoreAfterLogin();
+                if (lcRecoveryRestored) clearInterval(lcAuthWait);
+            }
+        }, 250);
+
+        setTimeout(() => clearInterval(lcAuthWait), 20000);
+
+        /*
+         * Save room state continuously so a browser refresh can reconstruct
+         * the exact room immediately. This does not modify Supabase data.
+         */
+        window.addEventListener('beforeunload', () => {
+            if (roomCode && currentUser && !isSoloMode) {
+                lcSaveRecovery();
+            }
+        });
+
+        window.addEventListener('pagehide', () => {
+            if (roomCode && currentUser && !isSoloMode) {
+                lcSaveRecovery();
+            }
+        });
+
+        /*
+         * Clear only our refresh-recovery snapshot when the user deliberately
+         * exits/logs out. A normal browser refresh does NOT clear it.
+         */
+        const originalReturnToLobbyWithoutReload =
+            window.returnToLobbyWithoutReload;
+
+        if (typeof originalReturnToLobbyWithoutReload === 'function') {
+            window.returnToLobbyWithoutReload = async function (message) {
+                lcClearRecovery();
+                return originalReturnToLobbyWithoutReload(message);
+            };
+        }
+
+        const originalConfirmExitGame = window.confirmExitGame;
+
+        if (typeof originalConfirmExitGame === 'function') {
+            window.confirmExitGame = async function () {
+                const result = await originalConfirmExitGame();
+                lcClearRecovery();
+                return result;
+            };
+        }
+
+        /*
+         * If the user explicitly logs out, the room should not be restored on
+         * the next page load.
+         */
+        const originalLogoutUser = window.logoutUser;
+
+        if (typeof originalLogoutUser === 'function') {
+            window.logoutUser = async function () {
+                lcClearRecovery();
+                return originalLogoutUser();
+            };
+        }
+
+        /*
+         * Start saving as soon as this additive layer is loaded. It becomes
+         * active only after a multiplayer room exists.
+         */
+        lcStartRecoverySaveLoop();
+    })();
+    
+
     </script>
 
 </body>
