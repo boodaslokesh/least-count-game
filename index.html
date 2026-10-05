@@ -158,6 +158,21 @@
                 Room:
                 <span id="current-room-id" class="font-mono font-bold uppercase"></span>
             </span>
+
+            <div id="game-eliminate-control" class="hidden items-center gap-1 bg-zinc-900 border border-amber-500/30 px-1.5 py-1 rounded-lg">
+                <span class="text-[8px] sm:text-[9px] text-amber-300 font-black uppercase whitespace-nowrap">Elim.</span>
+                <select id="game-target-points-select"
+                        onchange="changeEliminationPointsDuringGame(this.value)"
+                        class="bg-black border border-zinc-700 text-white rounded-md px-1 py-0.5 text-[9px] sm:text-[10px] font-bold focus:outline-none focus:border-amber-400">
+                    <option value="1">Single</option>
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="75">75</option>
+                    <option value="100">100</option>
+                    <option value="150">150</option>
+                </select>
+            </div>
         </div>
 
         <div class="flex items-center space-x-2">
@@ -806,14 +821,19 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3 pt-2">
+                <div class="grid grid-cols-3 gap-2 pt-2">
                     <button onclick="stayInTournamentGame()"
-                            class="py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl shadow-lg transition text-sm">
+                            class="py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl shadow-lg transition text-xs sm:text-sm">
                         Stay in Game
                     </button>
 
+                    <button onclick="startAgainSamePlayers()"
+                            class="py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl shadow-lg transition text-xs sm:text-sm">
+                        Start Again
+                    </button>
+
                     <button onclick="exitTournamentToLobby()"
-                            class="py-3 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-xl shadow-lg transition text-sm">
+                            class="py-3 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-xl shadow-lg transition text-xs sm:text-sm">
                         Exit Game
                     </button>
                 </div>
@@ -1409,6 +1429,129 @@
         }
 
         return true;
+    }
+
+    async function startAgainSamePlayers() {
+        const modal = document.getElementById('tournament-winner-modal');
+        if (modal) modal.classList.add('hidden');
+
+        if (isHost || isSoloMode) {
+            await createNewRoomWithSamePlayers();
+            return;
+        }
+
+        await sendRealtimeMessage({
+            type: 'START_AGAIN_REQUEST',
+            clientToken: myClientToken,
+            roomCode
+        });
+
+        logTicker('Requesting the host to start a new room with the same players...');
+    }
+
+    async function createNewRoomWithSamePlayers() {
+        if (!isHost && !isSoloMode) return;
+
+        const oldPlayers = Array.isArray(players) ? players.slice() : [];
+        const participants = oldPlayers.filter(p => p && (p.isBot || p.connected !== false) && p.viewOnly !== true);
+
+        if (!isSoloMode && participants.length < 2) {
+            logTicker('At least 2 players are required to start again.');
+            return;
+        }
+
+        const newRoomCode = isSoloMode
+            ? ('SOLO-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase())
+            : generateShortCode();
+
+        const resetPlayers = participants.map((p, index) => ({
+            id: String(p.id || p.clientToken || `player-${index}`),
+            name: String(p.name || 'Player'),
+            clientToken: String(p.clientToken || p.id || `player-${index}`),
+            connected: true,
+            isHost: !isSoloMode ? (String(p.clientToken || p.id) === String(myClientToken)) : index === 0,
+            scores: 0,
+            hand: [],
+            eliminated: false,
+            isBot: p.isBot === true,
+            viewOnly: false,
+            rejoinPending: false
+        }));
+
+        // Tell every existing participant to move to the new room before the
+        // old realtime channel is replaced. The old completed game remains
+        // untouched in Supabase; the new room gets its own history row.
+        await sendRealtimeMessage({
+            type: 'NEW_ROOM_CREATED',
+            roomCode,
+            newRoomCode,
+            players: resetPlayers,
+            hostToken: myClientToken,
+            roomOwnerToken: myClientToken,
+            isSoloMode: !!isSoloMode,
+            maxPlayersLimit,
+            cardsPerPlayer,
+            targetPoints: targetEliminationPoints,
+            includeJoker
+        });
+
+        if (roomChannel) {
+            try { await supabaseClient.removeChannel(roomChannel); } catch (e) {}
+            roomChannel = null;
+        }
+
+        roomCode = newRoomCode;
+        roomOwnerToken = myClientToken;
+        roomHostToken = myClientToken;
+        isHost = true;
+        players = resetPlayers;
+        myId = String(myClientToken);
+        myIndex = players.findIndex(p => p.clientToken === myClientToken);
+        gameHistory = [];
+        roundCounter = 0;
+        roundActive = false;
+        walletGameId = '';
+        authoritativeStateVersion = 0;
+        lastAppliedStateVersion = 0;
+        processedGameActionIds.clear();
+        resetTournamentWinnerState(roomCode);
+
+        try {
+            localStorage.setItem(`leastCountRoomOwner:${roomCode}`, roomOwnerToken);
+        } catch (e) {}
+
+        initRealtimeChannel(roomCode);
+        document.getElementById('tournament-winner-modal')?.classList.add('hidden');
+
+        // Give guests a short moment to subscribe to the new channel, then
+        // start the fresh game immediately with the same participants.
+        await new Promise(resolve => setTimeout(resolve, 650));
+
+        if (isSoloMode) {
+            // Recreate the same number of bot opponents.
+            const botCount = Math.max(1, oldPlayers.filter(p => p && p.isBot).length);
+            players = [players[0]];
+            for (let i = 1; i <= botCount; i++) {
+                players.push({
+                    id: `bot-${i}`,
+                    name: `Bot ${i}`,
+                    clientToken: `bot-${i}`,
+                    isHost: false,
+                    scores: 0,
+                    hand: [],
+                    eliminated: false,
+                    isBot: true,
+                    connected: true,
+                    viewOnly: false,
+                    rejoinPending: false
+                });
+            }
+            maxPlayersLimit = players.length;
+        }
+
+        await startHostGame();
+        registerPublicRoom('playing', isSoloMode ? 'yes' : 'no');
+        logTicker(`New room ${roomCode} started with the same players.`);
     }
 
     function stayInTournamentGame() {
@@ -3084,6 +3227,8 @@
         const status = document.getElementById('game-status-banner');
         const roomBadge = document.getElementById('room-badge');
         const roomId = document.getElementById('current-room-id');
+        const eliminationControl = document.getElementById('game-eliminate-control');
+        const eliminationSelect = document.getElementById('game-target-points-select');
 
         if (isLobby) {
             if (title) title.classList.remove('hidden');
@@ -3116,6 +3261,7 @@
 
             if (roomBadge) roomBadge.classList.add('hidden');
             if (roomId) roomId.innerText = '';
+            if (eliminationControl) { eliminationControl.classList.add('hidden'); eliminationControl.classList.remove('flex'); }
 
             if (!btn) return;
             btn.innerText = 'Refresh';
@@ -3135,6 +3281,17 @@
             if (status) {
                 status.classList.add('hidden');
                 status.style.display = 'none';
+            }
+
+            if (eliminationControl) {
+                const showLiveControl = !!roundActive;
+                eliminationControl.classList.toggle('hidden', !showLiveControl);
+                eliminationControl.classList.toggle('flex', showLiveControl);
+            }
+            if (eliminationSelect) {
+                eliminationSelect.value = String(targetEliminationPoints);
+                eliminationSelect.disabled = !isHost && !isSoloMode;
+                eliminationSelect.title = (isHost || isSoloMode) ? 'Change elimination points' : 'Only the host can change elimination points';
             }
 
             if (!btn) return;
@@ -3505,6 +3662,48 @@
                 `Transferred host to ${targetPlayerName}.`
             );
         }
+    }
+
+    // ============================================================
+    // LIVE ELIMINATION POINTS
+    // Host can change the elimination threshold during an active game.
+    // The new threshold is synchronized to every player and persisted in
+    // the existing room snapshot; no Supabase schema changes are needed.
+    // ============================================================
+
+    async function changeEliminationPointsDuringGame(value) {
+        if (!isHost && !isSoloMode) {
+            const select = document.getElementById('game-target-points-select');
+            if (select) select.value = String(targetEliminationPoints);
+            logTicker('Only the host can change elimination points.');
+            return;
+        }
+
+        const allowed = [1, 10, 25, 50, 75, 100, 150];
+        const nextPoints = Number(value);
+        if (!allowed.includes(nextPoints)) return;
+
+        targetEliminationPoints = nextPoints;
+
+        const select = document.getElementById('game-target-points-select');
+        if (select) select.value = String(targetEliminationPoints);
+
+        if (isHost) {
+            authoritativeStateVersion += 1;
+            await persistRoomStateToSupabase();
+            await syncGameHistoryToSupabase('');
+            await sendRealtimeMessage({
+                type: 'UPDATE_ELIMINATION_POINTS',
+                roomCode,
+                targetPoints: targetEliminationPoints,
+                stateVersion: authoritativeStateVersion
+            });
+        } else {
+            saveLocalRoomSession();
+        }
+
+        renderGameBoard();
+        logTicker(`Elimination limit changed to ${targetEliminationPoints} points.`);
     }
 
     // ============================================================
@@ -4843,6 +5042,40 @@
             }
 
             // ----------------------------------------------------
+            // LIVE ELIMINATION POINTS UPDATE
+            // ----------------------------------------------------
+
+            else if (data.type === 'UPDATE_ELIMINATION_POINTS') {
+                const allowed = [1, 10, 25, 50, 75, 100, 150];
+                const nextPoints = Number(data.targetPoints);
+                if (allowed.includes(nextPoints)) {
+                    targetEliminationPoints = nextPoints;
+                    const select = document.getElementById('game-target-points-select');
+                    if (select) select.value = String(targetEliminationPoints);
+                    if (data.stateVersion !== undefined) {
+                        authoritativeStateVersion = Math.max(
+                            authoritativeStateVersion,
+                            Number(data.stateVersion) || 0
+                        );
+                    }
+                    saveLocalRoomSession();
+                    updateWaitingRoomUI();
+                    renderGameBoard();
+                    logTicker(`Elimination limit changed to ${targetEliminationPoints} points.`);
+                }
+            }
+
+            // ----------------------------------------------------
+            // START AGAIN REQUEST
+            // ----------------------------------------------------
+
+            else if (data.type === 'START_AGAIN_REQUEST') {
+                if (isHost || isSoloMode) {
+                    await createNewRoomWithSamePlayers();
+                }
+            }
+
+            // ----------------------------------------------------
             // NEXT ROUND REQUEST
             // ----------------------------------------------------
 
@@ -5704,6 +5937,7 @@
                     gameHistory;
 
                 roundActive = true;
+                setHeaderAction(false);
 
                 myIndex =
                     players.findIndex(
@@ -5896,6 +6130,90 @@
                     data.message
                 );
 
+                break;
+
+            // ----------------------------------------------------
+            // LIVE ELIMINATION POINTS UPDATE
+            // ----------------------------------------------------
+
+            case 'UPDATE_ELIMINATION_POINTS':
+                {
+                    const allowed = [1, 10, 25, 50, 75, 100, 150];
+                    const nextPoints = Number(data.targetPoints);
+                    if (!allowed.includes(nextPoints)) break;
+
+                    targetEliminationPoints = nextPoints;
+                    if (data.stateVersion !== undefined) {
+                        authoritativeStateVersion = Math.max(
+                            authoritativeStateVersion,
+                            Number(data.stateVersion) || 0
+                        );
+                    }
+
+                    const select = document.getElementById('game-target-points-select');
+                    if (select) select.value = String(targetEliminationPoints);
+                    saveLocalRoomSession();
+                    renderGameBoard();
+                    logTicker(`Elimination limit changed to ${targetEliminationPoints} points.`);
+                }
+                break;
+
+            // ----------------------------------------------------
+            // NEW ROOM WITH SAME PLAYERS
+            // ----------------------------------------------------
+
+            case 'NEW_ROOM_CREATED':
+                {
+                    const newCode = String(data.newRoomCode || '').trim().toUpperCase();
+                    if (!newCode || newCode === String(roomCode || '').trim().toUpperCase()) break;
+
+                    const samePlayer = Array.isArray(data.players) && data.players.some(
+                        p => p && (p.clientToken === myClientToken || p.id === myId)
+                    );
+                    if (!samePlayer) break;
+
+                    if (roomChannel) {
+                        try { await supabaseClient.removeChannel(roomChannel); } catch (e) {}
+                        roomChannel = null;
+                    }
+
+                    roomCode = newCode;
+                    isSoloMode = data.isSoloMode === true;
+                    isHost = false;
+                    roomHostToken = String(data.hostToken || '');
+                    roomOwnerToken = String(data.roomOwnerToken || '');
+                    players = Array.isArray(data.players) ? data.players : players;
+                    maxPlayersLimit = Number(data.maxPlayersLimit) || maxPlayersLimit;
+                    cardsPerPlayer = Number(data.cardsPerPlayer) || cardsPerPlayer;
+                    targetEliminationPoints = Number(data.targetPoints) || targetEliminationPoints;
+                    includeJoker = data.includeJoker === true;
+                    gameHistory = [];
+                    roundCounter = 0;
+                    roundActive = false;
+                    walletGameId = '';
+                    gameOpponentCount = Math.max(1, players.filter(p => p && !p.isBot).length - 1);
+                    myIndex = players.findIndex(p => p && (p.clientToken === myClientToken || p.id === myId));
+                    if (myIndex >= 0) {
+                        players[myIndex].connected = true;
+                        players[myIndex].viewOnly = false;
+                        players[myIndex].rejoinPending = false;
+                    }
+
+                    resetTournamentWinnerState(roomCode);
+                    saveLocalRoomSession();
+                    initRealtimeChannel(roomCode);
+
+                    document.getElementById('tournament-winner-modal')?.classList.add('hidden');
+                    document.getElementById('round-over-modal')?.classList.add('hidden');
+                    document.getElementById('game-board-screen')?.classList.add('hidden');
+                    document.getElementById('waiting-screen')?.classList.remove('hidden');
+                    document.getElementById('lobby-screen')?.classList.add('hidden');
+                    document.getElementById('room-badge')?.classList.remove('hidden');
+                    document.getElementById('current-room-id').innerText = roomCode;
+                    setHeaderAction(false);
+                    updateWaitingRoomUI();
+                    logTicker(`New room ${roomCode} created. Waiting for the new game to start...`);
+                }
                 break;
 
             // ----------------------------------------------------
@@ -6193,6 +6511,7 @@
         currentTurnIndex = 0;
         turnPhase = 'drop';
         roundActive = true;
+        setHeaderAction(false);
 
         updateRoomStartedStatus(
             'yes'
@@ -9002,7 +9321,7 @@
         /* Admin-only responsive presentation. No game logic changes. */
         .admin-mobile-shell { padding: 0; }
         .admin-mobile-panel { min-width: 0; }
-        .admin-player-grid { display:grid; grid-template-columns:1fr; gap:.5rem; align-content:start; }
+        .admin-player-grid { display:block; width:100%; min-width:0; }
         .admin-player-card { min-width:0; }
         .admin-player-card .admin-card-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .admin-player-table-wrap { width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid rgb(39 39 42); border-radius:.75rem; }
@@ -9010,7 +9329,7 @@
         .admin-player-table th,.admin-player-table td { padding:.55rem .65rem; border-bottom:1px solid rgb(39 39 42); text-align:left; vertical-align:top; font-size:10px; }
         .admin-player-table th { color:#a1a1aa; background:rgb(24 24 27); font-weight:800; white-space:nowrap; position:sticky; top:0; z-index:1; }
         .admin-player-table td { color:#d4d4d8; }
-        .admin-players-table-wrap { width:100%; overflow:hidden; border:1px solid rgb(39 39 42); border-radius:.65rem; }
+        .admin-players-table-wrap { width:100%; max-width:100%; overflow-x:hidden; overflow-y:visible; border:1px solid rgb(39 39 42); border-radius:.65rem; }
         .admin-players-table { width:100%; table-layout:fixed; border-collapse:collapse; }
         .admin-players-table th, .admin-players-table td { border-right:1px solid rgb(39 39 42); border-bottom:1px solid rgb(39 39 42); }
         .admin-players-table th:last-child, .admin-players-table td:last-child { border-right:0; }
@@ -9108,6 +9427,10 @@
             if (players) { players.classList.remove('hidden'); players.classList.add('flex'); }
             if (player) { player.classList.add('hidden'); player.classList.remove('flex'); }
             adminSelectedPlayerId = '';
+            // Always reset the player filter when returning to the Admin player list.
+            // This prevents a previously typed search/autofilled value from hiding players.
+            const search = document.getElementById('admin-player-search');
+            if (search) search.value = '';
             renderAdminPlayerList();
         }
 
@@ -9150,7 +9473,18 @@
                     { p_session_token: authSessionToken }
                 );
                 if (statsResult.error) throw statsResult.error;
-                adminPlayers = Array.isArray(statsResult.data) ? statsResult.data : [];
+                // Normalize the existing RPC response without changing the database/RPC.
+                // Some Supabase responses can arrive as an array, a single object, or a
+                // JSON-encoded array depending on the deployed function version.
+                let playerRows = statsResult.data;
+                if (typeof playerRows === 'string') {
+                    try { playerRows = JSON.parse(playerRows); } catch (e) {}
+                }
+                if (playerRows && !Array.isArray(playerRows) && typeof playerRows === 'object') {
+                    playerRows = Array.isArray(playerRows.rows) ? playerRows.rows :
+                                 Array.isArray(playerRows.data) ? playerRows.data : [playerRows];
+                }
+                adminPlayers = Array.isArray(playerRows) ? playerRows.filter(Boolean) : [];
 
                 // Existing game-history table is already readable by the current policy.
                 const historyResponse = await fetch(
