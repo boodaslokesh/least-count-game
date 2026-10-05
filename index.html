@@ -2320,20 +2320,26 @@
                     flushRealtimeOutboundQueue();
 
                     if (!isHost && !isSoloMode) {
-                        /*
-                         * Existing player:
-                         * DO NOT automatically reconnect.
-                         *
-                         * The host must approve the rejoin.
-                         */
-                        sendRealtimeMessage({
+                        // Join is Realtime-first. Never wait for Supabase DB state.
+                        const sendJoinRequest = () => sendRealtimeMessage({
                             type: 'JOIN_REQUEST',
                             name: myName,
                             clientToken: myClientToken,
                             senderId: myClientToken,
                             rejoinRequest: true,
-                            refreshReconnect: true
+                            refreshReconnect: true,
+                            joinRequestId: `join-${myClientToken}-${Date.now()}`
                         });
+
+                        sendJoinRequest();
+                        // A short retry protects against a transient Realtime
+                        // publish race without changing the original room logic.
+                        setTimeout(() => {
+                            if (roomChannel === channel && !isHost && roomChannelReady) sendJoinRequest();
+                        }, 800);
+                        setTimeout(() => {
+                            if (roomChannel === channel && !isHost && roomChannelReady) sendJoinRequest();
+                        }, 1800);
                     }
                 } else if (
                     status === 'CHANNEL_ERROR' ||
@@ -4583,6 +4589,15 @@
                     newPlayer
                 );
 
+                // Explicit acceptance makes the join deterministic even if
+                // the waiting-room list update is delayed on the guest.
+                sendRealtimeMessage({
+                    type: 'JOIN_ACCEPTED',
+                    targetToken: newPlayer.clientToken,
+                    roomCode: roomCode,
+                    player: newPlayer
+                });
+
                 broadcastPlayerList();
 
                 updateWaitingRoomUI();
@@ -5461,6 +5476,18 @@
                 updateWaitingRoomUI();
                 renderGameBoard();
 
+                break;
+
+            // ----------------------------------------------------
+            // JOIN ACCEPTED
+            // ----------------------------------------------------
+
+            case 'JOIN_ACCEPTED':
+
+                if (data.targetToken === myClientToken) {
+                    resetJoinButtonState(true);
+                    logTicker(`Joined room ${roomCode}. Waiting for the host.`);
+                }
                 break;
 
             // ----------------------------------------------------
