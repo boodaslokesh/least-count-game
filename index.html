@@ -219,7 +219,7 @@
             </button>
             <span class="text-zinc-700">|</span>
             <button id="admin-nav-btn" type="button" onclick="toggleAdminModal(true)"
-                    class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-rose-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
+                    class="hidden px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-rose-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
                 Admin
             </button>
         </div>
@@ -1016,9 +1016,14 @@
     // Supabase Auth signup/login/email service is used. Coin balances live
     // only in Supabase; the browser stores only this login session token.
     const GAME_AUTH_TOKEN_KEY = 'leastCountGameAuthTokenV1';
+    const ADMIN_TOKEN_KEY = 'leastCountAdminSessionV1';
+    const ADMIN_MOBILE = '9912517895';
     let authSessionToken = '';
     let currentUser = null;
     let currentProfile = null;
+    let adminSessionToken = '';
+    let adminAuthenticated = false;
+    let adminDashboardCache = null;
 
     let roomChannel = null;
 
@@ -1731,6 +1736,43 @@
             await handleCustomAuthenticatedUser(result);
         } catch (error) {
             console.error('Login failed:', error);
+
+            // The configured admin has a separate secure admin session. If the
+            // supplied mobile is the admin mobile, try the same entered password
+            // against the admin RPC without storing that password in the browser.
+            if (mobile === ADMIN_MOBILE) {
+                try {
+                    const { data: adminData, error: adminError } = await supabaseClient.rpc(
+                        'admin_login_least_count',
+                        { p_mobile: mobile, p_password: password }
+                    );
+                    if (!adminError) {
+                        const adminRow = Array.isArray(adminData) ? adminData[0] : adminData;
+                        if (adminRow?.session_token) {
+                            adminSessionToken = adminRow.session_token;
+                            adminAuthenticated = true;
+                            localStorage.setItem(ADMIN_TOKEN_KEY, adminSessionToken);
+                            currentUser = { id: 'admin', name: adminRow.display_name || 'Game Admin', mobile: ADMIN_MOBILE };
+                            currentProfile = { id: 'admin', name: adminRow.display_name || 'Game Admin', mobile: ADMIN_MOBILE };
+                            myName = currentProfile.name;
+                            nicknameInput.value = currentProfile.name;
+                            nicknameInput.readOnly = true;
+                            showAuthScreen(false);
+                            updateAdminVisibility();
+                            document.getElementById('logout-btn')?.classList.remove('hidden');
+                            setHeaderAction(true);
+                            renderWallets();
+                            refreshPublicRoomsList();
+                            logTicker('Admin access ready.');
+                            toggleAdminModal(true);
+                            return;
+                        }
+                    }
+                } catch (adminError) {
+                    console.error('Admin login fallback failed:', adminError);
+                }
+            }
+
             setAuthMessage('Invalid mobile or password.');
         } finally {
             setAuthButtonsBusy(false, 'login-btn');
@@ -1766,6 +1808,7 @@
 
         document.getElementById('logout-btn')?.classList.remove('hidden');
         showAuthScreen(false);
+        updateAdminVisibility();
 
         // Restore an active multiplayer room after a browser refresh.
         const restoredRoom = await restoreActiveRoomAfterRefresh();
@@ -1788,6 +1831,7 @@
         if (!token) {
             currentUser = null;
             currentProfile = null;
+            updateAdminVisibility();
             showAuthScreen(true);
             renderWallets();
             return;
@@ -1811,6 +1855,7 @@
             clearAuthSession();
             currentUser = null;
             currentProfile = null;
+            updateAdminVisibility();
             showAuthScreen(true);
             renderWallets();
         }
@@ -1818,9 +1863,16 @@
 
     async function logoutUser() {
         stopRoomHeartbeat();
+        try {
+            if (adminSessionToken) {
+                await supabaseClient.rpc('admin_logout_least_count', { p_session_token: adminSessionToken });
+            }
+        } catch (e) {}
         adminSessionToken = '';
         adminAuthenticated = false;
+        adminDashboardCache = null;
         localStorage.removeItem(ADMIN_TOKEN_KEY);
+        toggleAdminUserDetail(false);
         try {
             if (roomChannel) {
                 await supabaseClient.removeChannel(roomChannel);
@@ -1846,6 +1898,7 @@
         clearAuthSession();
         currentUser = null;
         currentProfile = null;
+        updateAdminVisibility();
         myName = '';
         botWallet = 0;
         realWallet = 0;
@@ -8232,6 +8285,71 @@
 
 
     <!-- ========================================================= -->
+    <!-- ADMIN-ONLY CONTROL CENTER                                -->
+    <!-- ========================================================= -->
+    <div id="admin-modal"
+         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[500]">
+        <div class="bg-zinc-950 border border-rose-500/30 w-full max-w-[1500px] h-[94vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
+                <div>
+                    <h2 class="text-lg sm:text-xl font-black text-rose-300">Admin Control Center</h2>
+                    <p class="text-[10px] sm:text-[11px] text-zinc-500 mt-1">Admin-only operational view of members, rooms, wallets, history, audit events and game actions.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="admin-refresh-btn" onclick="loadAdminDashboard()" class="hidden px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-emerald-300 hover:bg-zinc-800">Refresh</button>
+                    <button id="admin-logout-btn" onclick="adminLogout()" class="hidden px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-rose-300 hover:bg-zinc-800">Admin Logout</button>
+                    <button onclick="toggleAdminModal(false)" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
+                </div>
+            </div>
+
+            <div id="admin-login-panel" class="flex-1 overflow-y-auto flex items-center justify-center p-5">
+                <div class="w-full max-w-sm bg-black border border-zinc-800 rounded-2xl p-5">
+                    <div class="text-center mb-5">
+                        <div class="text-2xl font-black text-rose-300">ADMIN LOGIN</div>
+                        <div class="text-[10px] text-zinc-500 mt-1">Only the configured admin account can open this dashboard.</div>
+                    </div>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Admin Mobile</label>
+                            <input id="admin-mobile-input" type="text" inputmode="numeric" autocomplete="username"
+                                   value="9912517895"
+                                   class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-rose-500 text-white text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Admin Password</label>
+                            <input id="admin-password-input" type="password" autocomplete="current-password"
+                                   class="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-rose-500 text-white text-sm"
+                                   placeholder="Admin password">
+                        </div>
+                        <button onclick="adminLogin()" class="w-full py-2.5 bg-rose-500 hover:bg-rose-400 text-black font-black rounded-xl text-sm">Open Admin Dashboard</button>
+                        <div id="admin-login-message" class="min-h-[18px] text-center text-xs text-zinc-500"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="admin-dashboard-panel" class="hidden flex-1 overflow-y-auto p-3 sm:p-5">
+                <div id="admin-summary" class="text-xs text-zinc-400 mb-3">Loading...</div>
+                <div id="admin-dashboard-content" class="space-y-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ADMIN SELECTED-USER FULL DETAIL -->
+    <div id="admin-user-detail-modal"
+         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[600]">
+        <div class="bg-zinc-950 border border-emerald-500/30 w-full max-w-[1500px] h-[94vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
+                <div>
+                    <h2 id="admin-user-detail-title" class="text-lg sm:text-xl font-black text-emerald-300">Member Details</h2>
+                    <p id="admin-user-detail-subtitle" class="text-[10px] sm:text-[11px] text-zinc-500 mt-1">Complete available account, wallet, game, room and audit information.</p>
+                </div>
+                <button onclick="toggleAdminUserDetail(false)" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
+            </div>
+            <div id="admin-user-detail-content" class="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4"></div>
+        </div>
+    </div>
+
+    <!-- ========================================================= -->
     <!-- PLAYER ACCOUNT / COIN STATISTICS MODALS                 -->
     <!-- ========================================================= -->
 
@@ -8390,10 +8508,108 @@
         // PRODUCTION ADMIN DASHBOARD
         // ============================================================
 
+        function isConfiguredAdminPlayer() {
+            return !!(currentProfile && String(currentProfile.mobile || '').trim() === ADMIN_MOBILE);
+        }
+
+        function updateAdminVisibility() {
+            const btn = document.getElementById('admin-nav-btn');
+            if (!btn) return;
+            btn.classList.toggle('hidden', !isConfiguredAdminPlayer());
+        }
+
+        function adminDashboardSectionsFromCache() {
+            return adminDashboardCache || { users: [], rooms: [], transactions: [], events: [], actions: [] };
+        }
+
+        function toggleAdminUserDetail(show) {
+            const modal = document.getElementById('admin-user-detail-modal');
+            if (!modal) return;
+            modal.classList.toggle('hidden', !show);
+            modal.classList.toggle('flex', show);
+        }
+
+        function adminDetailSection(title, bodyHtml) {
+            return `<section class="bg-black border border-zinc-800 rounded-2xl p-3 overflow-x-auto"><h3 class="font-black text-white mb-3">${escapeAccountStatsHtml(title)}</h3>${bodyHtml}</section>`;
+        }
+
+        async function openAdminUserDetail(playerId) {
+            if (!adminAuthenticated || !adminSessionToken) {
+                toggleAdminModal(true);
+                return;
+            }
+
+            const content = document.getElementById('admin-user-detail-content');
+            const title = document.getElementById('admin-user-detail-title');
+            const subtitle = document.getElementById('admin-user-detail-subtitle');
+            if (!content) return;
+
+            if (!adminDashboardCache) {
+                content.innerHTML = '<div class="text-center text-xs text-zinc-500 py-10">Loading member details...</div>';
+                toggleAdminUserDetail(true);
+                await loadAdminDashboard();
+            }
+
+            const d = adminDashboardSectionsFromCache();
+            const user = d.users.find(u => String(u.player_id) === String(playerId));
+            if (!user) {
+                content.innerHTML = '<div class="text-center text-xs text-rose-400 py-10">Selected member was not found in the admin data.</div>';
+                toggleAdminUserDetail(true);
+                return;
+            }
+
+            const tx = d.transactions.filter(x => String(x.player_id) === String(playerId));
+            const events = d.events.filter(x => String(x.player_id) === String(playerId));
+            const actions = d.actions.filter(x => String(x.player_id) === String(playerId));
+            const rooms = d.rooms.filter(room => {
+                if (String(room.owner_player_id || '') === String(playerId) || String(room.host_player_id || '') === String(playerId)) return true;
+                const ps = room?.state?.players;
+                return Array.isArray(ps) && ps.some(p => String(p?.playerId || p?.player_id || p?.id || '') === String(playerId) || String(p?.name || '') === String(user.name || ''));
+            });
+
+            title.textContent = `${user.name || 'Member'} — Complete Details`;
+            subtitle.textContent = `${user.mobile || '—'} · Player ID: ${user.player_id}`;
+
+            const b = Number(user.bot_coins || 0), r = Number(user.real_coins || 0);
+            const wins = tx.filter(x => x.result === 'win').length;
+            const losses = tx.filter(x => x.result === 'loss').length;
+            const netBot = tx.filter(x => x.wallet_type === 'bot').reduce((n,x) => n + Number(x.delta || 0), 0);
+            const netReal = tx.filter(x => x.wallet_type === 'real').reduce((n,x) => n + Number(x.delta || 0), 0);
+
+            let html = '';
+            html += adminDetailSection('Profile & Current Wallet', `<div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Name</div><div class="font-black text-white break-words">${escapeAccountStatsHtml(user.name)}</div></div>
+                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Mobile</div><div class="font-black text-white">${escapeAccountStatsHtml(user.mobile)}</div></div>
+                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Bot Coins</div><div class="font-black ${b < 0 ? 'text-rose-400' : 'text-indigo-300'}">${b}</div></div>
+                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Real Coins</div><div class="font-black ${r < 0 ? 'text-rose-400' : 'text-emerald-300'}">${r}</div></div>
+                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Bot Games</div><div class="font-black text-white">${Number(user.bot_games_played || 0)}</div></div>
+                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Real Games</div><div class="font-black text-white">${Number(user.real_games_played || 0)}</div></div>
+                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Active Sessions</div><div class="font-black ${Number(user.active_sessions || 0) ? 'text-emerald-300' : 'text-zinc-500'}">${Number(user.active_sessions || 0)}</div></div>
+                <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Registered</div><div class="font-bold text-zinc-300">${escapeAccountStatsHtml(formatAccountDate(user.created_at))}</div></div>
+            </div>`);
+
+            html += adminDetailSection('Complete Coin / Game History', tx.length ? `<div class="space-y-2">${tx.map(x => `<div class="bg-zinc-900 rounded-xl p-3 text-xs"><div class="flex flex-wrap justify-between gap-2"><span class="font-black ${x.result === 'win' ? 'text-emerald-300' : 'text-rose-300'}">${escapeAccountStatsHtml(String(x.result || '').toUpperCase())}</span><span class="font-black ${Number(x.delta || 0) < 0 ? 'text-rose-400' : 'text-emerald-300'}">${Number(x.delta || 0) > 0 ? '+' : ''}${Number(x.delta || 0)}</span></div><div class="grid grid-cols-2 md:grid-cols-5 gap-2 mt-2 text-[10px] text-zinc-400"><span>Game: ${escapeAccountStatsHtml(x.game_id)}</span><span>Room: ${escapeAccountStatsHtml(x.game_code || '—')}</span><span>Wallet: ${escapeAccountStatsHtml(x.wallet_type)}</span><span>Opponents: ${Number(x.opponent_count || 0)}</span><span>${escapeAccountStatsHtml(formatAccountDate(x.created_at))}</span></div></div>`).join('')}</div>` : '<div class="text-xs text-zinc-600">No coin settlement records found.</div>');
+
+            html += adminDetailSection('Room Participation & Persisted Game State', rooms.length ? `<div class="space-y-2">${rooms.map(room => `<details class="bg-zinc-900 rounded-xl p-3"><summary class="cursor-pointer text-emerald-300 font-black">${escapeAccountStatsHtml(room.room_code)} · ${escapeAccountStatsHtml(room.status)} · ${escapeAccountStatsHtml(formatAccountDate(room.last_activity_at || room.updated_at))}</summary><pre class="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap text-[9px] text-zinc-400">${escapeAccountStatsHtml(JSON.stringify(room, null, 2))}</pre></details>`).join('')}</div>` : '<div class="text-xs text-zinc-600">No persisted room records for this member in the admin window.</div>');
+
+            html += adminDetailSection('Audit Events', events.length ? `<div class="space-y-2">${events.map(x => `<div class="bg-zinc-900 rounded-xl p-3 text-[10px]"><div><span class="text-rose-300 font-bold">${escapeAccountStatsHtml(x.event_type)}</span> · ${escapeAccountStatsHtml(x.room_code || '—')} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))}</div><pre class="mt-2 whitespace-pre-wrap text-zinc-500">${escapeAccountStatsHtml(JSON.stringify(x.event_data || {}, null, 2))}</pre></div>`).join('')}</div>` : '<div class="text-xs text-zinc-600">No audit events found.</div>');
+
+            html += adminDetailSection('Game Actions', actions.length ? `<div class="space-y-2">${actions.map(x => `<div class="bg-zinc-900 rounded-xl p-3 text-[10px]"><div><span class="text-amber-300 font-bold">${escapeAccountStatsHtml(x.action)}</span> · ${escapeAccountStatsHtml(x.room_code || '—')} · ${x.accepted ? '<span class="text-emerald-300">accepted</span>' : '<span class="text-rose-300">rejected</span>'} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))}</div><div class="text-zinc-500 mt-1">Card: ${escapeAccountStatsHtml(x.card_uid || '—')} · State version: ${Number(x.state_version || 0)}</div></div>`).join('')}</div>` : '<div class="text-xs text-zinc-600">No game actions found.</div>');
+
+            html += adminDetailSection('Calculated Summary', `<div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs"><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Wins</div><div class="font-black text-emerald-300">${wins}</div></div><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Losses</div><div class="font-black text-rose-300">${losses}</div></div><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Net Bot Ledger</div><div class="font-black ${netBot < 0 ? 'text-rose-400' : 'text-indigo-300'}">${netBot}</div></div><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Net Real Ledger</div><div class="font-black ${netReal < 0 ? 'text-rose-400' : 'text-emerald-300'}">${netReal}</div></div><div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Audit / Actions</div><div class="font-black text-white">${events.length} / ${actions.length}</div></div></div>`);
+
+            content.innerHTML = html;
+            toggleAdminUserDetail(true);
+        }
+
         function toggleAdminModal(show) {
             const modal = document.getElementById('admin-modal');
             if (!modal) return;
             if (show) {
+                if (!isConfiguredAdminPlayer()) {
+                    updateAdminVisibility();
+                    return;
+                }
                 modal.classList.remove('hidden');
                 modal.classList.add('flex');
                 const saved = localStorage.getItem(ADMIN_TOKEN_KEY) || '';
@@ -8404,6 +8620,8 @@
                 } else {
                     document.getElementById('admin-login-panel')?.classList.remove('hidden');
                     document.getElementById('admin-dashboard-panel')?.classList.add('hidden');
+                    document.getElementById('admin-refresh-btn')?.classList.add('hidden');
+                    document.getElementById('admin-logout-btn')?.classList.add('hidden');
                 }
             } else {
                 modal.classList.add('hidden');
@@ -8414,6 +8632,8 @@
         function showAdminDashboard() {
             document.getElementById('admin-login-panel')?.classList.add('hidden');
             document.getElementById('admin-dashboard-panel')?.classList.remove('hidden');
+            document.getElementById('admin-refresh-btn')?.classList.remove('hidden');
+            document.getElementById('admin-logout-btn')?.classList.remove('hidden');
             loadAdminDashboard();
         }
 
@@ -8421,6 +8641,10 @@
             const mobile = String(document.getElementById('admin-mobile-input')?.value || '').trim();
             const password = String(document.getElementById('admin-password-input')?.value || '');
             const msg = document.getElementById('admin-login-message');
+            if (mobile !== ADMIN_MOBILE) {
+                if (msg) msg.innerText = 'This account is not the configured admin account.';
+                return;
+            }
             if (msg) msg.innerText = 'Checking admin access...';
             try {
                 const { data, error } = await supabaseClient.rpc('admin_login_least_count', { p_mobile: mobile, p_password: password });
@@ -8447,9 +8671,13 @@
             } catch (e) {}
             adminSessionToken = '';
             adminAuthenticated = false;
+            adminDashboardCache = null;
             localStorage.removeItem(ADMIN_TOKEN_KEY);
             document.getElementById('admin-login-panel')?.classList.remove('hidden');
             document.getElementById('admin-dashboard-panel')?.classList.add('hidden');
+            document.getElementById('admin-refresh-btn')?.classList.add('hidden');
+            document.getElementById('admin-logout-btn')?.classList.add('hidden');
+            toggleAdminUserDetail(false);
         }
 
         async function loadAdminDashboard() {
@@ -8472,6 +8700,7 @@
                 const transactions = Array.isArray(dashboard.transactions) ? dashboard.transactions : [];
                 const events = Array.isArray(dashboard.events) ? dashboard.events : [];
                 const actions = Array.isArray(dashboard.actions) ? dashboard.actions : [];
+                adminDashboardCache = { users, rooms, transactions, events, actions };
 
                 const onlineUsers = users.filter(u => Number(u.active_sessions || 0) > 0).length;
                 const playingRooms = rooms.filter(r => r.status === 'playing').length;
@@ -8500,7 +8729,9 @@
                 const tbody = userSection.querySelector('tbody');
                 users.forEach(u => {
                     const tr = document.createElement('tr');
-                    tr.className = 'border-b border-zinc-900';
+                    tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/70 cursor-pointer';
+                    tr.title = 'Open complete member details';
+                    tr.onclick = () => openAdminUserDetail(u.player_id);
                     const b = Number(u.bot_coins || 0), r = Number(u.real_coins || 0);
                     tr.innerHTML =
                         `<td class="p-2 font-bold text-white">${escapeAccountStatsHtml(u.name)}</td>` +
@@ -8781,7 +9012,12 @@
 
                 rows.forEach(row => {
                     const tr = document.createElement('tr');
-                    tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/60';
+                    const adminCanInspect = isConfiguredAdminPlayer() && adminAuthenticated && !!adminSessionToken;
+                    tr.className = `border-b border-zinc-900 hover:bg-zinc-900/60 ${adminCanInspect ? 'cursor-pointer hover:bg-zinc-900' : ''}`;
+                    if (adminCanInspect) {
+                        tr.title = 'Admin: open complete member history';
+                        tr.onclick = () => openAdminUserDetail(row.player_id);
+                    }
                     const botCoins = Number(row.bot_coins || 0);
                     const realCoins = Number(row.real_coins || 0);
                     const botCoinsClass = botCoins < 0 ? 'text-rose-400' : 'text-indigo-300';
