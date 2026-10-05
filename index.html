@@ -1214,13 +1214,21 @@
 
         myName = String(currentProfile?.name || myName || 'Player');
 
-        // Never copy the host/identity flags from the shared snapshot into
-        // another browser. They belong to the browser that is reconnecting.
-        isHost = localIdentity.isHost;
+        // The shared room snapshot is authoritative for the CURRENT host.
+        // A browser-local snapshot can still say isHost=true because this
+        // browser used to be host before a refresh/takeover. Never use that
+        // stale flag to create a second host.
         isSoloMode = localIdentity.isSoloMode;
         myId = localIdentity.myId || myClientToken;
         if (localIdentity.roomOwnerToken) {
             roomOwnerToken = localIdentity.roomOwnerToken;
+        }
+
+        if (isSoloMode) {
+            isHost = true;
+            roomHostToken = myClientToken;
+        } else {
+            isHost = String(roomHostToken || '').trim() === String(myClientToken || '').trim();
         }
 
         myIndex = players.findIndex(p => p && (
@@ -2291,6 +2299,12 @@
 
         updateWaitingRoomUI();
         renderGameBoard();
+
+        // Publish the takeover immediately. This is critical because the
+        // returning old host may still have an older browser-local snapshot.
+        await persistRoomStateToSupabase();
+        await syncGameHistoryToSupabase('');
+
         logTicker('Previous host disconnected. Game control transferred automatically.');
 
         // Do not leave the takeover lock permanently set. Presence syncs
@@ -2393,7 +2407,9 @@
                             name: myName,
                             clientToken: myClientToken,
                             senderId: myClientToken,
-                            rejoinRequest: true
+                            roomCode: code,
+                            rejoinRequest: true,
+                            autoRejoin: true
                         });
                     }
                 } else if (
@@ -4443,12 +4459,13 @@
                         !!roomOwnerToken &&
                         String(data.clientToken || '').trim() === String(roomOwnerToken).trim();
 
-                    if (isReturningRoomOwner) {
+                    // Browser refreshes are automatic rejoins. A player
+                    // who already belongs to the room is restored immediately;
+                    // no approval is required for a refresh.
+                    if (data.autoRejoin === true || isReturningRoomOwner) {
                         existingPlayer.connected = true;
                         existingPlayer.viewOnly = false;
                         existingPlayer.rejoinPending = false;
-                        // Returning owner does not automatically take authority
-                        // back from the current host. The current host remains host.
                         existingPlayer.isHost =
                             getPlayerRoomToken(existingPlayer) === String(roomHostToken || '').trim();
 
@@ -4456,6 +4473,7 @@
 
                         broadcastPlayerList();
                         updateWaitingRoomUI();
+                        persistRoomStateToSupabase();
 
                         sendRealtimeMessage({
                             type: 'GAME_STATE_UPDATE',
@@ -4471,6 +4489,7 @@
                             walletGameId,
                             gameOpponentCount,
                             roomOwnerToken,
+                            roomHostToken,
                             message: `${existingPlayer.name} rejoined and recovered the existing player record.`
                         });
 
@@ -5408,8 +5427,13 @@
                 }
 
                 myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
+                saveLocalRoomSession();
                 updateWaitingRoomUI();
                 renderGameBoard();
+                if (isHost) {
+                    await persistRoomStateToSupabase();
+                    await syncGameHistoryToSupabase('');
+                }
                 break;
 
             // ----------------------------------------------------
