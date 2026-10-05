@@ -9010,27 +9010,6 @@
         .admin-player-table th,.admin-player-table td { padding:.55rem .65rem; border-bottom:1px solid rgb(39 39 42); text-align:left; vertical-align:top; font-size:10px; }
         .admin-player-table th { color:#a1a1aa; background:rgb(24 24 27); font-weight:800; white-space:nowrap; position:sticky; top:0; z-index:1; }
         .admin-player-table td { color:#d4d4d8; }
-        .admin-players-table-wrap { width:100%; overflow:hidden; border:1px solid rgb(39 39 42); border-radius:.65rem; }
-        .admin-players-table { width:100%; table-layout:fixed; border-collapse:collapse; }
-        .admin-players-table th, .admin-players-table td { border-right:1px solid rgb(39 39 42); border-bottom:1px solid rgb(39 39 42); }
-        .admin-players-table th:last-child, .admin-players-table td:last-child { border-right:0; }
-        .admin-players-table th { padding:.55rem .35rem; font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:#a1a1aa; background:rgb(24 24 27); text-align:center; font-weight:900; }
-        .admin-players-table th:first-child { width:52%; text-align:left; }
-        .admin-players-table th:not(:first-child) { width:16%; }
-        .admin-players-table td { padding:.45rem .35rem; font-size:11px; }
-        .admin-player-name-cell { text-align:left !important; min-width:0; }
-        .admin-player-name-button { display:block; width:100%; min-width:0; text-align:left; padding:0; background:none; border:0; color:inherit; cursor:pointer; }
-        .admin-player-name-text { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#fff; font-weight:800; font-size:11px; }
-        .admin-player-mobile { display:block; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#71717a; font-size:8px; }
-        .admin-players-table tbody tr { background:#050505; }
-        .admin-players-table tbody tr:nth-child(even) { background:#09090b; }
-        .admin-players-table tbody tr:active { background:#18181b; }
-        @media (max-width:380px) {
-            .admin-players-table th { font-size:8px; padding:.5rem .25rem; }
-            .admin-players-table td { padding:.42rem .25rem; font-size:10px; }
-            .admin-player-name-text { font-size:10px; }
-            .admin-player-mobile { font-size:7px; }
-        }
         .admin-game-history { white-space:pre-wrap; word-break:break-word; max-height:55vh; overflow:auto; font-size:10px; line-height:1.5; }
         @media (min-width:640px) {
             .admin-mobile-shell { padding:.75rem; }
@@ -9180,10 +9159,11 @@
                 renderAdminPlayerList();
                 status.innerText = `Loaded ${adminPlayers.length} players and ${adminGameHistoryRows.length} saved game records.`;
 
-                // Always land on the Players list after opening/refreshing Admin.
-                // Never auto-open the first player.
-                adminSelectedPlayerId = '';
-                showAdminPlayersView();
+                if (adminSelectedPlayerId) {
+                    showAdminPlayerView(adminSelectedPlayerId);
+                } else if (adminPlayers[0]) {
+                    showAdminPlayerView(adminPlayers[0].player_id);
+                }
             } catch (error) {
                 console.error('Admin overview load failed:', error);
                 status.innerText = 'Unable to load admin data.';
@@ -9197,55 +9177,32 @@
             const search = document.getElementById('admin-player-search');
             if (!list) return;
             const q = String(search?.value || '').trim().toLowerCase();
-
-            const joinedValue = (p) => p?.created_at || p?.joined_at || p?.registered_at || p?.createdAt || p?.created || '';
-            const rows = [...adminPlayers]
-                .filter(p => !q || String(p.name || '').toLowerCase().includes(q) || String(p.mobile || '').toLowerCase().includes(q))
-                .sort((a,b) => {
-                    const da = new Date(joinedValue(a)).getTime();
-                    const db = new Date(joinedValue(b)).getTime();
-                    if (Number.isFinite(db) && Number.isFinite(da)) return db - da;
-                    if (Number.isFinite(db)) return 1;
-                    if (Number.isFinite(da)) return -1;
-                    return String(b.name || '').localeCompare(String(a.name || ''));
-                });
-
+            const rows = adminPlayers.filter(p =>
+                !q || String(p.name || '').toLowerCase().includes(q) || String(p.mobile || '').toLowerCase().includes(q)
+            );
             if (!rows.length) {
-                list.innerHTML = '<div class="p-8 text-xs text-zinc-600 text-center">No players found.</div>';
+                list.innerHTML = '<div class="col-span-full p-8 text-xs text-zinc-600 text-center">No players found.</div>';
                 return;
             }
-
-            // Compact 4-column table: designed to fit completely on phones without horizontal scrolling.
-            list.innerHTML = `
-                <div class="admin-players-table-wrap">
-                    <table class="admin-players-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Bot</th>
-                                <th>Real</th>
-                                <th>Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rows.map(p => {
-                                const bot = Number(p.bot_games_played || 0);
-                                const real = Number(p.real_games_played || 0);
-                                return `<tr>
-                                    <td class="admin-player-name-cell">
-                                        <button type="button" onclick="showAdminPlayerView('${escapeAdminHtml(p.player_id)}')" class="admin-player-name-button">
-                                            <span class="admin-player-name-text">${escapeAdminHtml(p.name || 'Unnamed')}</span>
-                                            <span class="admin-player-mobile">${escapeAdminHtml(p.mobile || '')}</span>
-                                        </button>
-                                    </td>
-                                    <td class="text-center font-black text-indigo-300">${bot}</td>
-                                    <td class="text-center font-black text-emerald-300">${real}</td>
-                                    <td class="text-center font-black text-white">${bot + real}</td>
-                                </tr>`;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>`;
+            list.innerHTML = rows.map(p => {
+                const bot = Number(p.bot_games_played || 0), real = Number(p.real_games_played || 0);
+                return `<button type="button" onclick="showAdminPlayerView('${escapeAdminHtml(p.player_id)}')"
+                    class="admin-player-card w-full text-left p-3.5 rounded-xl border border-zinc-800 bg-black hover:bg-zinc-900 active:bg-zinc-800 transition">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 shrink-0 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-300 font-black">${escapeAdminHtml(String(p.name || '?').charAt(0).toUpperCase())}</div>
+                        <div class="min-w-0 flex-1">
+                            <div class="admin-card-name font-black text-sm text-white">${escapeAdminHtml(p.name || 'Unnamed')}</div>
+                            <div class="text-[10px] text-zinc-500 mt-1 truncate">${escapeAdminHtml(p.mobile || 'No mobile')}</div>
+                        </div>
+                        <div class="text-zinc-600 text-lg">›</div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-1.5 mt-3 text-center">
+                        <div class="rounded-lg bg-zinc-900 p-1.5"><div class="text-[8px] text-zinc-500">BOT</div><div class="text-xs font-black text-indigo-300">${bot}</div></div>
+                        <div class="rounded-lg bg-zinc-900 p-1.5"><div class="text-[8px] text-zinc-500">REAL</div><div class="text-xs font-black text-emerald-300">${real}</div></div>
+                        <div class="rounded-lg bg-zinc-900 p-1.5"><div class="text-[8px] text-zinc-500">TOTAL</div><div class="text-xs font-black text-white">${bot + real}</div></div>
+                    </div>
+                </button>`;
+            }).join('');
         }
 
         function playerAppearsInGame(row, player) {
@@ -9276,11 +9233,52 @@
                         <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Bot Coins</div><div class="text-sm font-black text-indigo-300 mt-1">${botCoins}</div></div>
                         <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Real Coins</div><div class="text-sm font-black text-emerald-300 mt-1">${realCoins}</div></div>
                     </div>
-                    <div class="grid grid-cols-3 gap-2">
-                        <div class="bg-zinc-900 rounded-xl p-2 text-center"><div class="text-[8px] text-zinc-500">BOT</div><div class="text-lg font-black text-indigo-300">${bot}</div></div>
-                        <div class="bg-zinc-900 rounded-xl p-2 text-center"><div class="text-[8px] text-zinc-500">REAL</div><div class="text-lg font-black text-emerald-300">${real}</div></div>
-                        <div class="bg-zinc-900 rounded-xl p-2 text-center"><div class="text-[8px] text-zinc-500">GAMES</div><div class="text-lg font-black text-amber-300">${games.length}</div></div>
-                    </div>
+                    ${(() => {
+                        const adminClassifyGame = (row) => {
+                            const history = String(row?.game_history || '');
+                            const winner = String(row?.game_winner || '').trim();
+                            const inProgress = !winner || winner.toLowerCase() === 'in progress';
+                            let isBotGame = false;
+
+                            // Current room-state rows contain the authoritative solo/multiplayer flag.
+                            if (history.startsWith(GAME_ROOM_STATE_PREFIX)) {
+                                try {
+                                    const snapshot = JSON.parse(history.slice(GAME_ROOM_STATE_PREFIX.length));
+                                    isBotGame = snapshot?.isSoloMode === true;
+                                } catch (_) {}
+                            }
+
+                            // Completed game-history rows predate the explicit mode flag.
+                            // Preserve existing game data by recognizing the computer/bot marker.
+                            if (!isBotGame) {
+                                const searchable = [
+                                    row?.players_name,
+                                    row?.game_history,
+                                    row?.game_points
+                                ].map(v => String(v || '').toLowerCase()).join(' ');
+                                isBotGame = /\bcomputer\b|\bbot\b/.test(searchable);
+                            }
+
+                            return { isBotGame, inProgress };
+                        };
+
+                        const botInProgress = games.filter(g => { const x = adminClassifyGame(g); return x.isBotGame && x.inProgress; }).length;
+                        const botCompleted = games.filter(g => { const x = adminClassifyGame(g); return x.isBotGame && !x.inProgress; }).length;
+                        const realInProgress = games.filter(g => { const x = adminClassifyGame(g); return !x.isBotGame && x.inProgress; }).length;
+                        const realCompleted = games.filter(g => { const x = adminClassifyGame(g); return !x.isBotGame && !x.inProgress; }).length;
+                        const totalInProgress = botInProgress + realInProgress;
+                        const totalCompleted = botCompleted + realCompleted;
+
+                        return `
+                        <div class="grid grid-cols-3 gap-1.5 sm:gap-2">
+                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-indigo-500/10"><div class="text-[7px] text-indigo-300/70 uppercase font-bold">BOT · IN PROGRESS</div><div class="text-lg font-black text-indigo-300">${botInProgress}</div></div>
+                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-indigo-500/10"><div class="text-[7px] text-indigo-300/70 uppercase font-bold">BOT · COMPLETED</div><div class="text-lg font-black text-indigo-300">${botCompleted}</div></div>
+                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-emerald-500/10"><div class="text-[7px] text-emerald-300/70 uppercase font-bold">REAL · IN PROGRESS</div><div class="text-lg font-black text-emerald-300">${realInProgress}</div></div>
+                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-emerald-500/10"><div class="text-[7px] text-emerald-300/70 uppercase font-bold">REAL · COMPLETED</div><div class="text-lg font-black text-emerald-300">${realCompleted}</div></div>
+                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-amber-500/10"><div class="text-[7px] text-amber-300/70 uppercase font-bold">TOTAL · IN PROGRESS</div><div class="text-lg font-black text-amber-300">${totalInProgress}</div></div>
+                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-amber-500/10"><div class="text-[7px] text-amber-300/70 uppercase font-bold">TOTAL · COMPLETED</div><div class="text-lg font-black text-amber-300">${totalCompleted}</div></div>
+                        </div>`;
+                    })()}
                     <div class="text-[10px] text-zinc-600">Password is not displayed because the existing authentication data does not contain the plaintext password.</div>
                     <div class="flex items-center justify-between gap-2 pt-1">
                         <h3 class="text-sm font-black text-emerald-300">Games involving this player</h3>
