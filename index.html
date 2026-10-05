@@ -865,6 +865,12 @@
     // ============================================================
 
     const GAME_HISTORY_URL = `${SUPABASE_BASE_URL}/rest/v1/least_count_game_history`;
+
+    // Persistent room state. Realtime is transport only; Supabase stores
+    // the live room snapshot so a browser refresh can restore the room.
+    const GAME_ROOM_SESSION_KEY = 'leastCountGameRoomSessionV3';
+    const GAME_ROOM_STATE_PREFIX = '__LEAST_COUNT_ROOM_STATE_V3__';
+
     let gameHistoryHostName = '';
 
     function getGameHistoryHostName() {
@@ -933,6 +939,312 @@
         };
     }
 
+
+    function buildPersistentRoomSnapshot() {
+        if (!roomCode) return null;
+
+        return {
+            version: 3,
+            savedAt: new Date().toISOString(),
+            roomCode: String(roomCode),
+            isSoloMode: !!isSoloMode,
+            isHost: !!isHost,
+            myId: String(myId || ''),
+            myClientToken: String(myClientToken || ''),
+            roomHostToken: String(roomHostToken || ''),
+            roomOwnerToken: String(roomOwnerToken || ''),
+            myName: String(myName || ''),
+            maxPlayersLimit: Number(maxPlayersLimit) || 4,
+            cardsPerPlayer: Number(cardsPerPlayer) || 5,
+            targetEliminationPoints: Number(targetEliminationPoints) || 50,
+            includeJoker: includeJoker === true,
+            players: Array.isArray(players) ? players : [],
+            deck: Array.isArray(deck) ? deck : [],
+            discardPile: Array.isArray(discardPile) ? discardPile : [],
+            currentTurnIndex: Number(currentTurnIndex) || 0,
+            turnPhase: String(turnPhase || 'drop'),
+            roundActive: !!roundActive,
+            gameHistory: Array.isArray(gameHistory) ? gameHistory : [],
+            roundCounter: Number(roundCounter) || 0,
+            walletGameId: String(walletGameId || ''),
+            gameOpponentCount: Number(gameOpponentCount) || 1,
+            gameHistoryHostName: String(getGameHistoryHostName() || ''),
+            authoritativeStateVersion: Number(authoritativeStateVersion) || 0
+        };
+    }
+
+    function saveLocalRoomSession() {
+        const snapshot = buildPersistentRoomSnapshot();
+        if (!snapshot) return;
+
+        try {
+            localStorage.setItem(GAME_ROOM_SESSION_KEY, JSON.stringify(snapshot));
+        } catch (error) {
+            console.warn('Could not save local room session:', error);
+        }
+    }
+
+    function clearLocalRoomSession() {
+        try {
+            localStorage.removeItem(GAME_ROOM_SESSION_KEY);
+        } catch (e) {}
+    }
+
+    function readLocalRoomSession() {
+        try {
+            const raw = localStorage.getItem(GAME_ROOM_SESSION_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed && parsed.roomCode ? parsed : null;
+        } catch (error) {
+            console.warn('Could not read saved room session:', error);
+            return null;
+        }
+    }
+
+    function applyPersistentRoomSnapshot(snapshot) {
+        if (!snapshot || !snapshot.roomCode) return false;
+
+        roomCode = String(snapshot.roomCode).trim().toUpperCase();
+        isSoloMode = snapshot.isSoloMode === true;
+        isHost = snapshot.isHost === true;
+        myId = String(snapshot.myId || myClientToken || '');
+        roomHostToken = String(snapshot.roomHostToken || '');
+        roomOwnerToken = String(snapshot.roomOwnerToken || '');
+        myName = String(snapshot.myName || currentProfile?.name || 'Player');
+
+        maxPlayersLimit = Number(snapshot.maxPlayersLimit) || 4;
+        cardsPerPlayer = Number(snapshot.cardsPerPlayer) || 5;
+        targetEliminationPoints = Number(snapshot.targetEliminationPoints) || 50;
+        includeJoker = snapshot.includeJoker === true;
+
+        players = Array.isArray(snapshot.players) ? snapshot.players : [];
+        deck = Array.isArray(snapshot.deck) ? snapshot.deck : [];
+        discardPile = Array.isArray(snapshot.discardPile) ? snapshot.discardPile : [];
+        currentTurnIndex = Number(snapshot.currentTurnIndex) || 0;
+        turnPhase = String(snapshot.turnPhase || 'drop');
+        roundActive = snapshot.roundActive === true;
+        gameHistory = Array.isArray(snapshot.gameHistory) ? snapshot.gameHistory : [];
+        roundCounter = Number(snapshot.roundCounter) || 0;
+        walletGameId = String(snapshot.walletGameId || '');
+        gameOpponentCount = Number(snapshot.gameOpponentCount) || 1;
+        gameHistoryHostName = String(snapshot.gameHistoryHostName || '');
+        authoritativeStateVersion = Number(snapshot.authoritativeStateVersion) || 0;
+        lastAppliedStateVersion = authoritativeStateVersion;
+
+        myIndex = players.findIndex(p => p && (
+            p.clientToken === myClientToken || p.id === myId
+        ));
+
+        const me = myIndex >= 0 ? players[myIndex] : null;
+        if (me) {
+            me.clientToken = me.clientToken || myClientToken;
+            me.connected = true;
+            me.viewOnly = false;
+            me.rejoinPending = false;
+            myId = String(me.id || myId || myClientToken);
+            myName = String(me.name || myName || 'Player');
+        }
+
+        resetTournamentWinnerState(roomCode);
+        return true;
+    }
+
+    async function persistRoomStateToSupabase() {
+        if (!roomCode) return false;
+
+        const snapshot = buildPersistentRoomSnapshot();
+        if (!snapshot) return false;
+
+        saveLocalRoomSession();
+
+        // Only the authoritative host writes the shared room snapshot.
+        if (!isHost || !currentUser) return true;
+
+        const stateCode = `${GAME_ROOM_STATE_PREFIX}${String(roomCode).toUpperCase()}`;
+        const payload = {
+            game_host: getGameHistoryHostName(),
+            game_code: stateCode,
+            game_winner: '',
+            players_name: Array.isArray(players)
+                ? players.map(p => p?.name || '').filter(Boolean).join(', ')
+                : '',
+            game_points: 'ROOM_STATE',
+            game_history: `${GAME_ROOM_STATE_PREFIX}${JSON.stringify(snapshot)}`
+        };
+
+        try {
+            const lookup = await fetch(
+                `${GAME_HISTORY_URL}?game_code=eq.${encodeURIComponent(stateCode)}&select=id`,
+                {
+                    headers: {
+                        'apikey': SUPABASE_APIKEY,
+                        'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            if (!lookup.ok) throw new Error('Room state lookup failed');
+            const rows = await lookup.json();
+
+            if (Array.isArray(rows) && rows.length) {
+                const response = await fetch(
+                    `${GAME_HISTORY_URL}?id=eq.${encodeURIComponent(rows[0].id)}`,
+                    {
+                        method: 'PATCH',
+                        headers: {
+                            'apikey': SUPABASE_APIKEY,
+                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=minimal'
+                        },
+                        body: JSON.stringify(payload)
+                    }
+                );
+                if (!response.ok) throw new Error('Room state update failed');
+            } else {
+                const response = await fetch(
+                    GAME_HISTORY_URL,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'apikey': SUPABASE_APIKEY,
+                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=minimal'
+                        },
+                        body: JSON.stringify(payload)
+                    }
+                );
+                if (!response.ok) throw new Error('Room state insert failed');
+            }
+
+            return true;
+        } catch (error) {
+            console.error('Persistent room state sync failed:', error);
+            return false;
+        }
+    }
+
+    async function loadPersistentRoomState(roomKey) {
+        const code = String(roomKey || '').trim().toUpperCase();
+        if (!code) return null;
+
+        const stateCode = `${GAME_ROOM_STATE_PREFIX}${code}`;
+
+        try {
+            const response = await fetch(
+                `${GAME_HISTORY_URL}?game_code=eq.${encodeURIComponent(stateCode)}&select=*&order=created_at.desc&limit=1`,
+                {
+                    headers: {
+                        'apikey': SUPABASE_APIKEY,
+                        'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            if (!response.ok) return null;
+            const rows = await response.json();
+            if (!Array.isArray(rows) || !rows.length) return null;
+
+            const encoded = String(rows[0].game_history || '');
+            if (!encoded.startsWith(GAME_ROOM_STATE_PREFIX)) return null;
+
+            const snapshot = JSON.parse(
+                encoded.slice(GAME_ROOM_STATE_PREFIX.length)
+            );
+
+            return snapshot && snapshot.roomCode ? snapshot : null;
+        } catch (error) {
+            console.warn('Could not load persistent room state:', error);
+            return null;
+        }
+    }
+
+    function showRoomAfterRestore() {
+        document.getElementById('auth-screen')?.classList.add('hidden');
+        document.getElementById('lobby-screen')?.classList.add('hidden');
+        document.getElementById('waiting-screen')?.classList.toggle('hidden', roundActive);
+
+        if (roundActive) {
+            document.getElementById('game-board-screen')?.classList.remove('hidden');
+            document.getElementById('round-over-modal')?.classList.add('hidden');
+            document.getElementById('sticky-scores-wrapper')?.classList.remove('hidden');
+            document.getElementById('game-status-banner')?.classList.remove('hidden');
+            const me = players[myIndex];
+            document.getElementById('game-status-banner').innerText =
+                me?.viewOnly ? 'View Only Mode' : 'Playing';
+            renderGameBoard();
+        } else {
+            document.getElementById('game-board-screen')?.classList.add('hidden');
+            document.getElementById('waiting-screen')?.classList.remove('hidden');
+            document.getElementById('host-controls')?.classList.toggle('hidden', !isHost);
+            updateWaitingRoomUI();
+        }
+
+        document.getElementById('room-badge')?.classList.remove('hidden');
+        const roomEl = document.getElementById('current-room-id');
+        if (roomEl) roomEl.innerText = roomCode;
+        setHeaderAction(false);
+    }
+
+    async function restoreSavedRoomSession() {
+        const localSnapshot = readLocalRoomSession();
+        if (!localSnapshot || !currentUser) return false;
+
+        const savedCode = String(localSnapshot.roomCode || '').trim().toUpperCase();
+        if (!savedCode) return false;
+
+        const localIdentity = {
+            isHost: localSnapshot.isHost === true,
+            isSoloMode: localSnapshot.isSoloMode === true,
+            myId: String(localSnapshot.myId || myClientToken || ''),
+            roomOwnerToken: String(localSnapshot.roomOwnerToken || '')
+        };
+
+        let snapshot = await loadPersistentRoomState(savedCode);
+        if (!snapshot) snapshot = localSnapshot;
+
+        if (!applyPersistentRoomSnapshot(snapshot)) {
+            clearLocalRoomSession();
+            return false;
+        }
+
+        myName = String(currentProfile?.name || myName || 'Player');
+
+        // Never copy the host/identity flags from the shared snapshot into
+        // another browser. They belong to the browser that is reconnecting.
+        isHost = localIdentity.isHost;
+        isSoloMode = localIdentity.isSoloMode;
+        myId = localIdentity.myId || myClientToken;
+        if (localIdentity.roomOwnerToken) {
+            roomOwnerToken = localIdentity.roomOwnerToken;
+        }
+
+        myIndex = players.findIndex(p => p && (
+            p.clientToken === myClientToken || p.id === myId
+        ));
+
+        if (myIndex < 0 && isSoloMode) {
+            myIndex = 0;
+        }
+
+        initRealtimeChannel(roomCode);
+        showRoomAfterRestore();
+
+        if (isHost) {
+            await persistRoomStateToSupabase();
+            await syncGameHistoryToSupabase('');
+            logTicker(`Reconnected to room ${roomCode}.`);
+        } else {
+            logTicker(`Reconnecting to room ${roomCode}...`);
+        }
+
+        return true;
+    }
+
     async function syncGameHistoryToSupabase(finalWinner = '') {
         if (!isHost || !roomCode) return;
 
@@ -995,6 +1307,10 @@
         } catch (error) {
             console.error('Game history sync failed:', error);
         }
+
+        // Keep a separate hidden state row so the visible game-history
+        // record remains human-readable while the live room is recoverable.
+        await persistRoomStateToSupabase();
     }
 
     const nicknameInput = document.getElementById('nickname-input');
@@ -1610,6 +1926,10 @@
 
             authSessionToken = token;
             await handleCustomAuthenticatedUser(result);
+
+            // A normal login starts in the lobby. A page refresh with an
+            // active room automatically reconnects to that same room.
+            await restoreSavedRoomSession();
         } catch (error) {
             console.warn('Saved login session could not be restored:', error);
             clearAuthSession();
@@ -1643,6 +1963,7 @@
         botWallet = 0;
         realWallet = 0;
         roomCode = '';
+        clearLocalRoomSession();
         players = [];
         document.getElementById('current-room-id')?.replaceChildren();
         document.getElementById('room-badge')?.classList.add('hidden');
@@ -1989,7 +2310,10 @@
         authoritativeStateVersion = 0;
         lastAppliedStateVersion = 0;
         processedGameActionIds.clear();
-        roomHostToken = '';
+        if (!roomHostToken) {
+            const saved = readLocalRoomSession();
+            roomHostToken = String(saved?.roomHostToken || '').trim();
+        }
         // Preserve roomOwnerToken across reconnects to the same room.
         // It is loaded by createRoom/joinRoom and must not be reset here.
         hostTransferInProgress = false;
@@ -2623,7 +2947,7 @@
         pendingGameActionRetries.clear();
 
         try {
-            localStorage.removeItem('leastCountGameSession');
+            clearLocalRoomSession();
         } catch (e) {}
 
         updateGameOnlyFooterControls(false);
@@ -2973,7 +3297,7 @@
             if (roomChannel) await supabaseClient.removeChannel(roomChannel);
         } catch (e) {}
         roomChannel = null;
-        try { localStorage.removeItem('leastCountGameSession'); } catch (e) {}
+        try { clearLocalRoomSession(); } catch (e) {}
         updateGameOnlyFooterControls(false);
 
         isHost = false;
@@ -3247,7 +3571,7 @@
     // SOLO MODE
     // ============================================================
 
-    function startSoloGame() {
+    async function startSoloGame() {
 
         if (!currentUser) { showAuthScreen(true); return; }
 
@@ -3397,9 +3721,10 @@
 
         renderGameBoard();
 
-        // Solo/Computer games use the same Supabase game-history table.
-        // isHost=true in solo mode, so this creates the history row too.
-        syncGameHistoryToSupabase('');
+        // Create the Supabase record immediately, including the current
+        // deck/hands/turn, so refreshing a bot game restores the same game.
+        saveLocalRoomSession();
+        await syncGameHistoryToSupabase('');
 
         logTicker(
             "Solo game started against Computer bots!"
@@ -3412,7 +3737,7 @@
     // CREATE ROOM
     // ============================================================
 
-    function createRoom() {
+    async function createRoom() {
 
         if (!currentUser) { showAuthScreen(true); return; }
 
@@ -3529,6 +3854,11 @@
 
         updateWaitingRoomUI();
 
+        // Create the game-history row immediately, before any round starts.
+        // Also save a complete room snapshot for refresh/reconnect recovery.
+        saveLocalRoomSession();
+        await syncGameHistoryToSupabase('');
+
         registerPublicRoom(
             'waiting',
             'no'
@@ -3640,6 +3970,12 @@
     // ============================================================
 
     function broadcastPlayerList() {
+
+        if (isHost) {
+            persistRoomStateToSupabase();
+        } else {
+            saveLocalRoomSession();
+        }
 
         sendRealtimeMessage({
 
@@ -4058,6 +4394,14 @@
     // ============================================================
 
     async function handleIncomingNetworkData(data) {
+
+        // Save shortly after processing starts; incoming authoritative state
+        // is applied synchronously before any awaited wallet work.
+        if (roomCode) {
+            setTimeout(() => {
+                try { saveLocalRoomSession(); } catch (e) {}
+            }, 0);
+        }
 
         // ========================================================
         // HOST SIDE
@@ -5729,7 +6073,7 @@
     // START HOST GAME
     // ============================================================
 
-    function startHostGame() {
+    async function startHostGame() {
 
         if (!isSoloMode && !isHost) {
             logTicker('Only the room host can start the game.');
@@ -5811,6 +6155,10 @@
         updateRoomStartedStatus(
             'yes'
         );
+
+        // Persist the starting hands/deck/turn before broadcasting to guests.
+        saveLocalRoomSession();
+        await syncGameHistoryToSupabase('');
 
         /*
          * Start is the first authoritative state of the game.
@@ -5952,6 +6300,14 @@
         sendRealtimeMessage(
             payload
         );
+
+        // Realtime carries the update to connected clients; Supabase keeps
+        // the same authoritative snapshot for browser-refresh recovery.
+        if (isHost) {
+            persistRoomStateToSupabase();
+        } else {
+            saveLocalRoomSession();
+        }
     }
 
     // ============================================================
@@ -6403,6 +6759,10 @@
 
             renderGameBoard();
             logTicker(msg);
+
+            if (isSoloMode) {
+                persistRoomStateToSupabase();
+            }
 
         } else {
 
@@ -7344,7 +7704,11 @@
 
         renderGameBoard();
 
-       
+        if (isHost) {
+            persistRoomStateToSupabase();
+        } else {
+            saveLocalRoomSession();
+        }
 
         checkBotTurn();
     }
@@ -8420,7 +8784,8 @@
 
             const selectedDate = dateSelect.value || getDatabaseHistoryToday();
             const rows = databaseGameHistoryRows.filter(row =>
-                getDatabaseHistoryLocalDate(row.created_at) === selectedDate
+                getDatabaseHistoryLocalDate(row.created_at) === selectedDate &&
+                !String(row.game_code || '').startsWith(GAME_ROOM_STATE_PREFIX)
             );
 
             list.innerHTML = '';
