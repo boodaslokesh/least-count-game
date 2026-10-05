@@ -1862,16 +1862,22 @@
     }
 
     async function logoutUser() {
-        // Clear the browser session/UI FIRST. Network calls must never be able
-        // to block logout or leave the user apparently logged in.
-        const playerToken = authSessionToken;
-        const adminToken = adminSessionToken;
-        const channelToRemove = roomChannel;
+        try {
+            if (roomChannel) {
+                await supabaseClient.removeChannel(roomChannel);
+                roomChannel = null;
+            }
 
-        authSessionToken = '';
-        adminSessionToken = '';
-        adminAuthenticated = false;
-        adminDashboardCache = null;
+            if (authSessionToken) {
+                await supabaseClient.rpc('logout_least_count_player', {
+                    p_session_token: authSessionToken
+                });
+            }
+        } catch (error) {
+            console.error('Logout failed:', error);
+        }
+
+        clearAuthSession();
         currentUser = null;
         currentProfile = null;
         myName = '';
@@ -1879,36 +1885,13 @@
         realWallet = 0;
         roomCode = '';
         players = [];
-        isHost = false;
-        isSoloMode = false;
-        roomChannel = null;
-
-        try {
-            localStorage.removeItem(GAME_AUTH_TOKEN_KEY);
-            localStorage.removeItem(ADMIN_TOKEN_KEY);
-            localStorage.removeItem('leastCountGameSession');
-            clearActiveRoomSession();
-        } catch (e) {}
-
-        // Hide every authenticated/admin surface immediately.
-        updateAdminVisibility();
-        toggleAdminUserDetail(false);
-        document.getElementById('admin-modal')?.classList.add('hidden');
-        document.getElementById('admin-modal')?.classList.remove('flex');
-        document.getElementById('admin-login-panel')?.classList.remove('hidden');
-        document.getElementById('admin-dashboard-panel')?.classList.add('hidden');
-        document.getElementById('admin-refresh-btn')?.classList.add('hidden');
-        document.getElementById('admin-logout-btn')?.classList.add('hidden');
-        document.getElementById('logout-btn')?.classList.add('hidden');
-        document.getElementById('game-board-screen')?.classList.add('hidden');
-        document.getElementById('waiting-screen')?.classList.add('hidden');
-        document.getElementById('lobby-screen')?.classList.remove('hidden');
+        document.getElementById('current-room-id')?.replaceChildren();
         document.getElementById('room-badge')?.classList.add('hidden');
         document.getElementById('game-status-banner')?.classList.add('hidden');
         if (document.getElementById('game-status-banner')) {
             document.getElementById('game-status-banner').style.display = 'none';
         }
-        document.getElementById('current-room-id')?.replaceChildren();
+        renderWallets();
 
         const loggedName = document.getElementById('logged-in-name');
         const nameStrip = document.getElementById('lobby-user-name-strip');
@@ -1917,51 +1900,17 @@
             loggedName.classList.add('hidden');
             loggedName.style.transform = 'scaleX(1)';
         }
-        nameStrip?.classList.add('hidden');
-        renderWallets();
+        if (nameStrip) nameStrip.classList.add('hidden');
+
+        document.getElementById('logout-btn')?.classList.add('hidden');
         setHeaderAction(true);
+        document.getElementById('game-board-screen')?.classList.add('hidden');
+        document.getElementById('waiting-screen')?.classList.add('hidden');
+        document.getElementById('lobby-screen')?.classList.remove('hidden');
+
         showAuthScreen(true);
         switchAuthTab('login');
         setAuthMessage('Logged out.', false);
-
-        // Best-effort server cleanup after the UI is already logged out.
-        try {
-            stopRoomHeartbeat();
-            if (channelToRemove) {
-                await Promise.race([
-                    supabaseClient.removeChannel(channelToRemove),
-                    new Promise(resolve => setTimeout(resolve, 1500))
-                ]);
-            }
-        } catch (e) {
-            console.warn('Realtime channel cleanup failed during logout:', e);
-        }
-
-        try {
-            if (playerToken) {
-                await Promise.race([
-                    supabaseClient.rpc('logout_least_count_player', {
-                        p_session_token: playerToken
-                    }),
-                    new Promise(resolve => setTimeout(resolve, 2000))
-                ]);
-            }
-        } catch (e) {
-            console.warn('Player server logout cleanup failed:', e);
-        }
-
-        try {
-            if (adminToken) {
-                await Promise.race([
-                    supabaseClient.rpc('admin_logout_least_count', {
-                        p_session_token: adminToken
-                    }),
-                    new Promise(resolve => setTimeout(resolve, 2000))
-                ]);
-            }
-        } catch (e) {
-            console.warn('Admin server logout cleanup failed:', e);
-        }
     }
 
     let deck = [];
@@ -3731,7 +3680,7 @@
     // CREATE ROOM
     // ============================================================
 
-    async function createRoom() {
+    function createRoom() {
 
         if (!currentUser) { showAuthScreen(true); return; }
 
@@ -3770,16 +3719,9 @@
 
         isHost = true;
         myId = myClientToken;
-        roomHostToken = myClientToken;
-        roomOwnerToken = myClientToken;
 
         roomCode =
             generateShortCode();
-
-        const createdRoomCode = roomCode;
-        try {
-            localStorage.setItem(`leastCountRoomOwner:${createdRoomCode}`, roomOwnerToken);
-        } catch (e) {}
 
         gameHistoryHostName = myName;
 
@@ -3806,44 +3748,6 @@
         ];
 
         myIndex = 0;
-
-        // Persist the room before changing the UI. If Supabase rejects the
-        // request (expired login, missing RPC, RLS/function issue, etc.),
-        // remain in the lobby instead of showing a fake room.
-        if (!authSessionToken) {
-            showLobbyError('Your login session is missing or expired. Please logout and login again.');
-            roomCode = '';
-            players = [];
-            isHost = false;
-            return;
-        }
-
-        try {
-            const { data: roomSaved, error: roomSaveError } = await supabaseClient.rpc(
-                'upsert_least_count_room',
-                {
-                    p_session_token: authSessionToken,
-                    p_room_code: roomCode,
-                    p_host_token: roomHostToken,
-                    p_owner_token: roomOwnerToken,
-                    p_status: 'waiting',
-                    p_state_version: 0,
-                    p_state: buildPersistedGameState()
-                }
-            );
-
-            if (roomSaveError) throw roomSaveError;
-            if (roomSaved === false) throw new Error('Room was not saved by the server.');
-        } catch (error) {
-            console.error('Room creation/persistence failed:', error);
-            const message = String(error?.message || error?.details || 'Unable to create room.');
-            try { localStorage.removeItem(`leastCountRoomOwner:${createdRoomCode}`); } catch (e) {}
-            roomCode = '';
-            players = [];
-            isHost = false;
-            showLobbyError(`Room could not be created: ${message}`);
-            return;
-        }
 
         initRealtimeChannel(roomCode);
 
