@@ -183,6 +183,9 @@
                 Waiting...
             </div>
 
+            <span id="connection-status-indicator"
+                  class="hidden text-[9px] font-black px-2 py-1 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-400"
+                  title="Realtime connection status">● Offline</span>
             <button id="logout-btn"
                     onclick="logoutUser()"
                     class="hidden bg-zinc-800 hover:bg-zinc-700 text-rose-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-700">
@@ -213,6 +216,11 @@
             <button type="button" onclick="toggleCoinInstructionsModal(true)"
                     class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-indigo-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
                 Coins Instructions
+            </button>
+            <span class="text-zinc-700">|</span>
+            <button id="admin-nav-btn" type="button" onclick="toggleAdminModal(true)"
+                    class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-rose-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
+                Admin
             </button>
         </div>
     </nav>
@@ -1111,10 +1119,16 @@
     let myId = '';
     let myName = '';
     let myClientToken = '';
+    // Authoritative host identity for the current multiplayer room.
+    let roomHostToken = '';
+    // Permanent owner identity for the room. It does not change when host authority changes.
+    let roomOwnerToken = '';
+    let hostTransferInProgress = false;
+    let lastHostTransferAt = 0;
 
     try {
         myClientToken =
-            sessionStorage.getItem('leastCountClientToken') || '';
+            localStorage.getItem('leastCountClientToken') || '';
 
         if (!myClientToken) {
             myClientToken =
@@ -1122,11 +1136,16 @@
                 Math.random().toString(36).slice(2) +
                 Date.now().toString(36);
 
-            sessionStorage.setItem(
+            localStorage.setItem(
                 'leastCountClientToken',
                 myClientToken
             );
         }
+
+        // Keep a sessionStorage copy for compatibility with older sessions.
+        try {
+            sessionStorage.setItem('leastCountClientToken', myClientToken);
+        } catch (e) {}
     } catch (e) {
         myClientToken =
             'client-' +
@@ -1163,6 +1182,193 @@
     // (player_id, game_id, wallet_type) constraint, so retries are safe.
     const walletSettlementInFlight = new Map();
     const walletSettlementCompleted = new Set();
+
+    // ============================================================
+    // PRODUCTION HARDENING STATE
+    // ============================================================
+    let lastPersistedStateVersion = 0;
+    let persistencePromise = Promise.resolve();
+    // Turn timeout intentionally disabled. Turns advance only through normal game actions.
+    // ============================================================
+    // REFRESH / BROWSER-RELOAD ROOM RECOVERY
+    // ============================================================
+    const ACTIVE_ROOM_SESSION_KEY = 'leastCountActiveRoomSession';
+
+    function saveActiveRoomSession() {
+        if (!roomCode || isSoloMode || !currentUser) return;
+        try { localStorage.setItem(ACTIVE_ROOM_SESSION_KEY, JSON.stringify({ roomCode, clientToken: myClientToken, playerId: currentUser.id || '', roomOwnerToken: roomOwnerToken || '', savedAt: Date.now() })); } catch (e) {}
+    }
+    function getActiveRoomSession() {
+        try { const raw = localStorage.getItem(ACTIVE_ROOM_SESSION_KEY); if (!raw) return null; const x = JSON.parse(raw); if (!x?.roomCode) return null; if (x.clientToken && x.clientToken !== myClientToken) return null; return x; } catch (e) { return null; }
+    }
+    function clearActiveRoomSession() { try { localStorage.removeItem(ACTIVE_ROOM_SESSION_KEY); } catch (e) {} }
+
+    async function restoreActiveRoomAfterRefresh() {
+        const session = getActiveRoomSession();
+        if (!session || !currentUser || !authSessionToken) return false;
+        const code = String(session.roomCode || '').trim().toUpperCase();
+        if (!code) return false;
+        isSoloMode = false; roomCode = code; myId = myClientToken; gameHistory = [];
+        try { roomOwnerToken = String(session.roomOwnerToken || localStorage.getItem(`leastCountRoomOwner:${roomCode}`) || '').trim(); } catch (e) {}
+        await loadPersistedGameState();
+        myIndex = players.findIndex(p => p && (p.clientToken === myClientToken || p.id === myClientToken));
+        if (myIndex < 0) { clearActiveRoomSession(); return false; }
+        const me = players[myIndex];
+        roomHostToken = String(roomHostToken || players.find(p => p?.isHost)?.clientToken || '').trim();
+        isHost = roomHostToken === myClientToken;
+        me.connected = true; me.viewOnly = false; me.rejoinPending = false;
+        if (isHost) me.isHost = true;
+        initRealtimeChannel(roomCode);
+        saveActiveRoomSession();
+        document.getElementById('lobby-screen')?.classList.add('hidden');
+        setHeaderAction(false);
+        document.getElementById('waiting-screen')?.classList.toggle('hidden', !!roundActive);
+        document.getElementById('game-board-screen')?.classList.toggle('hidden', !roundActive);
+        document.getElementById('room-badge')?.classList.remove('hidden');
+        document.getElementById('sticky-scores-wrapper')?.classList.remove('hidden');
+        const roomIdEl = document.getElementById('current-room-id'); if (roomIdEl) roomIdEl.innerText = roomCode;
+        const statusEl = document.getElementById('game-status-banner'); if (statusEl) { statusEl.classList.remove('hidden'); statusEl.innerText = roundActive ? 'Playing' : 'Room'; }
+        if (isHost) document.getElementById('host-controls')?.classList.remove('hidden'); else document.getElementById('host-controls')?.classList.add('hidden');
+        updateWaitingRoomUI(); renderGameBoard(); logTicker(`Reconnected to room ${roomCode} after refresh.`);
+        return true;
+    }
+
+    function buildPersistedGameState() {
+        return {
+            roomCode,
+            roomOwnerToken,
+            roomHostToken,
+            players,
+            deck,
+            discardPile,
+            currentTurnIndex,
+            turnPhase,
+            roundActive,
+            gameHistory,
+            gameHistoryHostName,
+            walletGameId,
+            gameOpponentCount,
+            cardsPerPlayer,
+            targetEliminationPoints,
+            includeJoker,
+            roundCounter,
+            maxPlayersLimit,
+            isSoloMode: !!isSoloMode
+        };
+    }
+
+    async function persistAuthoritativeGameState(force = false) {
+        if (!authSessionToken || !roomCode || isSoloMode || !isHost) return false;
+        if (!force && authoritativeStateVersion <= lastPersistedStateVersion) return true;
+
+        const state = buildPersistedGameState();
+        const version = Number(authoritativeStateVersion) || 0;
+        const status = roundActive ? 'playing' : (players.length ? 'round_over' : 'waiting');
+
+        persistencePromise = persistencePromise.then(async () => {
+            const { error } = await supabaseClient.rpc('upsert_least_count_game_state', {
+                p_session_token: authSessionToken,
+                p_room_code: roomCode,
+                p_state: state,
+                p_state_version: version,
+                p_status: status,
+                p_host_token: roomHostToken || myClientToken,
+                p_owner_token: roomOwnerToken || myClientToken
+            });
+            if (error) throw error;
+            lastPersistedStateVersion = Math.max(lastPersistedStateVersion, version);
+            saveActiveRoomSession();
+        }).catch(error => {
+            console.error('Authoritative state persistence failed:', error);
+            setConnectionIndicator('reconnecting');
+            logTicker('Game state is temporarily waiting for server persistence.');
+            return false;
+        });
+
+        await persistencePromise;
+        return lastPersistedStateVersion >= version;
+    }
+
+    async function loadPersistedGameState() {
+        if (!authSessionToken || !roomCode || isSoloMode) return false;
+        try {
+            const { data, error } = await supabaseClient.rpc('load_least_count_game_state', {
+                p_session_token: authSessionToken,
+                p_room_code: roomCode
+            });
+            if (error) throw error;
+            const row = Array.isArray(data) ? data[0] : data;
+            const state = row?.state;
+            const version = Number(row?.state_version || 0);
+            if (!state || version < Number(lastAppliedStateVersion || 0)) return false;
+            players = state.players || players;
+            deck = state.deck || deck;
+            discardPile = state.discardPile || discardPile;
+            currentTurnIndex = Number(state.currentTurnIndex ?? currentTurnIndex);
+            turnPhase = state.turnPhase || turnPhase;
+            roundActive = state.roundActive === true;
+            gameHistory = state.gameHistory || gameHistory;
+            gameHistoryHostName = state.gameHistoryHostName || gameHistoryHostName;
+            walletGameId = state.walletGameId || walletGameId;
+            gameOpponentCount = Number(state.gameOpponentCount || gameOpponentCount);
+            cardsPerPlayer = Number(state.cardsPerPlayer || cardsPerPlayer);
+            targetEliminationPoints = Number(state.targetEliminationPoints || targetEliminationPoints);
+            includeJoker = state.includeJoker === true;
+            roundCounter = Number(state.roundCounter || roundCounter);
+            maxPlayersLimit = Number(state.maxPlayersLimit || maxPlayersLimit);
+            if (state.roomOwnerToken) roomOwnerToken = String(state.roomOwnerToken);
+            if (state.roomHostToken) roomHostToken = String(state.roomHostToken);
+            lastAppliedStateVersion = version;
+            authoritativeStateVersion = Math.max(authoritativeStateVersion, version);
+            myIndex = players.findIndex(p => p && (p.id === myId || p.clientToken === myClientToken));
+            updateWaitingRoomUI();
+            renderGameBoard();
+            return true;
+        } catch (error) {
+            console.error('Persisted game state load failed:', error);
+            return false;
+        }
+    }
+
+    async function serverValidateGameAction(data) {
+        if (!authSessionToken || !roomCode || isSoloMode) return true;
+        try {
+            await persistencePromise;
+            const { data: result, error } = await supabaseClient.rpc('validate_least_count_game_action', {
+                p_session_token: authSessionToken,
+                p_room_code: roomCode,
+                p_action_id: String(data.actionId || ''),
+                p_client_token: String(data.clientToken || data.senderId || ''),
+                p_action: String(data.action || ''),
+                p_card_uid: data.cardUid ? String(data.cardUid) : null,
+                p_expected_state_version: Number(authoritativeStateVersion) || 0
+            });
+            if (error) throw error;
+            const row = Array.isArray(result) ? result[0] : result;
+            return row?.valid === true;
+        } catch (error) {
+            console.error('Server action validation failed:', error);
+            logTicker('Action rejected because server validation is unavailable.');
+            return false;
+        }
+    }
+
+    async function recordServerAction(actionId, action, clientToken, cardUid = '') {
+        if (!authSessionToken || !roomCode || isSoloMode) return;
+        try {
+            await supabaseClient.rpc('record_least_count_game_action', {
+                p_session_token: authSessionToken,
+                p_room_code: roomCode,
+                p_action_id: String(actionId || ''),
+                p_client_token: String(clientToken || ''),
+                p_action: String(action || ''),
+                p_card_uid: cardUid ? String(cardUid) : null,
+                p_state_version: Number(authoritativeStateVersion) || 0
+            });
+        } catch (error) {
+            console.error('Game action audit failed:', error);
+        }
+    }
 
     function renderWallets() {
         const botEl = document.getElementById('bot-wallet-balance');
@@ -1561,8 +1767,9 @@
         document.getElementById('logout-btn')?.classList.remove('hidden');
         showAuthScreen(false);
 
-        // A fresh login always lands in the lobby, never in a previous room header state.
-        setHeaderAction(true);
+        // Restore an active multiplayer room after a browser refresh.
+        const restoredRoom = await restoreActiveRoomAfterRefresh();
+        if (!restoredRoom) setHeaderAction(true);
 
         if (account.bot_coins !== undefined) {
             botWallet = Number(account.bot_coins || 0);
@@ -1610,6 +1817,10 @@
     }
 
     async function logoutUser() {
+        stopRoomHeartbeat();
+        adminSessionToken = '';
+        adminAuthenticated = false;
+        localStorage.removeItem(ADMIN_TOKEN_KEY);
         try {
             if (roomChannel) {
                 await supabaseClient.removeChannel(roomChannel);
@@ -1720,14 +1931,270 @@
     // REALTIME MESSAGING WRAPPER
     // ============================================================
 
+    /*
+     * MULTIPLAYER STATE RELIABILITY
+     *
+     * The host is the single authoritative owner of the live game state.
+     * Guests send only intents (DROP / DRAW / SHOW). They never send a
+     * complete replacement deck/player/turn state.
+     *
+     * This prevents stale or delayed packets from overwriting a newer
+     * turn, which was the root cause of the game sometimes appearing
+     * stuck until a player exited and rejoined.
+     */
+    let roomChannelReady = false;
+    let realtimeOutboundQueue = [];
+    let authoritativeStateVersion = 0;
+    let lastAppliedStateVersion = 0;
+    const processedGameActionIds = new Set();
+    const pendingGameActionRetries = new Map();
+
+    function createGameActionId(actionType) {
+        return [
+            myClientToken || myId || 'client',
+            actionType || 'action',
+            Date.now().toString(36),
+            Math.random().toString(36).slice(2, 10)
+        ].join('-');
+    }
+
+    function sendGameActionWithRetry(payload, maxAttempts = 3) {
+        if (!payload || !payload.actionId) {
+            return sendRealtimeMessage(payload);
+        }
+
+        const actionId = String(payload.actionId);
+
+        if (pendingGameActionRetries.has(actionId)) {
+            return pendingGameActionRetries.get(actionId);
+        }
+
+        const promise = (async () => {
+            try {
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+
+                    if (!pendingGameActionRetries.has(actionId)) {
+                        return;
+                    }
+
+                    const result = await sendRealtimeMessage(payload);
+
+                    /*
+                     * Supabase normally returns "ok". Even if the transport
+                     * does not provide a positive result, the same action id
+                     * is safe to retry because the host deduplicates it.
+                     */
+                    if (
+                        result === 'ok' ||
+                        result?.status === 'ok'
+                    ) {
+                        return;
+                    }
+
+                    if (attempt < maxAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, 350));
+                    }
+                }
+            } finally {
+                pendingGameActionRetries.delete(actionId);
+            }
+        })();
+
+        pendingGameActionRetries.set(actionId, promise);
+        return promise;
+    }
+
     function sendRealtimeMessage(payload) {
-        if (roomChannel) {
-            return roomChannel.send({
-                type: 'broadcast',
-                event: 'game_event',
-                payload: payload
+        if (!roomChannel) {
+            return Promise.resolve(false);
+        }
+
+        if (!roomChannelReady) {
+            return new Promise(resolve => {
+                realtimeOutboundQueue.push({
+                    payload,
+                    resolve
+                });
             });
         }
+
+        return roomChannel.send({
+            type: 'broadcast',
+            event: 'game_event',
+            payload
+        });
+    }
+
+    async function flushRealtimeOutboundQueue() {
+        if (!roomChannel || !roomChannelReady || !realtimeOutboundQueue.length) {
+            return;
+        }
+
+        const queue = realtimeOutboundQueue.splice(0);
+
+        for (const item of queue) {
+            try {
+                const result = await roomChannel.send({
+                    type: 'broadcast',
+                    event: 'game_event',
+                    payload: item.payload
+                });
+                item.resolve(result);
+            } catch (error) {
+                item.resolve(false);
+                console.error('Realtime queued message failed:', error);
+            }
+        }
+    }
+
+    function getPresentRoomClientTokens() {
+        if (!roomChannel || !roomChannel.presenceState) return new Set();
+
+        const present = new Set();
+        try {
+            const state = roomChannel.presenceState() || {};
+            Object.keys(state).forEach(key => {
+                const metas = Array.isArray(state[key]) ? state[key] : [];
+                metas.forEach(meta => {
+                    const token = String(
+                        meta?.clientToken ||
+                        meta?.presence_ref ||
+                        meta?.playerId ||
+                        key ||
+                        ''
+                    ).trim();
+                    if (token) present.add(token);
+                });
+            });
+        } catch (e) {}
+        return present;
+    }
+
+    function getPlayerRoomToken(player) {
+        return String(player?.clientToken || player?.id || '').trim();
+    }
+
+    function chooseDeterministicHostCandidate(presentTokens) {
+        const candidates = players
+            .map((player, index) => ({ player, index, token: getPlayerRoomToken(player) }))
+            .filter(({ player, token }) =>
+                token &&
+                presentTokens.has(token) &&
+                player.connected !== false &&
+                player.eliminated !== true &&
+                player.viewOnly !== true &&
+                player.isBot !== true
+            );
+
+        candidates.sort((a, b) => a.token.localeCompare(b.token));
+        return candidates[0] || null;
+    }
+
+    async function maybeElectNewHost(reason = 'host-disconnected') {
+        if (isSoloMode || !roomChannel || !roomChannelReady || !players.length) return;
+        if (hostTransferInProgress) return;
+
+        const currentHostToken = String(
+            roomHostToken ||
+            (players.find(p => p && p.isHost === true)?.clientToken ||
+             players.find(p => p && p.isHost === true)?.id ||
+             '')
+        ).trim();
+
+        if (!currentHostToken) return;
+
+        const presentTokens = getPresentRoomClientTokens();
+
+        // The current host is still present; nothing to do.
+        if (presentTokens.has(currentHostToken)) return;
+
+        const candidate = chooseDeterministicHostCandidate(presentTokens);
+        if (!candidate) return;
+
+        // Every client computes the same candidate. Only that candidate
+        // performs the takeover broadcast, preventing split-brain hosts.
+        if (candidate.token !== myClientToken) return;
+
+        // Recover the newest durable snapshot before taking authority.
+        await loadPersistedGameState();
+
+        hostTransferInProgress = true;
+        lastHostTransferAt = Date.now();
+
+        const oldHost = players.find(p => getPlayerRoomToken(p) === currentHostToken);
+        if (oldHost) {
+            oldHost.connected = false;
+            oldHost.viewOnly = false;
+            oldHost.rejoinPending = false;
+            oldHost.isHost = false;
+        }
+
+        // If the disconnected host owned the current turn, immediately
+        // move the turn forward so the game cannot remain blocked on them.
+        if (
+            roundActive &&
+            players[currentTurnIndex] &&
+            getPlayerRoomToken(players[currentTurnIndex]) === currentHostToken
+        ) {
+            advanceTurn();
+        }
+
+        players.forEach(p => { p.isHost = getPlayerRoomToken(p) === candidate.token; });
+        isHost = true;
+        roomHostToken = candidate.token;
+        candidate.player.connected = true;
+        candidate.player.viewOnly = false;
+        candidate.player.rejoinPending = false;
+
+        authoritativeStateVersion = Math.max(
+            Number(authoritativeStateVersion) || 0,
+            Number(lastAppliedStateVersion) || 0
+        ) + 1;
+
+        const takeoverPayload = {
+            type: 'HOST_TAKEOVER',
+            reason,
+            newHostToken: candidate.token,
+            oldHostToken: currentHostToken,
+            roomOwnerToken: roomOwnerToken || currentHostToken,
+            players,
+            deck,
+            discardPile,
+            currentTurnIndex,
+            turnPhase,
+            roundActive,
+            gameHistory,
+            gameHistoryHostName,
+            processedActionIds: Array.from(processedGameActionIds).slice(-500),
+            stateVersion: authoritativeStateVersion
+        };
+
+        try {
+            await supabaseClient.rpc('claim_least_count_room_host', {
+                p_session_token: authSessionToken,
+                p_room_code: roomCode,
+                p_host_token: candidate.token,
+                p_owner_token: roomOwnerToken || currentHostToken
+            });
+        } catch (e) {
+            console.error('Server host lease claim failed:', e);
+        }
+
+        persistAuthoritativeGameState(true);
+
+        try {
+            await sendRealtimeMessage(takeoverPayload);
+        } catch (e) {
+            console.error('Automatic host takeover broadcast failed:', e);
+        }
+
+        updateWaitingRoomUI();
+        renderGameBoard();
+        logTicker('Previous host disconnected. Game control transferred automatically.');
+
+        // Do not leave the takeover lock permanently set. Presence syncs
+        // after this point will see the new host as present.
+        setTimeout(() => { hostTransferInProgress = false; }, 1500);
     }
 
     function initRealtimeChannel(code) {
@@ -1737,11 +2204,24 @@
         // If this is only a reconnect to the same room, keep its current chat.
         resetRoomChatState(code);
 
+        roomChannelReady = false;
+        realtimeOutboundQueue = [];
+        authoritativeStateVersion = 0;
+        lastAppliedStateVersion = 0;
+        processedGameActionIds.clear();
+        roomHostToken = '';
+        // Preserve roomOwnerToken across reconnects to the same room.
+        // It is loaded by createRoom/joinRoom and must not be reset here.
+        hostTransferInProgress = false;
+        lastHostTransferAt = 0;
+
         if (roomChannel) {
-            supabaseClient.removeChannel(roomChannel);
+            try {
+                supabaseClient.removeChannel(roomChannel);
+            } catch (e) {}
         }
 
-        roomChannel = supabaseClient.channel(`room_${code}`, {
+        const channel = supabaseClient.channel(`room_${code}`, {
             config: {
                 broadcast: {
                     self: true
@@ -1749,7 +2229,21 @@
             }
         });
 
-        roomChannel
+        roomChannel = channel;
+
+        // Supabase Presence is used only for host-failure detection.
+        // It does not carry game state; the game state remains the
+        // authoritative snapshot already synchronized to every client.
+        channel.on(
+            'presence',
+            { event: 'sync' },
+            () => {
+                if (roomChannel !== channel || isSoloMode) return;
+                maybeElectNewHost('presence-sync');
+            }
+        );
+
+        channel
             .on(
                 'broadcast',
                 { event: 'game_event' },
@@ -1759,10 +2253,32 @@
             )
             .subscribe((status) => {
 
+                // Ignore callbacks from an old channel after a room/session
+                // has already created a replacement channel.
+                if (roomChannel !== channel) {
+                    return;
+                }
+
                 if (status === 'SUBSCRIBED') {
+                    roomChannelReady = true;
+                    setConnectionIndicator('connected');
+
+                    // Presence lets every client detect a host browser that
+                    // closes/crashes without pressing Exit.
+                    try {
+                        channel.track({
+                            clientToken: myClientToken,
+                            playerId: myId || myClientToken,
+                            roomCode: code,
+                            isHost: isHost === true
+                        });
+                    } catch (e) {
+                        console.warn('Could not track room presence:', e);
+                    }
+
+                    flushRealtimeOutboundQueue();
 
                     if (!isHost && !isSoloMode) {
-
                         /*
                          * Existing player:
                          * DO NOT automatically reconnect.
@@ -1774,9 +2290,17 @@
                             name: myName,
                             clientToken: myClientToken,
                             senderId: myClientToken,
-                            rejoinRequest: true
+                            rejoinRequest: true,
+                            refreshReconnect: true
                         });
                     }
+                } else if (
+                    status === 'CHANNEL_ERROR' ||
+                    status === 'TIMED_OUT' ||
+                    status === 'CLOSED'
+                ) {
+                    roomChannelReady = false;
+                    setConnectionIndicator(status === 'TIMED_OUT' ? 'reconnecting' : 'offline');
                 }
             });
     }
@@ -2237,6 +2761,7 @@
                 currentTurnIndex: currentTurnIndex,
                 turnPhase: turnPhase,
                 roundActive: roundActive,
+                stateVersion: authoritativeStateVersion,
                 gameHistory: gameHistory
             });
 
@@ -2268,6 +2793,7 @@
                 currentTurnIndex: currentTurnIndex,
                 turnPhase: turnPhase,
                 roundActive: roundActive,
+                stateVersion: authoritativeStateVersion,
                 gameHistory: gameHistory
             });
 
@@ -2312,15 +2838,26 @@
         } catch (e) {}
 
         roomChannel = null;
+        roomChannelReady = false;
+        realtimeOutboundQueue = [];
+        authoritativeStateVersion = 0;
+        lastAppliedStateVersion = 0;
+        processedGameActionIds.clear();
+        pendingGameActionRetries.clear();
 
         try {
             localStorage.removeItem('leastCountGameSession');
+            clearActiveRoomSession();
         } catch (e) {}
 
         updateGameOnlyFooterControls(false);
 
         isHost = false;
         isSoloMode = false;
+        roomHostToken = '';
+        roomOwnerToken = '';
+        hostTransferInProgress = false;
+        lastHostTransferAt = 0;
         myId = '';
         roomCode = '';
         resetRoomChatState('');
@@ -2582,6 +3119,16 @@
 
                     if (successor) {
 
+                        roomHostToken =
+                            successor.clientToken ||
+                            successor.id ||
+                            '';
+
+                        authoritativeStateVersion = Math.max(
+                            Number(authoritativeStateVersion) || 0,
+                            Number(lastAppliedStateVersion) || 0
+                        ) + 1;
+
                         await sendRealtimeMessage({
 
                             type:
@@ -2610,7 +3157,16 @@
                                 gameHistoryHostName,
 
                             roundActive:
-                                roundActive
+                                roundActive,
+
+                            gameHistory:
+                                gameHistory,
+
+                            processedActionIds:
+                                Array.from(processedGameActionIds).slice(-500),
+
+                            stateVersion:
+                                authoritativeStateVersion
                         });
                     }
 
@@ -2641,7 +3197,8 @@
             if (roomChannel) await supabaseClient.removeChannel(roomChannel);
         } catch (e) {}
         roomChannel = null;
-        try { localStorage.removeItem('leastCountGameSession'); } catch (e) {}
+        try { localStorage.removeItem('leastCountGameSession');
+            clearActiveRoomSession(); } catch (e) {}
         updateGameOnlyFooterControls(false);
 
         isHost = false;
@@ -2772,6 +3329,11 @@
 
             if (newHost) {
 
+                roomHostToken =
+                    newHost.clientToken ||
+                    newHost.id ||
+                    '';
+
                 isHost =
                     (
                         newHost.clientToken ===
@@ -2784,6 +3346,9 @@
 
                 type:
                     'HOST_TRANSFERRED',
+
+                roomOwnerToken:
+                    roomOwnerToken,
 
                 newHostToken:
                     newHost
@@ -2940,6 +3505,7 @@
 
         isSoloMode = true;
         isHost = true;
+        roomHostToken = myClientToken;
 
         myId = 'player-me';
 
@@ -2952,6 +3518,8 @@
             Math.random().toString(36).slice(2, 6).toUpperCase();
 
         setWalletGameId();
+
+        saveActiveRoomSession();
 
         gameHistoryHostName = myName;
 
@@ -3110,9 +3678,15 @@
 
         isHost = true;
         myId = myClientToken;
+        roomHostToken = myClientToken;
+        roomOwnerToken = myClientToken;
 
         roomCode =
             generateShortCode();
+
+        try {
+            localStorage.setItem(`leastCountRoomOwner:${roomCode}`, roomOwnerToken);
+        } catch (e) {}
 
         gameHistoryHostName = myName;
 
@@ -3141,6 +3715,15 @@
         myIndex = 0;
 
         initRealtimeChannel(roomCode);
+        supabaseClient.rpc('upsert_least_count_room', {
+            p_session_token: authSessionToken,
+            p_room_code: roomCode,
+            p_host_token: roomHostToken,
+            p_owner_token: roomOwnerToken,
+            p_status: 'waiting',
+            p_state_version: 0,
+            p_state: buildPersistedGameState()
+        }).catch(error => console.error('Room persistence failed:', error));
 
         document.getElementById(
             'lobby-screen'
@@ -3250,11 +3833,21 @@
         }
 
         isHost = false;
+        roomHostToken = '';
         myId = myClientToken;
         roomCode = codeInput;
         gameHistory = [];
 
-        initRealtimeChannel(roomCode);
+        // Recover the permanent room-owner identity when this browser created
+        // the room earlier. Host authority may have moved to another player.
+        try {
+            roomOwnerToken = localStorage.getItem(`leastCountRoomOwner:${roomCode}`) || '';
+        } catch (e) {
+            roomOwnerToken = '';
+        }
+
+        saveActiveRoomSession();
+        loadPersistedGameState().finally(() => initRealtimeChannel(roomCode));
     }
 
     function showLobbyError(msg) {
@@ -3734,6 +4327,64 @@
                  */
                 if (existingPlayer) {
 
+                    if (data.refreshReconnect === true) {
+                        existingPlayer.connected = true;
+                        existingPlayer.viewOnly = false;
+                        existingPlayer.rejoinPending = false;
+                        existingPlayer.isHost = getPlayerRoomToken(existingPlayer) === String(roomHostToken || '').trim();
+                        myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
+                        saveActiveRoomSession();
+                        broadcastPlayerList(); updateWaitingRoomUI();
+                        sendRealtimeMessage({ type:'REJOIN_PERMISSION_RESPONSE', targetToken:myClientToken, permission:'play', players, deck, discardPile, currentTurnIndex, turnPhase, roundActive, gameHistory, gameHistoryHostName, roomHostToken, roomOwnerToken, stateVersion:authoritativeStateVersion });
+                        if (roundActive) broadcastGameState(`${existingPlayer.name} refreshed and reconnected.`);
+                        else logTicker(`${existingPlayer.name} refreshed and reconnected to the room.`);
+                        return;
+                    }
+
+                    // The original room owner is identified by the persistent
+                    // clientToken, never by name. If authority moved to another
+                    // player and the original host comes back, recover the exact
+                    // existing player record (hand, score, elimination state, etc.)
+                    // automatically. Do NOT create a duplicate player.
+                    const isReturningRoomOwner =
+                        !!roomOwnerToken &&
+                        String(data.clientToken || '').trim() === String(roomOwnerToken).trim();
+
+                    if (isReturningRoomOwner) {
+                        existingPlayer.connected = true;
+                        existingPlayer.viewOnly = false;
+                        existingPlayer.rejoinPending = false;
+                        // Returning owner does not automatically take authority
+                        // back from the current host. The current host remains host.
+                        existingPlayer.isHost =
+                            getPlayerRoomToken(existingPlayer) === String(roomHostToken || '').trim();
+
+                        myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
+
+                        broadcastPlayerList();
+                        updateWaitingRoomUI();
+
+                        sendRealtimeMessage({
+                            type: 'GAME_STATE_UPDATE',
+                            players,
+                            deck,
+                            discardPile,
+                            currentTurnIndex,
+                            turnPhase,
+                            stateVersion: authoritativeStateVersion,
+                            roundActive,
+                            gameHistory,
+                            gameHistoryHostName,
+                            walletGameId,
+                            gameOpponentCount,
+                            roomOwnerToken,
+                            message: `${existingPlayer.name} rejoined and recovered the existing player record.`
+                        });
+
+                        logTicker(`${existingPlayer.name} rejoined. Existing cards and score were restored.`);
+                        return;
+                    }
+
                     /*
                      * If the player is already connected,
                      * keep existing behavior.
@@ -3774,6 +4425,15 @@
 
                                 turnPhase:
                                     turnPhase,
+
+                                stateVersion:
+                                    authoritativeStateVersion,
+
+                                roundActive:
+                                    roundActive,
+
+                                gameHistory:
+                                    gameHistory,
 
                                 message:
                                     `${existingPlayer.name} is already connected.`
@@ -3954,7 +4614,8 @@
             ) {
 
                 handleHostShowCall(
-                    data.peerId
+                    data.peerId,
+                    data.actionId || ''
                 );
             }
 
@@ -4308,6 +4969,14 @@
                         data.gameHistory ||
                         gameHistory;
 
+                    if (data.stateVersion !== undefined) {
+                        lastAppliedStateVersion =
+                            Math.max(
+                                Number(lastAppliedStateVersion) || 0,
+                                Number(data.stateVersion) || 0
+                            );
+                    }
+
                     myIndex =
                         players.findIndex(
                             p =>
@@ -4432,6 +5101,14 @@
                         data.gameHistory ||
                         gameHistory;
 
+                    if (data.stateVersion !== undefined) {
+                        lastAppliedStateVersion =
+                            Math.max(
+                                Number(lastAppliedStateVersion) || 0,
+                                Number(data.stateVersion) || 0
+                            );
+                    }
+
                     myIndex =
                         players.findIndex(
                             p =>
@@ -4519,9 +5196,13 @@
 
             case 'HOST_TRANSFERRED':
 
+                if (data.roomOwnerToken) roomOwnerToken = String(data.roomOwnerToken).trim();
+
                 players =
                     data.players ||
                     players;
+
+                roomHostToken = String(data.newHostToken || '').trim();
 
                 if (data.gameHistoryHostName)
                     gameHistoryHostName = data.gameHistoryHostName;
@@ -4568,6 +5249,75 @@
                 updateWaitingRoomUI();
                 renderGameBoard();
 
+                if (isHost && roundActive) {
+                    broadcastGameState('Host transferred. Game state remains unchanged.');
+                }
+
+                break;
+
+            // ----------------------------------------------------
+            // AUTOMATIC HOST TAKEOVER
+            // ----------------------------------------------------
+
+            case 'HOST_TAKEOVER':
+
+                if (
+                    data.stateVersion !== undefined &&
+                    Number(data.stateVersion) <= Number(lastAppliedStateVersion)
+                ) {
+                    break;
+                }
+
+                players = data.players || players;
+                deck = Array.isArray(data.deck) ? data.deck : deck;
+                discardPile = Array.isArray(data.discardPile) ? data.discardPile : discardPile;
+
+                if (data.currentTurnIndex !== undefined)
+                    currentTurnIndex = data.currentTurnIndex;
+                if (data.turnPhase !== undefined)
+                    turnPhase = data.turnPhase;
+                if (data.roundActive !== undefined)
+                    roundActive = data.roundActive;
+                if (Array.isArray(data.gameHistory))
+                    gameHistory = data.gameHistory;
+                if (data.gameHistoryHostName)
+                    gameHistoryHostName = data.gameHistoryHostName;
+                if (data.stateVersion !== undefined)
+                    lastAppliedStateVersion = Number(data.stateVersion) || lastAppliedStateVersion;
+
+                if (Array.isArray(data.processedActionIds)) {
+                    processedGameActionIds.clear();
+                    data.processedActionIds.forEach(id => {
+                        if (id) processedGameActionIds.add(String(id));
+                    });
+                }
+
+                roomHostToken = String(data.newHostToken || '').trim();
+                if (data.roomOwnerToken) roomOwnerToken = String(data.roomOwnerToken).trim();
+                players.forEach(p => {
+                    p.isHost = getPlayerRoomToken(p) === roomHostToken;
+                });
+
+                isHost = roomHostToken === myClientToken;
+
+                if (isHost) {
+                    const me = players.find(p => getPlayerRoomToken(p) === myClientToken);
+                    if (me) {
+                        me.connected = true;
+                        me.viewOnly = false;
+                        me.rejoinPending = false;
+                        me.isHost = true;
+                    }
+                    document.getElementById('host-controls').classList.remove('hidden');
+                    logTicker('Host disconnected. You are now the host. The game continues.');
+                } else {
+                    document.getElementById('host-controls').classList.add('hidden');
+                    logTicker('Host disconnected. A new host is managing the game.');
+                }
+
+                myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
+                updateWaitingRoomUI();
+                renderGameBoard();
                 break;
 
             // ----------------------------------------------------
@@ -4579,6 +5329,8 @@
                 players =
                     data.players ||
                     players;
+
+                roomHostToken = String(data.newHostToken || '').trim();
 
                 if (data.gameHistoryHostName)
                     gameHistoryHostName = data.gameHistoryHostName;
@@ -4611,6 +5363,28 @@
                 )
                     roundActive =
                         data.roundActive;
+
+                if (Array.isArray(data.gameHistory))
+                    gameHistory = data.gameHistory;
+
+                if (data.stateVersion !== undefined)
+                    lastAppliedStateVersion = Math.max(
+                        Number(lastAppliedStateVersion) || 0,
+                        Number(data.stateVersion) || 0
+                    );
+
+                if (Array.isArray(data.processedActionIds)) {
+                    processedGameActionIds.clear();
+                    data.processedActionIds.forEach(id => {
+                        if (id) processedGameActionIds.add(String(id));
+                    });
+                }
+
+                const departedHost = players.find(p => getPlayerRoomToken(p) === data.oldHostToken);
+                if (departedHost) {
+                    departedHost.connected = false;
+                    departedHost.rejoinPending = false;
+                }
 
                 players.forEach(p => {
 
@@ -4680,6 +5454,12 @@
                 players =
                     data.players;
 
+                var synchronizedHost = players.find(p => p && p.isHost === true);
+                if (synchronizedHost) {
+                    roomHostToken = getPlayerRoomToken(synchronizedHost);
+                }
+
+
                 maxPlayersLimit =
                     data.maxPlayers;
 
@@ -4730,8 +5510,27 @@
 
             case 'START_GAME':
 
+                if (
+                    data.stateVersion !== undefined &&
+                    Number(data.stateVersion) < Number(lastAppliedStateVersion)
+                ) {
+                    break;
+                }
+
+                if (data.stateVersion !== undefined) {
+                    lastAppliedStateVersion =
+                        Number(data.stateVersion) || lastAppliedStateVersion;
+                    pendingGameActionRetries.clear();
+                }
+
                 players =
                     data.players;
+
+                var synchronizedHost = players.find(p => p && p.isHost === true);
+                if (synchronizedHost) {
+                    roomHostToken = getPlayerRoomToken(synchronizedHost);
+                }
+
 
                 walletGameId =
                     data.walletGameId ||
@@ -4832,8 +5631,31 @@
 
             case 'GAME_STATE_UPDATE':
 
+                /*
+                 * Ignore stale/out-of-order authoritative states.
+                 * The host increments stateVersion for every accepted
+                 * game-state transition.
+                 */
+                if (
+                    data.stateVersion !== undefined &&
+                    Number(data.stateVersion) <= Number(lastAppliedStateVersion)
+                ) {
+                    break;
+                }
+
+                if (data.stateVersion !== undefined) {
+                    lastAppliedStateVersion =
+                        Number(data.stateVersion) || lastAppliedStateVersion;
+                }
+
                 players =
                     data.players;
+
+                var synchronizedHost = players.find(p => p && p.isHost === true);
+                if (synchronizedHost) {
+                    roomHostToken = getPlayerRoomToken(synchronizedHost);
+                }
+
 
                 deck =
                     data.deck;
@@ -5185,6 +6007,10 @@
         roundCounter = 1;
         gameHistory = [];
 
+        authoritativeStateVersion = 0;
+        lastAppliedStateVersion = 0;
+        processedGameActionIds.clear();
+
         // One unique wallet settlement per online game session.
         setWalletGameId();
 
@@ -5238,10 +6064,18 @@
             'yes'
         );
 
+        /*
+         * Start is the first authoritative state of the game.
+         */
+        authoritativeStateVersion += 1;
+
         let startPayload = {
 
             type:
                 'START_GAME',
+
+            stateVersion:
+                authoritativeStateVersion,
 
             players:
                 players,
@@ -5277,6 +6111,8 @@
         sendRealtimeMessage(
             startPayload
         );
+
+        persistAuthoritativeGameState(true);
 
         document.getElementById(
             'waiting-screen'
@@ -5332,10 +6168,15 @@
 
     function broadcastGameState(msg) {
 
+        authoritativeStateVersion += 1;
+
         let payload = {
 
             type:
                 'GAME_STATE_UPDATE',
+
+            stateVersion:
+                authoritativeStateVersion,
 
             players:
                 players,
@@ -5352,6 +6193,12 @@
             turnPhase:
                 turnPhase,
 
+            roundActive:
+                roundActive,
+
+            gameHistory:
+                gameHistory,
+
             message:
                 msg
         };
@@ -5359,6 +6206,10 @@
         sendRealtimeMessage(
             payload
         );
+
+        // Persist every authoritative state transition. The queue keeps
+        // writes ordered and prevents an older snapshot from winning a race.
+        persistAuthoritativeGameState(false);
     }
 
     // ============================================================
@@ -5528,103 +6379,175 @@
     // CARD CLICK
     // ============================================================
 
+    function applyDropActionForPlayer(playerIndex, cardUid) {
+
+        if (!roundActive || turnPhase !== 'drop')
+            return false;
+
+        if (
+            playerIndex < 0 ||
+            playerIndex >= players.length ||
+            currentTurnIndex !== playerIndex
+        )
+            return false;
+
+        const player = players[playerIndex];
+
+        if (!isPlayerAllowedToPlay(player))
+            return false;
+
+        const cardIndex = Array.isArray(player.hand)
+            ? player.hand.findIndex(c => c && c.uid === cardUid)
+            : -1;
+
+        if (cardIndex === -1)
+            return false;
+
+        const selectedCard = player.hand[cardIndex];
+
+        const droppedCards = player.hand.filter(
+            c => c && c.val === selectedCard.val
+        );
+
+        player.hand = sortHandCards(
+            player.hand.filter(
+                c => !c || c.val !== selectedCard.val
+            )
+        );
+
+        const previousTopCard =
+            discardPile[discardPile.length - 1];
+
+        droppedCards.forEach(c => discardPile.push(c));
+
+        const matchesBoard =
+            !!previousTopCard &&
+            selectedCard.val === previousTopCard.val;
+
+        if (matchesBoard) {
+            turnPhase = 'drop';
+            advanceTurn();
+        } else {
+            turnPhase = 'draw';
+        }
+
+        return true;
+    }
+
+    function applyDrawActionForPlayer(playerIndex) {
+
+        if (!roundActive || turnPhase !== 'draw')
+            return false;
+
+        if (
+            playerIndex < 0 ||
+            playerIndex >= players.length ||
+            currentTurnIndex !== playerIndex
+        )
+            return false;
+
+        const player = players[playerIndex];
+
+        if (!isPlayerAllowedToPlay(player))
+            return false;
+
+        if (
+            deck.length === 0 &&
+            discardPile.length > 1
+        ) {
+            const top = discardPile.pop();
+
+            deck = discardPile;
+            discardPile = [top];
+        }
+
+        if (!deck.length)
+            return false;
+
+        player.hand.push(deck.pop());
+        player.hand = sortHandCards(player.hand);
+
+        turnPhase = 'drop';
+        advanceTurn();
+
+        return true;
+    }
+
+    // ============================================================
+    // CARD CLICK
+    // ============================================================
+
     function handleCardClick(cardUid) {
 
         if (!roundActive)
             return;
 
-        if (
-            currentTurnIndex !==
-            myIndex
-        )
+        if (currentTurnIndex !== myIndex)
             return;
 
-        let me =
-            players[myIndex];
+        const me = players[myIndex];
+
+        if (!isPlayerAllowedToPlay(me))
+            return;
+
+        if (turnPhase !== 'drop')
+            return;
+
+        const cardExists = Array.isArray(me.hand) &&
+            me.hand.some(c => c && c.uid === cardUid);
+
+        if (!cardExists)
+            return;
 
         /*
-         * NEW:
-         * View-only players cannot interact.
+         * Multiplayer guests send only the requested action.
+         * The host validates the turn and mutates the authoritative state.
          */
-        if (
-            me.eliminated ||
-            me.viewOnly === true ||
-            me.connected === false
-        )
+        if (!isHost && !isSoloMode) {
+
+            const actionId = createGameActionId('DROP');
+
+            sendGameActionWithRetry({
+                type: 'PLAYER_ACTION',
+                action: 'DROP',
+                actionId,
+                clientToken: myClientToken,
+                senderId: myClientToken,
+                cardUid
+            });
+
+            logTicker('Card drop sent. Waiting for game state...');
+            return;
+        }
+
+        /*
+         * Host / solo mode applies the action immediately.
+         */
+        const changed = applyDropActionForPlayer(myIndex, cardUid);
+
+        if (!changed)
             return;
 
-        if (turnPhase === 'drop') {
+        if (turnPhase === 'draw') {
 
-            let cardIndex =
-                me.hand.findIndex(
-                    c =>
-                        c.uid ===
-                        cardUid
-                );
+            renderGameBoard();
 
-            if (cardIndex === -1)
-                return;
-
-            let selectedCard =
-                me.hand[cardIndex];
-
-            let droppedCards =
-                me.hand.filter(
-                    c =>
-                        c.val ===
-                        selectedCard.val
-                );
-
-            me.hand =
-                sortHandCards(
-                    me.hand.filter(
-                        c =>
-                            c.val !==
-                            selectedCard.val
-                    )
-                );
-
-            let previousTopCard =
-                discardPile[
-                    discardPile.length - 1
-                ];
-
-            droppedCards.forEach(
-                c =>
-                    discardPile.push(c)
+            logTicker(
+                'Card dropped. Click stock deck to draw.'
             );
 
-            let matchesBoard =
-                previousTopCard &&
-                (
-                    selectedCard.val ===
-                    previousTopCard.val
-                );
+        } else {
 
-            if (matchesBoard) {
+            broadcastGameState(
+                `${me.name} dropped matching board card.`
+            );
 
-                turnPhase =
-                    'drop';
+            renderGameBoard();
+            logTicker(
+                `${me.name} dropped matching board card.`
+            );
 
-                advanceTurn();
-
-                syncActionComplete(
-                    `${me.name} dropped matching board card.`
-                );
-
-                checkBotTurn();
-
-            } else {
-
-                turnPhase =
-                    'draw';
-
-                renderGameBoard();
-
-                logTicker(
-                    "Card dropped. Click stock deck to draw."
-                );
-            }
+            checkBotTurn();
         }
     }
 
@@ -5637,64 +6560,49 @@
         if (!roundActive)
             return;
 
-        if (
-            currentTurnIndex !==
-            myIndex
-        )
+        if (currentTurnIndex !== myIndex)
             return;
 
-        let me =
-            players[myIndex];
+        const me = players[myIndex];
+
+        if (!isPlayerAllowedToPlay(me))
+            return;
+
+        if (turnPhase !== 'draw')
+            return;
 
         /*
-         * NEW:
-         * View-only / disconnected players cannot draw.
+         * Multiplayer guests send only DRAW intent. This is deliberately
+         * not applied locally, because doing so could create a stale
+         * client state that later overwrites the host.
          */
-        if (
-            me.viewOnly === true ||
-            me.connected === false ||
-            me.eliminated
-        )
+        if (!isHost && !isSoloMode) {
+
+            const actionId = createGameActionId('DRAW');
+
+            sendGameActionWithRetry({
+                type: 'PLAYER_ACTION',
+                action: 'DRAW',
+                actionId,
+                clientToken: myClientToken,
+                senderId: myClientToken
+            });
+
+            logTicker('Draw request sent...');
             return;
-
-        if (
-            turnPhase !== 'draw'
-        )
-            return;
-
-        if (
-            deck.length === 0 &&
-            discardPile.length > 1
-        ) {
-
-            let top =
-                discardPile.pop();
-
-            deck =
-                discardPile;
-
-            discardPile =
-                [top];
         }
 
-        if (deck.length > 0)
-            me.hand.push(
-                deck.pop()
-            );
+        const changed = applyDrawActionForPlayer(myIndex);
 
-        turnPhase =
-            'drop';
+        if (!changed) {
+            logTicker('No card could be drawn right now.');
+            return;
+        }
 
-        advanceTurn();
-
-        // Render the draw locally immediately. The host will still
-        // validate and broadcast the authoritative state, but the
-        // player should not wait for the realtime round-trip to see
-        // the card they just drew.
         renderGameBoard();
         logTicker(`${me.name} drew a card.`);
 
-        syncActionComplete(
+        broadcastGameState(
             `${me.name} drew a card.`
         );
 
@@ -5740,6 +6648,10 @@
     // ACTION SYNC
     // ============================================================
 
+    /*
+     * Kept for solo/bot compatibility. Multiplayer human actions no
+     * longer use this function to send a complete client-side state.
+     */
     function syncActionComplete(msg) {
 
         if (isHost) {
@@ -5748,17 +6660,11 @@
                 broadcastGameState(msg);
 
             renderGameBoard();
-
             logTicker(msg);
 
         } else {
 
-            /*
-             * Extra protection:
-             * A view-only player cannot send a game action.
-             */
-            let me =
-                players[myIndex];
+            const me = players[myIndex];
 
             if (
                 me &&
@@ -5769,96 +6675,138 @@
             )
                 return;
 
+            /*
+             * Backward-compatible fallback for any old internal caller.
+             * Normal multiplayer DROP/DRAW paths now use intent messages.
+             */
             sendRealtimeMessage({
-
-                type:
-                    'PLAYER_ACTION',
-
-                players:
-                    players,
-
-                deck:
-                    deck,
-
-                discardPile:
-                    discardPile,
-
-                currentTurnIndex:
-                    currentTurnIndex,
-
-                turnPhase:
-                    turnPhase,
-
-                message:
-                    msg
+                type: 'PLAYER_ACTION',
+                action: 'STATE_SYNC',
+                actionId: createGameActionId('STATE_SYNC'),
+                clientToken: myClientToken,
+                senderId: myClientToken,
+                message: msg
             });
         }
     }
 
-    function handleHostAction(data) {
+    async function handleHostAction(data) {
+
+        if (!isHost || isSoloMode || !roundActive)
+            return;
+
+        const actionId = String(data.actionId || '').trim();
 
         /*
-         * Verify the player that sent the action is actually
-         * allowed to play.
+         * Every human action gets a unique id. Repeated broadcasts of the
+         * same action are ignored, making retries safe.
          */
-        let actionPlayer =
-            data.players &&
-            data.players.find(
+        if (actionId) {
+
+            if (processedGameActionIds.has(actionId))
+                return;
+
+            processedGameActionIds.add(actionId);
+
+            // Keep memory bounded for very long games.
+            if (processedGameActionIds.size > 2000) {
+                const first = processedGameActionIds.values().next().value;
+                if (first) processedGameActionIds.delete(first);
+            }
+        }
+
+        const senderToken =
+            String(
+                data.clientToken ||
+                data.senderId ||
+                ''
+            ).trim();
+
+        const playerIndex =
+            players.findIndex(
                 p =>
+                    p &&
                     (
-                        p.clientToken ||
-                        p.id
-                    ) ===
-                    (
-                        data.clientToken ||
-                        data.senderId
+                        p.clientToken === senderToken ||
+                        p.id === senderToken
                     )
             );
 
+        if (playerIndex < 0)
+            return;
+
+        const actionPlayer = players[playerIndex];
+
+        // Server-side validation is an additional production gate. The host
+        // still applies the same existing game logic below, so game rules
+        // remain unchanged while forged/out-of-turn actions are rejected.
+        if (!(await serverValidateGameAction(data))) return;
+
         /*
-         * Preserve the existing behavior when the identity
-         * is not supplied by the older action payload.
+         * Authoritative validation:
+         * - sender must be the player whose turn it is
+         * - player must be eligible
+         * - requested action must match the current phase
          */
         if (
-            actionPlayer &&
-            (
-                actionPlayer.viewOnly === true ||
-                actionPlayer.connected === false
-            )
+            currentTurnIndex !== playerIndex ||
+            !isPlayerAllowedToPlay(actionPlayer)
         )
             return;
 
-        players =
-            data.players;
+        let changed = false;
+        let message = '';
 
-        deck =
-            data.deck;
+        if (data.action === 'DROP') {
 
-        discardPile =
-            data.discardPile;
+            changed = applyDropActionForPlayer(
+                playerIndex,
+                data.cardUid
+            );
 
-        currentTurnIndex =
-            data.currentTurnIndex;
+            if (changed) {
+                message =
+                    turnPhase === 'draw'
+                        ? `${actionPlayer.name} dropped a card.`
+                        : `${actionPlayer.name} dropped matching board card.`;
+            }
 
-        turnPhase =
-            data.turnPhase;
+        } else if (data.action === 'DRAW') {
 
-        broadcastGameState(
-            data.message
-        );
+            changed = applyDrawActionForPlayer(
+                playerIndex
+            );
 
+            if (changed) {
+                message =
+                    `${actionPlayer.name} drew a card.`;
+            }
+
+        } else {
+
+            /*
+             * Never accept a client-provided complete state.
+             * Unknown/legacy state-sync packets are intentionally ignored.
+             */
+            return;
+        }
+
+        if (!changed)
+            return;
+
+        await recordServerAction(actionId, data.action, senderToken, data.cardUid || '');
+        broadcastGameState(message);
         renderGameBoard();
+        logTicker(message);
 
-        logTicker(
-            data.message
-        );
+        checkBotTurn();
     }
 
     // ============================================================
     // CALL SHOW
     // ============================================================
 
-    function callShow() {
+    async function callShow() {
 
         let me =
             players[myIndex];
@@ -5897,30 +6845,30 @@
             return;
         }
 
-        if (
-            isHost ||
-            isSoloMode
-        ) {
+        const actionId = createGameActionId('SHOW');
 
-            executeShowRound(
-                myId
-            );
-
+        if (isHost || isSoloMode) {
+            if (!isSoloMode && !(await serverValidateGameAction({
+                action: 'SHOW',
+                actionId,
+                clientToken: myClientToken,
+                senderId: myClientToken
+            }))) return;
+            await recordServerAction(actionId, 'SHOW', myClientToken);
+            executeShowRound(myId);
         } else {
-
             sendRealtimeMessage({
-
-                type:
-                    'CALL_SHOW',
-
-                peerId:
-                    myId
+                type: 'CALL_SHOW',
+                peerId: myId,
+                clientToken: myClientToken,
+                actionId
             });
         }
     }
 
-    function handleHostShowCall(
-        callerPeerId
+    async function handleHostShowCall(
+        callerPeerId,
+        actionId = ''
     ) {
 
         /*
@@ -5944,9 +6892,16 @@
         )
             return;
 
-        executeShowRound(
-            callerPeerId
-        );
+        const validation = await serverValidateGameAction({
+            action: 'SHOW',
+            actionId: actionId || createGameActionId('SHOW'),
+            clientToken: caller.clientToken || callerPeerId,
+            senderId: caller.clientToken || callerPeerId
+        });
+        if (!validation) return;
+
+        await recordServerAction(actionId || createGameActionId('SHOW'), 'SHOW', caller.clientToken || callerPeerId);
+        executeShowRound(callerPeerId);
     }
 
     function escapeRoundResultHtml(value) {
@@ -6389,6 +7344,8 @@
                 payload
             );
         }
+
+        persistAuthoritativeGameState(true);
     }
 
     function showRoundOverModal(
@@ -6610,6 +7567,9 @@
 
             type:
                 'START_GAME',
+
+            roomOwnerToken:
+                roomOwnerToken,
 
             players:
                 players,
@@ -7420,6 +8380,122 @@
 
     <script>
         // ============================================================
+        // PRODUCTION ADMIN DASHBOARD
+        // ============================================================
+
+        function toggleAdminModal(show) {
+            const modal = document.getElementById('admin-modal');
+            if (!modal) return;
+            if (show) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                const saved = localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+                if (saved) {
+                    adminSessionToken = saved;
+                    adminAuthenticated = true;
+                    showAdminDashboard();
+                } else {
+                    document.getElementById('admin-login-panel')?.classList.remove('hidden');
+                    document.getElementById('admin-dashboard-panel')?.classList.add('hidden');
+                }
+            } else {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+
+        function showAdminDashboard() {
+            document.getElementById('admin-login-panel')?.classList.add('hidden');
+            document.getElementById('admin-dashboard-panel')?.classList.remove('hidden');
+            loadAdminDashboard();
+        }
+
+        async function adminLogin() {
+            const mobile = String(document.getElementById('admin-mobile-input')?.value || '').trim();
+            const password = String(document.getElementById('admin-password-input')?.value || '');
+            const msg = document.getElementById('admin-login-message');
+            if (msg) msg.innerText = 'Checking admin access...';
+            try {
+                const { data, error } = await supabaseClient.rpc('admin_login_least_count', { p_mobile: mobile, p_password: password });
+                if (error) throw error;
+                const row = Array.isArray(data) ? data[0] : data;
+                if (!row?.session_token) throw new Error('ADMIN_LOGIN_FAILED');
+                adminSessionToken = row.session_token;
+                adminAuthenticated = true;
+                localStorage.setItem(ADMIN_TOKEN_KEY, adminSessionToken);
+                if (msg) msg.innerText = 'Admin access granted.';
+                showAdminDashboard();
+            } catch (error) {
+                console.error('Admin login failed:', error);
+                adminAuthenticated = false;
+                adminSessionToken = '';
+                localStorage.removeItem(ADMIN_TOKEN_KEY);
+                if (msg) msg.innerText = 'Invalid admin credentials.';
+            }
+        }
+
+        async function adminLogout() {
+            try {
+                if (adminSessionToken) await supabaseClient.rpc('admin_logout_least_count', { p_session_token: adminSessionToken });
+            } catch (e) {}
+            adminSessionToken = '';
+            adminAuthenticated = false;
+            localStorage.removeItem(ADMIN_TOKEN_KEY);
+            document.getElementById('admin-login-panel')?.classList.remove('hidden');
+            document.getElementById('admin-dashboard-panel')?.classList.add('hidden');
+        }
+
+        async function loadAdminDashboard() {
+            if (!adminAuthenticated || !adminSessionToken) return;
+            const summary = document.getElementById('admin-summary');
+            const content = document.getElementById('admin-dashboard-content');
+            if (!summary || !content) return;
+            summary.innerText = 'Loading secure admin dashboard...';
+            try {
+                const { data, error } = await supabaseClient.rpc('admin_get_least_count_dashboard', { p_session_token: adminSessionToken });
+                if (error) throw error;
+                const row = Array.isArray(data) ? data[0] : data;
+                const dashboard = row?.dashboard || row || {};
+                const users = Array.isArray(dashboard.users) ? dashboard.users : [];
+                const rooms = Array.isArray(dashboard.rooms) ? dashboard.rooms : [];
+                const events = Array.isArray(dashboard.events) ? dashboard.events : [];
+                summary.innerHTML = `<span class="text-white font-bold">${users.length}</span> users · <span class="text-amber-300 font-bold">${rooms.length}</span> active/recent rooms · <span class="text-rose-300 font-bold">${events.length}</span> audit events`;
+                content.innerHTML = '';
+
+                const userSection = document.createElement('section');
+                userSection.className = 'bg-black border border-zinc-800 rounded-2xl p-3 overflow-x-auto';
+                userSection.innerHTML = `<h3 class="font-black text-white mb-3">Users & Wallets</h3><table class="w-full min-w-[760px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500"><th class="text-left p-2">Name</th><th class="text-left p-2">Mobile</th><th class="text-right p-2">Bot</th><th class="text-right p-2">Real</th><th class="text-right p-2">Bot Games</th><th class="text-right p-2">Real Games</th></tr></thead><tbody></tbody></table>`;
+                const tbody = userSection.querySelector('tbody');
+                users.forEach(u => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'border-b border-zinc-900';
+                    const b = Number(u.bot_coins || 0), r = Number(u.real_coins || 0);
+                    tr.innerHTML = `<td class="p-2 font-bold text-white">${escapeAccountStatsHtml(u.name)}</td><td class="p-2 text-zinc-400">${escapeAccountStatsHtml(u.mobile)}</td><td class="p-2 text-right font-black ${b < 0 ? 'text-rose-400' : 'text-indigo-300'}">${b}</td><td class="p-2 text-right font-black ${r < 0 ? 'text-rose-400' : 'text-emerald-300'}">${r}</td><td class="p-2 text-right text-zinc-300">${Number(u.bot_games_played || 0)}</td><td class="p-2 text-right text-zinc-300">${Number(u.real_games_played || 0)}</td>`;
+                    tbody.appendChild(tr);
+                });
+                content.appendChild(userSection);
+
+                const roomSection = document.createElement('section');
+                roomSection.className = 'bg-black border border-zinc-800 rounded-2xl p-3 overflow-x-auto';
+                roomSection.innerHTML = `<h3 class="font-black text-white mb-3">Room Lifecycle</h3><table class="w-full min-w-[700px] text-xs"><thead><tr class="border-b border-zinc-800 text-zinc-500"><th class="text-left p-2">Room</th><th class="text-left p-2">Status</th><th class="text-right p-2">Version</th><th class="text-left p-2">Updated</th></tr></thead><tbody></tbody></table>`;
+                const rt = roomSection.querySelector('tbody');
+                rooms.forEach(x => { const tr=document.createElement('tr'); tr.className='border-b border-zinc-900'; tr.innerHTML=`<td class="p-2 font-bold text-white">${escapeAccountStatsHtml(x.room_code)}</td><td class="p-2 text-amber-300">${escapeAccountStatsHtml(x.status)}</td><td class="p-2 text-right text-zinc-300">${Number(x.state_version||0)}</td><td class="p-2 text-zinc-400">${escapeAccountStatsHtml(formatAccountDate(x.updated_at))}</td>`; rt.appendChild(tr); });
+                content.appendChild(roomSection);
+
+                const eventSection = document.createElement('section');
+                eventSection.className = 'bg-black border border-zinc-800 rounded-2xl p-3';
+                eventSection.innerHTML = `<h3 class="font-black text-white mb-3">Recent Audit Events</h3><div class="space-y-2"></div>`;
+                const ec = eventSection.querySelector('div');
+                events.forEach(x => { const d=document.createElement('div'); d.className='border-b border-zinc-900 pb-2 text-[10px] text-zinc-400'; d.innerHTML=`<span class="text-rose-300 font-bold">${escapeAccountStatsHtml(x.event_type)}</span> · ${escapeAccountStatsHtml(x.room_code||'—')} · ${escapeAccountStatsHtml(formatAccountDate(x.created_at))}`; ec.appendChild(d); });
+                content.appendChild(eventSection);
+            } catch (error) {
+                console.error('Admin dashboard load failed:', error);
+                summary.innerText = 'Admin session expired or dashboard unavailable.';
+                if (String(error?.message || '').includes('ADMIN_SESSION_EXPIRED')) adminLogout();
+            }
+        }
+
+        // ============================================================
         // ACCOUNT GAME HISTORY / USER STATISTICS
         // ============================================================
 
@@ -7550,6 +8626,8 @@
         }
 
         async function loadUsersStats() {
+            // Total Game Users is intentionally visible to every logged-in player,
+            // including the admin. Admin-only controls remain protected separately.
             const summary = document.getElementById('users-stats-summary');
             const list = document.getElementById('users-stats-list');
             if (!summary || !list) return;
