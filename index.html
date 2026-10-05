@@ -9225,6 +9225,21 @@
             const games = adminGameHistoryRows.filter(row => playerAppearsInGame(row, player));
             const bot = Number(player.bot_games_played || 0), real = Number(player.real_games_played || 0);
             const botCoins = Number(player.bot_coins || 0), realCoins = Number(player.real_coins || 0);
+
+            // Player-specific game status counts. This is calculated from the
+            // same game-history rows already loaded for this player, without
+            // changing any existing game/database logic.
+            const isCompletedAdminGame = row => {
+                const winner = String(row?.game_winner || '').trim();
+                return !!winner && winner.toLowerCase() !== 'in progress' && winner.toLowerCase() !== 'nobody';
+            };
+            const isBotAdminGame = row => String(row?.game_code || '').toUpperCase().startsWith('SOLO-');
+            const botInProgress = games.filter(r => isBotAdminGame(r) && !isCompletedAdminGame(r)).length;
+            const botCompleted = games.filter(r => isBotAdminGame(r) && isCompletedAdminGame(r)).length;
+            const realInProgress = games.filter(r => !isBotAdminGame(r) && !isCompletedAdminGame(r)).length;
+            const realCompleted = games.filter(r => !isBotAdminGame(r) && isCompletedAdminGame(r)).length;
+            const totalInProgress = botInProgress + realInProgress;
+            const totalCompleted = botCompleted + realCompleted;
             detail.innerHTML = `
                 <div class="space-y-3">
                     <div class="grid grid-cols-2 gap-2">
@@ -9233,52 +9248,38 @@
                         <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Bot Coins</div><div class="text-sm font-black text-indigo-300 mt-1">${botCoins}</div></div>
                         <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Real Coins</div><div class="text-sm font-black text-emerald-300 mt-1">${realCoins}</div></div>
                     </div>
-                    ${(() => {
-                        const adminClassifyGame = (row) => {
-                            const history = String(row?.game_history || '');
-                            const winner = String(row?.game_winner || '').trim();
-                            const inProgress = !winner || winner.toLowerCase() === 'in progress';
-                            let isBotGame = false;
-
-                            // Current room-state rows contain the authoritative solo/multiplayer flag.
-                            if (history.startsWith(GAME_ROOM_STATE_PREFIX)) {
-                                try {
-                                    const snapshot = JSON.parse(history.slice(GAME_ROOM_STATE_PREFIX.length));
-                                    isBotGame = snapshot?.isSoloMode === true;
-                                } catch (_) {}
-                            }
-
-                            // Completed game-history rows predate the explicit mode flag.
-                            // Preserve existing game data by recognizing the computer/bot marker.
-                            if (!isBotGame) {
-                                const searchable = [
-                                    row?.players_name,
-                                    row?.game_history,
-                                    row?.game_points
-                                ].map(v => String(v || '').toLowerCase()).join(' ');
-                                isBotGame = /\bcomputer\b|\bbot\b/.test(searchable);
-                            }
-
-                            return { isBotGame, inProgress };
-                        };
-
-                        const botInProgress = games.filter(g => { const x = adminClassifyGame(g); return x.isBotGame && x.inProgress; }).length;
-                        const botCompleted = games.filter(g => { const x = adminClassifyGame(g); return x.isBotGame && !x.inProgress; }).length;
-                        const realInProgress = games.filter(g => { const x = adminClassifyGame(g); return !x.isBotGame && x.inProgress; }).length;
-                        const realCompleted = games.filter(g => { const x = adminClassifyGame(g); return !x.isBotGame && !x.inProgress; }).length;
-                        const totalInProgress = botInProgress + realInProgress;
-                        const totalCompleted = botCompleted + realCompleted;
-
-                        return `
-                        <div class="grid grid-cols-3 gap-1.5 sm:gap-2">
-                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-indigo-500/10"><div class="text-[7px] text-indigo-300/70 uppercase font-bold">BOT · IN PROGRESS</div><div class="text-lg font-black text-indigo-300">${botInProgress}</div></div>
-                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-indigo-500/10"><div class="text-[7px] text-indigo-300/70 uppercase font-bold">BOT · COMPLETED</div><div class="text-lg font-black text-indigo-300">${botCompleted}</div></div>
-                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-emerald-500/10"><div class="text-[7px] text-emerald-300/70 uppercase font-bold">REAL · IN PROGRESS</div><div class="text-lg font-black text-emerald-300">${realInProgress}</div></div>
-                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-emerald-500/10"><div class="text-[7px] text-emerald-300/70 uppercase font-bold">REAL · COMPLETED</div><div class="text-lg font-black text-emerald-300">${realCompleted}</div></div>
-                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-amber-500/10"><div class="text-[7px] text-amber-300/70 uppercase font-bold">TOTAL · IN PROGRESS</div><div class="text-lg font-black text-amber-300">${totalInProgress}</div></div>
-                            <div class="bg-zinc-900 rounded-xl p-2 text-center border border-amber-500/10"><div class="text-[7px] text-amber-300/70 uppercase font-bold">TOTAL · COMPLETED</div><div class="text-lg font-black text-amber-300">${totalCompleted}</div></div>
-                        </div>`;
-                    })()}
+                    <div class="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
+                        <table class="w-full text-[10px] border-collapse">
+                            <thead>
+                                <tr class="bg-zinc-900 text-zinc-500 uppercase tracking-wider">
+                                    <th class="text-left px-2.5 py-2 font-bold">Type</th>
+                                    <th class="text-center px-1.5 py-2 font-bold">In Progress</th>
+                                    <th class="text-center px-1.5 py-2 font-bold">Completed</th>
+                                    <th class="text-center px-1.5 py-2 font-bold">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="border-t border-zinc-800">
+                                    <td class="px-2.5 py-2 font-black text-indigo-300">BOT</td>
+                                    <td class="px-1.5 py-2 text-center font-black text-white">${botInProgress}</td>
+                                    <td class="px-1.5 py-2 text-center font-black text-white">${botCompleted}</td>
+                                    <td class="px-1.5 py-2 text-center font-black text-indigo-300">${botInProgress + botCompleted}</td>
+                                </tr>
+                                <tr class="border-t border-zinc-800">
+                                    <td class="px-2.5 py-2 font-black text-emerald-300">REAL</td>
+                                    <td class="px-1.5 py-2 text-center font-black text-white">${realInProgress}</td>
+                                    <td class="px-1.5 py-2 text-center font-black text-white">${realCompleted}</td>
+                                    <td class="px-1.5 py-2 text-center font-black text-emerald-300">${realInProgress + realCompleted}</td>
+                                </tr>
+                                <tr class="border-t border-zinc-700 bg-zinc-900/60">
+                                    <td class="px-2.5 py-2 font-black text-amber-300">TOTAL</td>
+                                    <td class="px-1.5 py-2 text-center font-black text-amber-300">${totalInProgress}</td>
+                                    <td class="px-1.5 py-2 text-center font-black text-amber-300">${totalCompleted}</td>
+                                    <td class="px-1.5 py-2 text-center font-black text-white">${totalInProgress + totalCompleted}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                     <div class="text-[10px] text-zinc-600">Password is not displayed because the existing authentication data does not contain the plaintext password.</div>
                     <div class="flex items-center justify-between gap-2 pt-1">
                         <h3 class="text-sm font-black text-emerald-300">Games involving this player</h3>
