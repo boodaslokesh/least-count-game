@@ -8959,116 +8959,72 @@
     </script>
 
 
-    <style id="admin-mobile-professional-fix">
-/* Admin dashboard responsive refinement only. No game/database logic changes. */
-#admin-panel-modal { overflow: hidden; }
-#admin-panel-modal > div { min-width: 0; }
-#admin-panel-modal table { width: 100%; border-collapse: separate; border-spacing: 0; }
-#admin-panel-modal .admin-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-
-@media (max-width: 640px) {
-  #admin-panel-modal { padding: 0 !important; align-items: stretch !important; justify-content: stretch !important; }
-  #admin-panel-modal > div {
-    width: 100% !important; max-width: none !important; height: 100dvh !important; max-height: none !important;
-    border-radius: 0 !important; border-left: 0 !important; border-right: 0 !important;
-    display: flex !important; flex-direction: column !important;
-  }
-  #admin-panel-modal > div > div:first-child {
-    padding: 10px 12px !important; gap: 8px !important;
-    min-height: 58px;
-  }
-  #admin-panel-modal h2 { font-size: 16px !important; line-height: 1.1 !important; }
-  #admin-panel-modal > div > div:first-child p { font-size: 9px !important; line-height: 1.3 !important; max-width: 230px; }
-  #admin-panel-modal > div > div:first-child button { padding: 7px 9px !important; font-size: 10px !important; }
-  #admin-panel-status { padding: 7px 12px !important; font-size: 9px !important; }
-  #admin-panel-modal .grid {
-    display: flex !important; flex-direction: column !important; min-height: 0 !important; overflow: hidden !important;
-  }
-  #admin-panel-modal aside {
-    flex: 0 0 31dvh !important; min-height: 190px !important; max-height: 300px !important;
-    border-right: 0 !important; border-bottom: 1px solid rgb(39 39 42) !important;
-  }
-  #admin-panel-modal aside > div:first-child { padding: 9px !important; }
-  #admin-player-search {
-    height: 38px !important; font-size: 12px !important; padding: 0 11px !important;
-  }
-  #admin-summary { font-size: 9px !important; line-height: 1.35 !important; }
-  #admin-player-list {
-    padding: 7px !important; display: grid !important; grid-template-columns: repeat(2,minmax(0,1fr)) !important;
-    gap: 6px !important; overflow-y: auto !important; align-content: start !important;
-  }
-  #admin-player-list > button {
-    margin: 0 !important; padding: 9px !important; min-width: 0 !important;
-    border-radius: 10px !important; min-height: 67px;
-  }
-  #admin-player-list > button .font-black { font-size: 11px !important; }
-  #admin-player-list > button .text-\[10px\] { font-size: 8px !important; }
-  #admin-player-detail {
-    flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important;
-    padding: 11px !important; -webkit-overflow-scrolling: touch;
-  }
-  #admin-player-detail .text-2xl { font-size: 18px !important; }
-  #admin-player-detail .grid { display: grid !important; }
-  #admin-player-detail .grid.grid-cols-2 { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
-  #admin-player-detail .md\:grid-cols-4 { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
-  #admin-player-detail .md\:grid-cols-2 { grid-template-columns: 1fr !important; }
-  #admin-player-detail article { padding: 10px !important; border-radius: 10px !important; }
-  #admin-player-detail pre { max-height: 52vh; overflow: auto; font-size: 9px !important; }
-  #admin-panel-modal details summary { min-height: 34px; display: flex; align-items: center; }
-  #admin-panel-modal .admin-table-scroll { margin-left: -11px; margin-right: -11px; padding: 0 11px 6px; }
-  #admin-panel-modal table { min-width: 760px; font-size: 9px; }
-  #admin-panel-modal th, #admin-panel-modal td { padding: 7px 8px !important; white-space: nowrap; }
-}
-
-@media (max-width: 380px) {
-  #admin-panel-modal aside { flex-basis: 35dvh !important; min-height: 180px !important; }
-  #admin-player-list { grid-template-columns: 1fr !important; }
-  #admin-player-list > button { min-height: 58px; }
-  #admin-player-detail { padding: 9px !important; }
-  #admin-player-detail .grid.grid-cols-2 { grid-template-columns: 1fr 1fr !important; }
-}
-</style>
-
-<!-- ========================================================= -->
-    <!-- ADMIN PANEL - READ ONLY, EXISTING TABLES/RPCS ONLY       -->
     <!-- ========================================================= -->
-    <div id="admin-panel-modal"
-         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-2 sm:p-4 z-[300]">
-        <div class="bg-zinc-950 border border-rose-500/25 w-full max-w-7xl h-[96vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-            <div class="flex items-center justify-between gap-3 p-3 sm:p-4 border-b border-zinc-800 shrink-0">
-                <div>
-                    <h2 class="text-lg sm:text-xl font-black text-rose-300">🛡 Admin Panel</h2>
-                    <p class="text-[10px] sm:text-[11px] text-zinc-500 mt-1">Read-only player, wallet and game-history overview using the existing database schema.</p>
+    <!-- ADMIN PANEL - MOBILE-FIRST NAVIGATION ONLY                -->
+    <!-- Existing game logic and data logic are untouched.        -->
+    <!-- ========================================================= -->
+    <div id="admin-panel-modal" class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center z-[300] admin-mobile-shell">
+        <div class="bg-zinc-950 border border-rose-500/25 w-full h-full sm:h-[96vh] sm:max-w-6xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden admin-mobile-panel">
+            <div class="flex items-center justify-between gap-2 px-3 py-3 border-b border-zinc-800 shrink-0 admin-mobile-header">
+                <div class="min-w-0">
+                    <h2 class="text-base sm:text-xl font-black text-rose-300 truncate">🛡 Admin Panel</h2>
+                    <p class="text-[9px] sm:text-[11px] text-zinc-500 truncate">Players & game history</p>
                 </div>
-                <div class="flex items-center gap-2">
-                    <button onclick="loadAdminOverview()" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-rose-300 hover:bg-zinc-800">Refresh</button>
-                    <button onclick="toggleAdminPanel(false)" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <button onclick="loadAdminOverview()" class="px-2.5 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] font-bold text-rose-300">↻</button>
+                    <button onclick="toggleAdminPanel(false)" class="px-2.5 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] font-bold text-white">Close</button>
                 </div>
             </div>
+            <div id="admin-panel-status" class="px-3 py-1.5 border-b border-zinc-800 text-[10px] text-zinc-500 shrink-0">Ready</div>
 
-            <div id="admin-panel-status" class="px-4 py-2 border-b border-zinc-800 text-[11px] text-zinc-500 shrink-0">Ready</div>
+            <!-- PAGE 1: PLAYERS -->
+            <section id="admin-players-view" class="admin-view flex flex-col min-h-0 flex-1">
+                <div class="p-3 border-b border-zinc-800 shrink-0 space-y-2">
+                    <input id="admin-player-search" type="search" placeholder="Search player name / mobile..." oninput="renderAdminPlayerList()"
+                           class="w-full px-3 py-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-rose-500">
+                    <div id="admin-summary" class="text-[10px] text-zinc-500">Loading...</div>
+                </div>
+                <div id="admin-player-list" class="admin-player-grid p-2 sm:p-3 overflow-y-auto flex-1"></div>
+            </section>
 
-            <div class="grid grid-cols-1 lg:grid-cols-[330px_1fr] min-h-0 flex-1">
-                <aside class="border-b lg:border-b-0 lg:border-r border-zinc-800 min-h-0 flex flex-col">
-                    <div class="p-3 border-b border-zinc-800 shrink-0 space-y-2">
-                        <input id="admin-player-search" type="search" placeholder="Search player name / mobile..."
-                               oninput="renderAdminPlayerList()"
-                               class="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-rose-500">
-                        <div id="admin-summary" class="text-[10px] text-zinc-500">Loading...</div>
-                    </div>
-                    <div id="admin-player-list" class="p-2 overflow-y-auto flex-1"></div>
-                </aside>
-
-                <section id="admin-player-detail" class="min-h-0 overflow-y-auto p-3 sm:p-5">
-                    <div class="h-full flex items-center justify-center text-center text-zinc-600 text-sm">
-                        Select a player to inspect their available account and game history.
-                    </div>
-                </section>
-            </div>
+            <!-- PAGE 2: SELECTED PLAYER -->
+            <section id="admin-player-view" class="admin-view hidden flex-col min-h-0 flex-1">
+                <div class="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 shrink-0">
+                    <button type="button" onclick="showAdminPlayersView()" class="px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-black text-white">← Players</button>
+                    <div id="admin-player-view-title" class="min-w-0 text-sm font-black text-white truncate">Player</div>
+                </div>
+                <section id="admin-player-detail" class="min-h-0 overflow-y-auto p-3 sm:p-5"></section>
+            </section>
         </div>
     </div>
 
-    <script>
+    <style>
+        /* Admin-only responsive presentation. No game logic changes. */
+        .admin-mobile-shell { padding: 0; }
+        .admin-mobile-panel { min-width: 0; }
+        .admin-player-grid { display:grid; grid-template-columns:1fr; gap:.5rem; align-content:start; }
+        .admin-player-card { min-width:0; }
+        .admin-player-card .admin-card-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .admin-player-table-wrap { width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid rgb(39 39 42); border-radius:.75rem; }
+        .admin-player-table { width:100%; min-width:650px; border-collapse:collapse; }
+        .admin-player-table th,.admin-player-table td { padding:.55rem .65rem; border-bottom:1px solid rgb(39 39 42); text-align:left; vertical-align:top; font-size:10px; }
+        .admin-player-table th { color:#a1a1aa; background:rgb(24 24 27); font-weight:800; white-space:nowrap; position:sticky; top:0; z-index:1; }
+        .admin-player-table td { color:#d4d4d8; }
+        .admin-game-history { white-space:pre-wrap; word-break:break-word; max-height:55vh; overflow:auto; font-size:10px; line-height:1.5; }
+        @media (min-width:640px) {
+            .admin-mobile-shell { padding:.75rem; }
+            .admin-player-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        }
+        @media (min-width:900px) {
+            .admin-player-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+        }
+        @media (max-width:380px) {
+            .admin-mobile-header { padding-left:.6rem; padding-right:.6rem; }
+            .admin-player-grid { gap:.4rem; }
+        }
+    </style>
+
+<script>
         // ============================================================
         // ADMIN PANEL (ADDED FEATURE ONLY)
         // Existing game logic is intentionally untouched.
@@ -9125,6 +9081,23 @@
             return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
         }
 
+        function showAdminPlayersView() {
+            const players = document.getElementById('admin-players-view');
+            const player = document.getElementById('admin-player-view');
+            if (players) { players.classList.remove('hidden'); players.classList.add('flex'); }
+            if (player) { player.classList.add('hidden'); player.classList.remove('flex'); }
+            adminSelectedPlayerId = '';
+            renderAdminPlayerList();
+        }
+
+        function showAdminPlayerView(playerId) {
+            const players = document.getElementById('admin-players-view');
+            const player = document.getElementById('admin-player-view');
+            if (players) { players.classList.add('hidden'); players.classList.remove('flex'); }
+            if (player) { player.classList.remove('hidden'); player.classList.add('flex'); }
+            renderAdminPlayerDetail(playerId);
+        }
+
         function toggleAdminPanel(show) {
             const modal = document.getElementById('admin-panel-modal');
             if (!modal) return;
@@ -9135,7 +9108,7 @@
             }
             modal.classList.toggle('hidden', !show);
             modal.classList.toggle('flex', show);
-            if (show) loadAdminOverview();
+            if (show) { showAdminPlayersView(); loadAdminOverview(); }
         }
 
         async function loadAdminOverview() {
@@ -9187,9 +9160,9 @@
                 status.innerText = `Loaded ${adminPlayers.length} players and ${adminGameHistoryRows.length} saved game records.`;
 
                 if (adminSelectedPlayerId) {
-                    renderAdminPlayerDetail(adminSelectedPlayerId);
+                    showAdminPlayerView(adminSelectedPlayerId);
                 } else if (adminPlayers[0]) {
-                    renderAdminPlayerDetail(adminPlayers[0].player_id);
+                    showAdminPlayerView(adminPlayers[0].player_id);
                 }
             } catch (error) {
                 console.error('Admin overview load failed:', error);
@@ -9205,27 +9178,28 @@
             if (!list) return;
             const q = String(search?.value || '').trim().toLowerCase();
             const rows = adminPlayers.filter(p =>
-                !q ||
-                String(p.name || '').toLowerCase().includes(q) ||
-                String(p.mobile || '').toLowerCase().includes(q)
+                !q || String(p.name || '').toLowerCase().includes(q) || String(p.mobile || '').toLowerCase().includes(q)
             );
-
             if (!rows.length) {
-                list.innerHTML = '<div class="p-4 text-xs text-zinc-600 text-center">No players found.</div>';
+                list.innerHTML = '<div class="col-span-full p-8 text-xs text-zinc-600 text-center">No players found.</div>';
                 return;
             }
-
             list.innerHTML = rows.map(p => {
-                const selected = String(p.player_id) === String(adminSelectedPlayerId);
-                const bot = Number(p.bot_games_played || 0);
-                const real = Number(p.real_games_played || 0);
-                return `<button type="button" onclick="renderAdminPlayerDetail('${escapeAdminHtml(p.player_id)}')"
-                    class="w-full text-left p-3 rounded-xl border ${selected ? 'border-rose-500/50 bg-rose-500/10' : 'border-zinc-800 bg-black hover:bg-zinc-900'} mb-1.5 transition">
-                    <div class="font-black text-sm text-white truncate">${escapeAdminHtml(p.name)}</div>
-                    <div class="text-[10px] text-zinc-500 mt-1">${escapeAdminHtml(p.mobile || 'No mobile')}</div>
-                    <div class="flex gap-2 mt-2 text-[9px]">
-                        <span class="text-indigo-300">BOT ${bot}</span>
-                        <span class="text-emerald-300">REAL ${real}</span>
+                const bot = Number(p.bot_games_played || 0), real = Number(p.real_games_played || 0);
+                return `<button type="button" onclick="showAdminPlayerView('${escapeAdminHtml(p.player_id)}')"
+                    class="admin-player-card w-full text-left p-3.5 rounded-xl border border-zinc-800 bg-black hover:bg-zinc-900 active:bg-zinc-800 transition">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 shrink-0 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-300 font-black">${escapeAdminHtml(String(p.name || '?').charAt(0).toUpperCase())}</div>
+                        <div class="min-w-0 flex-1">
+                            <div class="admin-card-name font-black text-sm text-white">${escapeAdminHtml(p.name || 'Unnamed')}</div>
+                            <div class="text-[10px] text-zinc-500 mt-1 truncate">${escapeAdminHtml(p.mobile || 'No mobile')}</div>
+                        </div>
+                        <div class="text-zinc-600 text-lg">›</div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-1.5 mt-3 text-center">
+                        <div class="rounded-lg bg-zinc-900 p-1.5"><div class="text-[8px] text-zinc-500">BOT</div><div class="text-xs font-black text-indigo-300">${bot}</div></div>
+                        <div class="rounded-lg bg-zinc-900 p-1.5"><div class="text-[8px] text-zinc-500">REAL</div><div class="text-xs font-black text-emerald-300">${real}</div></div>
+                        <div class="rounded-lg bg-zinc-900 p-1.5"><div class="text-[8px] text-zinc-500">TOTAL</div><div class="text-xs font-black text-white">${bot + real}</div></div>
                     </div>
                 </button>`;
             }).join('');
@@ -9242,84 +9216,81 @@
 
         function renderAdminPlayerDetail(playerId) {
             const detail = document.getElementById('admin-player-detail');
+            const title = document.getElementById('admin-player-view-title');
             if (!detail) return;
             const player = adminPlayers.find(p => String(p.player_id) === String(playerId));
             if (!player) return;
             adminSelectedPlayerId = String(playerId);
-            renderAdminPlayerList();
-
+            if (title) title.textContent = player.name || 'Player';
             const games = adminGameHistoryRows.filter(row => playerAppearsInGame(row, player));
-            const bot = Number(player.bot_games_played || 0);
-            const real = Number(player.real_games_played || 0);
-            const botCoins = Number(player.bot_coins || 0);
-            const realCoins = Number(player.real_coins || 0);
-
+            const bot = Number(player.bot_games_played || 0), real = Number(player.real_games_played || 0);
+            const botCoins = Number(player.bot_coins || 0), realCoins = Number(player.real_coins || 0);
             detail.innerHTML = `
-                <div class="space-y-4">
-                    <div class="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                            <div class="text-[10px] uppercase tracking-[0.2em] text-rose-400 font-black">Player profile</div>
-                            <h3 class="text-2xl font-black text-white mt-1">${escapeAdminHtml(player.name)}</h3>
-                            <div class="text-xs text-zinc-500 mt-1">Player ID: <span class="font-mono text-zinc-400">${escapeAdminHtml(player.player_id)}</span></div>
+                <div class="space-y-3">
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Mobile</div><div class="text-xs font-bold text-white mt-1 break-all">${escapeAdminHtml(player.mobile || '—')}</div></div>
+                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Player ID</div><div class="text-[9px] font-mono text-zinc-300 mt-1 break-all">${escapeAdminHtml(player.player_id || '—')}</div></div>
+                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Bot Coins</div><div class="text-sm font-black text-indigo-300 mt-1">${botCoins}</div></div>
+                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Real Coins</div><div class="text-sm font-black text-emerald-300 mt-1">${realCoins}</div></div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="bg-zinc-900 rounded-xl p-2 text-center"><div class="text-[8px] text-zinc-500">BOT</div><div class="text-lg font-black text-indigo-300">${bot}</div></div>
+                        <div class="bg-zinc-900 rounded-xl p-2 text-center"><div class="text-[8px] text-zinc-500">REAL</div><div class="text-lg font-black text-emerald-300">${real}</div></div>
+                        <div class="bg-zinc-900 rounded-xl p-2 text-center"><div class="text-[8px] text-zinc-500">GAMES</div><div class="text-lg font-black text-amber-300">${games.length}</div></div>
+                    </div>
+                    <div class="text-[10px] text-zinc-600">Password is not displayed because the existing authentication data does not contain the plaintext password.</div>
+                    <div class="flex items-center justify-between gap-2 pt-1">
+                        <h3 class="text-sm font-black text-emerald-300">Games involving this player</h3>
+                        <span class="text-[9px] text-zinc-600">${games.length} records</span>
+                    </div>
+                    <div class="admin-player-table-wrap">
+                        <table class="admin-player-table">
+                            <thead><tr><th>Date / Time</th><th>Game</th><th>Host</th><th>Players</th><th>Winner</th><th>Points</th><th>History</th></tr></thead>
+                            <tbody>
+                                ${games.length ? games.map((row, index) => `<tr>
+                                    <td class="whitespace-nowrap">${escapeAdminHtml(formatAdminDate(row.created_at))}</td>
+                                    <td class="font-bold text-white">${escapeAdminHtml(row.game_code || '—')}</td>
+                                    <td>${escapeAdminHtml(row.game_host || '—')}</td>
+                                    <td class="min-w-[180px]">${escapeAdminHtml(row.players_name || '—')}</td>
+                                    <td class="text-emerald-300 font-bold">${escapeAdminHtml(row.game_winner || 'In Progress')}</td>
+                                    <td class="min-w-[100px]">${escapeAdminHtml(row.game_points || '—')}</td>
+                                    <td><button type="button" onclick="openAdminHistory(${index})" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-300 whitespace-nowrap">Open</button></td>
+                                </tr>`).join('') : '<tr><td colspan="7" class="text-center py-8 text-zinc-600">No saved game-history row currently contains this player name.</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="admin-history-modal" class="hidden fixed inset-0 z-[350] bg-black/95 p-2 sm:p-6 items-center justify-center">
+                        <div class="w-full max-w-3xl max-h-full bg-zinc-950 border border-emerald-500/20 rounded-2xl overflow-hidden flex flex-col">
+                            <div class="flex items-center justify-between gap-2 p-3 border-b border-zinc-800"><div id="admin-history-title" class="text-sm font-black text-emerald-300 truncate">Complete Game History</div><button onclick="closeAdminHistory()" class="px-3 py-2 rounded-lg bg-zinc-900 text-xs font-bold text-white">Close</button></div>
+                            <div id="admin-history-content" class="p-3 overflow-auto"></div>
                         </div>
-                        <div class="text-right">
-                            <div class="text-[9px] uppercase text-zinc-500">Available saved games</div>
-                            <div class="text-2xl font-black text-amber-300">${games.length}</div>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        <div class="bg-black border border-zinc-800 rounded-xl p-3"><div class="text-[9px] text-zinc-500 uppercase">Mobile</div><div class="text-sm font-bold text-white mt-1">${escapeAdminHtml(player.mobile || '—')}</div></div>
-                        <div class="bg-black border border-zinc-800 rounded-xl p-3"><div class="text-[9px] text-zinc-500 uppercase">Bot Coins</div><div class="text-sm font-black text-indigo-300 mt-1">${botCoins}</div></div>
-                        <div class="bg-black border border-zinc-800 rounded-xl p-3"><div class="text-[9px] text-zinc-500 uppercase">Real Coins</div><div class="text-sm font-black text-emerald-300 mt-1">${realCoins}</div></div>
-                        <div class="bg-black border border-zinc-800 rounded-xl p-3"><div class="text-[9px] text-zinc-500 uppercase">Games</div><div class="text-sm font-black text-white mt-1">${bot + real}</div></div>
-                    </div>
-
-                    <div class="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3 text-[10px] text-zinc-500">
-                        <span class="font-bold text-zinc-300">Password:</span> Not displayed. The existing database stores a password hash rather than the player's plaintext password, so this panel does not expose or recover passwords.
-                    </div>
-
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Bot games</div><div class="text-lg font-black text-indigo-300">${bot}</div></div>
-                        <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Real games</div><div class="text-lg font-black text-emerald-300">${real}</div></div>
-                        <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">Total coins</div><div class="text-lg font-black text-white">${botCoins + realCoins}</div></div>
-                        <div class="bg-zinc-900 rounded-xl p-3"><div class="text-[9px] text-zinc-500">History matches</div><div class="text-lg font-black text-amber-300">${games.length}</div></div>
-                    </div>
-
-                    <div>
-                        <div class="flex items-center justify-between border-b border-zinc-800 pb-2 mb-2">
-                            <h4 class="font-black text-emerald-300">Games involving this player</h4>
-                            <span class="text-[10px] text-zinc-500">Newest first</span>
-                        </div>
-                        ${games.length ? games.map((row, index) => `
-                            <article class="bg-black border border-zinc-800 rounded-xl p-3 mb-2">
-                                <div class="flex flex-wrap justify-between gap-2">
-                                    <div>
-                                        <div class="text-sm font-black text-white">Game ${index + 1}: ${escapeAdminHtml(row.game_code || '—')}</div>
-                                        <div class="text-[10px] text-zinc-500 mt-1">${escapeAdminHtml(formatAdminDate(row.created_at))}</div>
-                                    </div>
-                                    <div class="text-right text-[10px]">
-                                        <div class="text-zinc-500">Host</div>
-                                        <div class="text-amber-300 font-bold">${escapeAdminHtml(row.game_host || '—')}</div>
-                                    </div>
-                                </div>
-                                <div class="grid md:grid-cols-2 gap-2 mt-3">
-                                    <div class="bg-zinc-900 rounded-lg p-2"><div class="text-[9px] text-zinc-500 uppercase">Players</div><div class="text-xs text-zinc-200 break-words mt-1">${escapeAdminHtml(row.players_name || '—')}</div></div>
-                                    <div class="bg-zinc-900 rounded-lg p-2"><div class="text-[9px] text-zinc-500 uppercase">Winner</div><div class="text-xs text-emerald-300 font-bold mt-1">${escapeAdminHtml(row.game_winner || 'In Progress')}</div></div>
-                                    <div class="bg-zinc-900 rounded-lg p-2 md:col-span-2"><div class="text-[9px] text-zinc-500 uppercase">Points</div><div class="text-xs text-zinc-200 break-words mt-1">${escapeAdminHtml(row.game_points || '—')}</div></div>
-                                </div>
-                                <details class="mt-3">
-                                    <summary class="cursor-pointer text-[11px] font-bold text-emerald-300">Open complete game / round history</summary>
-                                    <pre class="mt-2 whitespace-pre-wrap break-words bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-[10px] leading-relaxed text-zinc-300">${escapeAdminHtml(row.game_history || 'No detailed history saved.')}</pre>
-                                </details>
-                            </article>
-                        `).join('') : '<div class="text-center text-xs text-zinc-600 py-10">No saved game-history row currently contains this player name.</div>'}
-                    </div>
-
-                    <div class="border-t border-zinc-800 pt-3 text-[10px] text-zinc-600">
-                        Current database schema provides account identity, wallet balances, wallet game counts and saved game-history records. It does not contain plaintext passwords or a separate player-interest/activity-profile field, so those cannot be truthfully shown without changing the database design.
                     </div>
                 </div>`;
+            window.adminSelectedGames = games;
+        }
+
+        function openAdminHistory(index) {
+            const row = (window.adminSelectedGames || [])[index];
+            const modal = document.getElementById('admin-history-modal');
+            const content = document.getElementById('admin-history-content');
+            const title = document.getElementById('admin-history-title');
+            if (!row || !modal || !content) return;
+            if (title) title.textContent = `Complete History · ${row.game_code || 'Game'}`;
+            content.innerHTML = `<div class="grid grid-cols-2 gap-2 mb-3">
+                <div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">DATE</div><div class="text-[10px] text-white mt-1">${escapeAdminHtml(formatAdminDate(row.created_at))}</div></div>
+                <div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">WINNER</div><div class="text-[10px] text-emerald-300 mt-1">${escapeAdminHtml(row.game_winner || 'In Progress')}</div></div>
+            </div><div class="admin-player-table-wrap"><table class="admin-player-table"><tbody>
+                <tr><th>Game Code</th><td>${escapeAdminHtml(row.game_code || '—')}</td></tr>
+                <tr><th>Host</th><td>${escapeAdminHtml(row.game_host || '—')}</td></tr>
+                <tr><th>Players</th><td>${escapeAdminHtml(row.players_name || '—')}</td></tr>
+                <tr><th>Points</th><td>${escapeAdminHtml(row.game_points || '—')}</td></tr>
+                <tr><th>Complete Round History</th><td><pre class="admin-game-history">${escapeAdminHtml(row.game_history || 'No detailed history saved.')}</pre></td></tr>
+            </tbody></table></div>`;
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+        }
+        function closeAdminHistory() {
+            const modal = document.getElementById('admin-history-modal');
+            if (modal) { modal.classList.add('hidden'); modal.classList.remove('flex'); }
         }
 
         // Hook into the existing login flow without replacing it.
