@@ -3858,22 +3858,14 @@
             );
         }
 
+        // Keep the original working join flow: join the realtime room first.
+        // Do not block joining on the Supabase persisted-state RPC.
         isHost = false;
-        roomHostToken = '';
         myId = myClientToken;
         roomCode = codeInput;
         gameHistory = [];
 
-        // Recover the permanent room-owner identity when this browser created
-        // the room earlier. Host authority may have moved to another player.
-        try {
-            roomOwnerToken = localStorage.getItem(`leastCountRoomOwner:${roomCode}`) || '';
-        } catch (e) {
-            roomOwnerToken = '';
-        }
-
-        saveActiveRoomSession();
-        loadPersistedGameState().finally(() => initRealtimeChannel(roomCode));
+        initRealtimeChannel(roomCode);
     }
 
     function showLobbyError(msg) {
