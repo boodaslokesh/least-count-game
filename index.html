@@ -9769,7 +9769,13 @@
             const text = String(historyText || '').replace(/\r\n/g, '\n').trim();
             if (!text) return [];
 
-            const marker = /^={3,}\s*GAME\s+(\d+)(?:\s*\(([^)]*)\))?\s*$/gim;
+            // Support both history formats:
+            // 1) === GAME 1 === (older/free-game format)
+            // 2) a separator line followed by plain `GAME 1` (bet-room format)
+            //    including `GAME 1 (CURRENT / IN PROGRESS)`.
+            // The old parser only matched format #1, so bet-game View History
+            // could open but showed no All Games / Round History table.
+            const marker = /^\s*(?:={3,}\s*)?GAME\s+(\d+)(?:\s*\(([^)]*)\))?(?:\s*={3,})?\s*$/gim;
             const matches = [...text.matchAll(marker)];
             if (!matches.length) return [];
 
@@ -9836,33 +9842,168 @@
             });
         }
 
-        function renderCumulativeDatabaseGamesHtml(historyText) {
-            const games = parseCumulativeDatabaseGames(historyText);
-            if (!games.length) return renderDatabaseHistoryRoundsHtml(historyText);
+        // Build the player-facing round table DIRECTLY from the exact saved
+        // game_history text.  This intentionally does not depend on the
+        // surrounding GAME metadata being parsed correctly.  The Admin Panel
+        // proves that these raw [ROUND] records are present, so the room view
+        // uses those same saved values as its source of truth.
+        function parseSavedHistoryRoundRows(historyText) {
+            const text = String(historyText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+            if (!text.trim()) return [];
 
-            return games.map(game => `
+            const lines = text.split('\n');
+            const rows = [];
+            let currentGame = '—';
+            let currentRound = null;
+            let roundLines = [];
+
+            const flushRound = () => {
+                if (!currentRound) return;
+                const block = roundLines.join('\n');
+                const callerMatch = block.match(/^\s*-?\s*Caller\s*:\s*(.*?)\s*$/im);
+                const callerSumMatch = block.match(/^\s*-?\s*Caller\s+Sum\s*:\s*(.*?)\s*$/im);
+                const outcomeMatch = block.match(/^\s*-?\s*Outcome\s*:\s*(.*?)\s*$/im);
+
+                const details = [];
+                const detailLines = block.split('\n');
+                detailLines.forEach(line => {
+                    const clean = String(line || '').trim();
+                    if (!clean || /^-?\s*(Caller|Caller Sum|Outcome)\s*:/i.test(clean)) return;
+
+                    // Exact format written by buildCumulativeRoomHistoryText().
+                    let m = clean.match(/^[-•]\s*(.+?)\s*:\s*Hand\s+Sum\s*=\s*(.*?),\s*Points\s+Added\s*=\s*(.*?),\s*Total\s+Score\s*=\s*(.*?)\s*$/i);
+                    if (!m) {
+                        m = clean.match(/^[-]\s*(.+?)\s*:\s*Hand\s+Sum\s*=\s*(.*?),\s*Points\s+Added\s*=\s*(.*?),\s*Total\s+Score\s*=\s*(.*?)\s*$/i);
+                    }
+                    if (m) {
+                        details.push({
+                            name: m[1].trim(),
+                            sum: m[2].trim(),
+                            pointsAdded: m[3].trim(),
+                            totalAfterRound: m[4].trim()
+                        });
+                    }
+                });
+
+                rows.push({
+                    gameNumber: currentGame,
+                    roundNumber: String(currentRound),
+                    caller: callerMatch ? callerMatch[1].trim() : '—',
+                    callerSum: callerSumMatch ? callerSumMatch[1].trim() : '—',
+                    outcome: outcomeMatch ? outcomeMatch[1].trim() : '—',
+                    details
+                });
+
+                currentRound = null;
+                roundLines = [];
+            };
+
+            for (let i = 0; i < lines.length; i++) {
+                const raw = lines[i] || '';
+                const line = raw.trim();
+
+                // Only accept a real game header.  Do not treat
+                // "=== GAME 1 FINAL RESULT ===" as a new game.
+                const gameMatch = line.match(/^(?:={3,}\s*)?GAME\s+(\d+)(?:\s*\(([^)]*)\))?(?:\s*={3,})?\s*$/i);
+                if (gameMatch) {
+                    flushRound();
+                    currentGame = gameMatch[1];
+                    continue;
+                }
+
+                const roundMatch = line.match(/^\[ROUND\s+(\d+)\]\s*$/i);
+                if (roundMatch) {
+                    flushRound();
+                    currentRound = roundMatch[1];
+                    roundLines = [];
+                    continue;
+                }
+
+                if (currentRound !== null) {
+                    roundLines.push(raw);
+                }
+            }
+
+            flushRound();
+            return rows;
+        }
+
+        function renderSavedHistoryRoundTable(rows, title = 'All Games · Round History') {
+            if (!rows.length) {
+                return `<div class="database-history-no-rounds">No completed round records were found in the saved game history.</div>`;
+            }
+
+            const grouped = [];
+            const groupMap = new Map();
+            rows.forEach(row => {
+                const key = String(row.gameNumber || '—');
+                if (!groupMap.has(key)) {
+                    const group = { gameNumber: key, rows: [] };
+                    groupMap.set(key, group);
+                    grouped.push(group);
+                }
+                groupMap.get(key).rows.push(row);
+            });
+
+            return `
                 <div class="mb-4 border border-zinc-700 rounded-xl overflow-hidden bg-black">
                     <div class="px-3 py-2 bg-zinc-900 border-b border-zinc-700 flex flex-wrap items-center justify-between gap-2">
-                        <div class="font-black text-emerald-300">Game ${escapeDatabaseHistoryHtml(game.gameNumber)} · Winner: ${escapeDatabaseHistoryHtml(game.winner || 'In Progress')}</div>
-                        <div class="text-[9px] text-zinc-500">${escapeDatabaseHistoryHtml(game.rounds.length)} round(s)</div>
+                        <div class="font-black text-emerald-300">${escapeDatabaseHistoryHtml(title)}</div>
+                        <div class="text-[9px] text-zinc-500">${rows.length} round(s)</div>
                     </div>
-                    <div class="px-3 py-2 border-b border-zinc-800 text-[9px] text-zinc-500">Players: ${escapeDatabaseHistoryHtml(game.players || '—')} · Bet: ${escapeDatabaseHistoryHtml(game.bet || 'Free')}</div>
-                    ${game.rounds.length ? `
-                        <div class="database-round-history-table">
-                            <div class="database-round-history-grid database-round-history-header">
-                                <div>Round</div><div>Caller</div><div>Caller Sum</div><div>Outcome</div><div>Player Scores</div>
+                    ${grouped.map(group => `
+                        <div class="border-b border-zinc-800 last:border-b-0">
+                            ${grouped.length > 1 ? `<div class="px-3 py-2 text-[10px] font-black text-amber-300 bg-zinc-950">Game ${escapeDatabaseHistoryHtml(group.gameNumber)}</div>` : ''}
+                            <div class="database-round-history-table">
+                                <div class="database-round-history-grid database-round-history-header">
+                                    <div>Round</div><div>Caller</div><div>Caller Sum</div><div>Outcome</div><div>Player Scores</div>
+                                </div>
+                                ${group.rows.map(round => `
+                                    <div class="database-round-history-grid database-round-history-row">
+                                        <div class="round-number-cell">${escapeDatabaseHistoryHtml(round.roundNumber)}</div>
+                                        <div>${escapeDatabaseHistoryHtml(round.caller)}</div>
+                                        <div>${escapeDatabaseHistoryHtml(round.callerSum)}</div>
+                                        <div class="break-anywhere">${escapeDatabaseHistoryHtml(round.outcome)}</div>
+                                        <div class="round-player-scores">
+                                            ${round.details.length ? round.details.map(d => `
+                                                <div class="round-player-score-line">
+                                                    <span>${escapeDatabaseHistoryHtml(d.name)}</span>
+                                                    <span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)}</span>
+                                                </div>`).join('') : `<span class="text-zinc-600">No player details</span>`}
+                                        </div>
+                                    </div>`).join('')}
                             </div>
-                            ${game.rounds.map(round => `
-                                <div class="database-round-history-grid database-round-history-row">
-                                    <div class="round-number-cell">${escapeDatabaseHistoryHtml(round.roundNumber)}</div>
-                                    <div>${escapeDatabaseHistoryHtml(round.caller || '—')}</div>
-                                    <div>${escapeDatabaseHistoryHtml(round.callerSum || '—')}</div>
-                                    <div class="break-anywhere">${escapeDatabaseHistoryHtml(round.outcome || '—')}</div>
-                                    <div class="round-player-scores">${round.details.length ? round.details.map(d => `<div class="round-player-score-line"><span>${escapeDatabaseHistoryHtml(d.name)}</span><span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)}</span></div>`).join('') : '<span class="text-zinc-600">No player details</span>'}</div>
-                                </div>`).join('')}
-                        </div>` : '<div class="p-3 text-xs text-zinc-600">No round records saved for this game.</div>'}
+                        </div>
+                    `).join('')}
                 </div>
-            `).join('');
+            `;
+        }
+
+        function renderCumulativeDatabaseGamesHtml(historyText) {
+            const text = String(historyText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+            // IMPORTANT: The raw saved game_history is the source of truth.
+            // Parse every [ROUND N] directly, carrying the nearest GAME N
+            // header only as a label. This makes multi-game room history work
+            // even when GAME metadata/final-result text changes.
+            const savedRows = parseSavedHistoryRoundRows(text);
+            if (savedRows.length) {
+                return renderSavedHistoryRoundTable(savedRows, 'All Games · Round History');
+            }
+
+            // Legacy single-game history has [ROUND] records but may not have
+            // a GAME N header. parseDatabaseHistoryRounds() already understands
+            // that format, so keep it as a final compatibility path.
+            const legacyRows = parseDatabaseHistoryRounds(text).map(row => ({
+                gameNumber: '—',
+                roundNumber: row.roundNumber,
+                caller: row.caller,
+                callerSum: row.callerSum,
+                outcome: row.outcome,
+                details: row.details || []
+            }));
+
+            return renderSavedHistoryRoundTable(legacyRows, 'Round History');
         }
 
         function isDatabaseBetGame(row) {
