@@ -9870,7 +9870,7 @@
                 const rowIndex = myGameHistoryRows.indexOf(row);
                 const inProgress = isMyGameHistoryInProgress(row);
                 const isBot = isMyGameHistoryBotGame(row);
-                const savedAt = row.created_at ? new Date(row.created_at).toLocaleString() : '—';
+                const savedAt = row.created_at ? formatGameHistoryIndianTime(row.created_at) : '—';
                 const gridRow = document.createElement('div');
                 gridRow.className = 'database-history-grid database-history-row';
                 gridRow.innerHTML = `
@@ -10673,7 +10673,7 @@
             const inProgress = !winner || /^in\s*progress$/i.test(winner) || /^in\s*progress$/i.test(finalResult);
             const displayWinner = inProgress ? 'In Progress' : (winner || finalResult || '—');
             const savedAt = row.created_at
-                ? new Date(row.created_at).toLocaleString()
+                ? formatGameHistoryIndianTime(row.created_at)
                 : '—';
 
             subtitle.textContent = `${row.game_code || 'Game'} · Host: ${row.game_host || '—'}`;
@@ -11045,8 +11045,7 @@
 
         function formatAdminDate(value) {
             if (!value) return '—';
-            const d = new Date(value);
-            return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
+            return formatGameHistoryIndianTime(value);
         }
 
         function showAdminPlayersView() {
@@ -11446,6 +11445,7 @@
                 <tr><th>Host</th><td>${escapeAdminHtml(row.game_host || '—')}</td></tr>
                 <tr><th>Players</th><td>${escapeAdminHtml(row.players_name || '—')}</td></tr>
                 <tr><th>Points</th><td>${escapeAdminHtml(row.game_points || '—')}</td></tr>
+                <tr><th>Elimination Points</th><td>${escapeAdminHtml(String(Number(targetEliminationPoints) || '—'))}</td></tr>
                 <tr><th>Complete Round History</th><td><pre class="admin-game-history">${escapeAdminHtml(row.game_history || 'No detailed history saved.')}</pre></td></tr>
             </tbody></table></div>`;
             modal.classList.remove('hidden'); modal.classList.add('flex');
@@ -11996,6 +11996,7 @@
             roomCode: String(roomCode),
             winner: String(finalWinner),
             completedAt: new Date().toISOString(),
+            eliminationPoints: Number(targetEliminationPoints) || 0,
             players: cloneJson(
                 Array.isArray(currentGameParticipantsSnapshot) && currentGameParticipantsSnapshot.length
                     ? currentGameParticipantsSnapshot
@@ -12050,6 +12051,19 @@
     // this as a chronological text record, so the player-facing history
     // uses the same structure and terminology.
     // ============================================================
+    function formatGameHistoryIndianTime(value) {
+        if (!value) return 'N/A';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        const parts = new Intl.DateTimeFormat('en-IN', {
+            timeZone: 'Asia/Kolkata', hour12: false,
+            day: '2-digit', month: 'long', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        }).formatToParts(date);
+        const get = type => parts.find(part => part.type === type)?.value || '';
+        return `${get('hour')}:${get('minute')}:${get('second')} ${get('day')} ${get('month')} ${get('year')}`;
+    }
+
     function buildCumulativeRoomHistoryText(finalWinner = '') {
         const hostName = getGameHistoryHostName();
         const roomPlayers = Array.isArray(players) ? players : [];
@@ -12072,7 +12086,8 @@
             text += `Host: ${hostName}\n`;
             text += `Players: ${(game.players || []).map(p => p && p.name).filter(Boolean).join(', ')}\n`;
             text += `Bet: ${game.betMode === 'bet' ? `₹${Number(game.betAmount || 0)}` : 'Free'}\n`;
-            text += `Completed At: ${game.completedAt || 'N/A'}\n`;
+            text += `Completed At: ${formatGameHistoryIndianTime(game.completedAt)}\n`;
+            text += `Elimination Points: ${Number(game.eliminationPoints) || Number(targetEliminationPoints) || 0}\n`;
             text += `Winner: ${game.winner || 'N/A'}\n`;
             text += `Status: Completed\n`;
             text += `--------------------------------------------------\n`;
@@ -12126,6 +12141,7 @@
             text += `Host: ${hostName}\n`;
             text += `Players: ${roomPlayers.map(p => p && p.name).filter(Boolean).join(', ')}\n`;
             text += `Bet: ${betMode === 'bet' ? `₹${Number(betAmount || 0)}` : 'Free'}\n`;
+            text += `Elimination Points: ${Number(targetEliminationPoints) || 0}\n`;
             text += `Winner: In Progress\n`;
             text += `Status: In Progress\n`;
             text += `--------------------------------------------------\n`;
@@ -13942,6 +13958,7 @@ async function __lcRecordCompletedRoomGame(finalWinner){
             roomCode:String(roomCode),
             winner,
             completedAt:new Date().toISOString(),
+            eliminationPoints:Number(targetEliminationPoints)||0,
             players:__lcClone(participants,[]),
             betMode,
             betAmount:Number(betAmount||0),
