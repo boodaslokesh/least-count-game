@@ -806,57 +806,71 @@
 
     <!-- TOURNAMENT WINNER CELEBRATION MODAL -->
     <div id="tournament-winner-modal"
-         class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center p-4 z-[95] overflow-hidden">
+         class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center p-2 sm:p-3 z-[95] overflow-hidden">
 
-        <div class="relative bg-gradient-to-b from-zinc-950 to-black border border-amber-400/60 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-5 text-center overflow-hidden">
+        <div class="relative bg-gradient-to-b from-zinc-950 to-black border border-amber-400/60 w-full max-w-sm rounded-2xl p-3 sm:p-4 shadow-2xl space-y-2 text-center overflow-hidden max-h-[92vh]">
 
-            <div class="pointer-events-none absolute inset-0 text-3xl select-none">
-                <span class="absolute top-4 left-7 animate-bounce">🎉</span>
-                <span class="absolute top-12 right-8 animate-pulse">🎊</span>
-                <span class="absolute bottom-12 left-10 animate-pulse">✨</span>
-                <span class="absolute bottom-8 right-10 animate-bounce">🎆</span>
-                <span class="absolute top-24 left-1/2 animate-pulse">🧨</span>
+            <div class="pointer-events-none absolute inset-0 text-xl select-none opacity-80">
+                <span class="absolute top-2 left-3 animate-bounce">🎉</span>
+                <span class="absolute top-5 right-4 animate-pulse">🎊</span>
+                <span class="absolute bottom-10 left-5 animate-pulse">✨</span>
+                <span class="absolute bottom-6 right-5 animate-bounce">🎆</span>
+                <span class="absolute top-16 left-1/2 animate-pulse">🧨</span>
             </div>
 
-            <div class="relative z-10 space-y-3">
-                <div class="text-5xl leading-none">🏆🎉</div>
+            <div class="relative z-10 space-y-2">
+                <div class="text-2xl sm:text-3xl leading-none">🏆🎉</div>
 
-                <div class="text-xs uppercase tracking-[0.3em] text-amber-300 font-black">
+                <div class="text-[9px] uppercase tracking-[0.22em] text-amber-300 font-black">
                     Tournament Winner
                 </div>
 
                 <h2 id="tournament-winner-name"
-                    class="text-3xl sm:text-4xl font-black text-white break-words">
+                    class="text-xl sm:text-2xl font-black text-white break-words leading-tight">
                     Winner
                 </h2>
 
-                <div class="text-2xl">🎇 🎆 🥳 🎊 🎇</div>
+                <div class="text-sm">🎇 🎆 🥳 🎊 🎇</div>
 
-                <p class="text-sm text-zinc-300">
+                <p class="text-[10px] text-zinc-300 leading-tight">
                     Congratulations! The tournament is complete.
                 </p>
 
-                <div class="text-left space-y-2 pt-1">
-                    <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-400 font-black">Cards at Final Show</div>
+                <!-- Final round card values: values only, no card graphics/suits -->
+                <div class="text-left space-y-1 pt-0.5">
+                    <div class="text-[8px] uppercase tracking-[0.16em] text-zinc-400 font-black">
+                        Final Round Cards
+                    </div>
                     <div id="tournament-winner-cards"
-                         class="max-h-44 overflow-y-auto grid grid-cols-2 gap-1.5 rounded-xl border border-zinc-800 bg-black/70 p-2">
-                        <div class="text-xs text-zinc-500 italic text-center">Cards are not available.</div>
+                         class="max-h-24 overflow-y-auto space-y-1 rounded-lg border border-zinc-800 bg-black/70 p-1.5">
+                        <div class="text-[9px] text-zinc-500 italic text-center">Cards are not available.</div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-3 gap-2 pt-2">
+                <!-- Exact history of the round that ended the tournament -->
+                <div class="text-left space-y-1 pt-0.5">
+                    <div class="text-[8px] uppercase tracking-[0.16em] text-zinc-400 font-black">
+                        Winning Round History
+                    </div>
+                    <div id="tournament-winner-round-history"
+                         class="max-h-32 overflow-y-auto rounded-lg border border-zinc-800 bg-black/70 p-1.5">
+                        <div class="text-[9px] text-zinc-500 italic text-center">Round history is not available.</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-1.5 pt-1">
                     <button onclick="stayInTournamentGame()"
-                            class="py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl shadow-lg transition text-xs sm:text-sm">
+                            class="py-1.5 px-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-lg shadow transition text-[9px] sm:text-[10px] leading-tight">
                         Stay in Game
                     </button>
 
                     <button onclick="startAgainSamePlayers()"
-                            class="py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl shadow-lg transition text-xs sm:text-sm">
+                            class="py-1.5 px-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-lg shadow transition text-[9px] sm:text-[10px] leading-tight">
                         Start Again
                     </button>
 
                     <button onclick="exitTournamentToLobby()"
-                            class="py-3 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-xl shadow-lg transition text-xs sm:text-sm">
+                            class="py-1.5 px-1 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-lg shadow transition text-[9px] sm:text-[10px] leading-tight">
                         Exit Game
                     </button>
                 </div>
@@ -1423,7 +1437,8 @@
         winnerName,
         eventRoomCode = '',
         roundPlayers = null,
-        callerName = ''
+        callerName = '',
+        finalRoundHistory = null
     ) {
         const eventRoom = String(eventRoomCode || '').trim().toUpperCase();
         const currentRoom = String(roomCode || '').trim().toUpperCase();
@@ -1436,6 +1451,7 @@
         const modal = document.getElementById('tournament-winner-modal');
         const winnerEl = document.getElementById('tournament-winner-name');
         const cardsEl = document.getElementById('tournament-winner-cards');
+        const historyEl = document.getElementById('tournament-winner-round-history');
 
         if (winnerEl) {
             winnerEl.innerText = winnerName || 'Nobody';
@@ -1445,22 +1461,117 @@
             ? roundPlayers
             : players;
 
+        /*
+         * FINAL ROUND CARDS
+         * Show only card values/ranks (K, J, 7, 3, etc.).
+         * No card-shaped UI and no suits are displayed.
+         */
         if (cardsEl) {
-            if (snapshotPlayers.length) {
-                cardsEl.innerHTML = snapshotPlayers
-                    .filter(player => player && Array.isArray(player.hand))
-                    .map(player => buildRoundCardPreviewHtml(
-                        player,
-                        String(player.name || '').trim() === String(callerName || '').trim(),
-                        String(player.name || '').trim() === String(winnerName || '').trim()
-                    ))
-                    .join('');
+            const playerRows = snapshotPlayers
+                .filter(player => player && Array.isArray(player.hand))
+                .map(player => {
+                    const values = player.hand.length
+                        ? player.hand.map(card =>
+                            escapeRoundResultHtml(
+                                String(card?.val ?? card?.value ?? '')
+                                    .trim()
+                                    .toUpperCase()
+                            )
+                        ).filter(Boolean)
+                        : [];
 
-                if (!cardsEl.innerHTML.trim()) {
-                    cardsEl.innerHTML = '<div class="text-xs text-zinc-500 italic text-center">Cards are not available.</div>';
-                }
+                    const isWinner =
+                        String(player.name || '').trim() === String(winnerName || '').trim();
+
+                    const isCaller =
+                        String(player.name || '').trim() === String(callerName || '').trim();
+
+                    return `
+                        <div class="flex items-center gap-1.5 rounded-md border ${
+                            isWinner
+                                ? 'border-emerald-500/40 bg-emerald-500/5'
+                                : 'border-zinc-800 bg-zinc-950/70'
+                        } px-1.5 py-1">
+                            <div class="min-w-0 w-[72px] sm:w-[82px] truncate text-[9px] font-black text-white">
+                                ${escapeRoundResultHtml(player.name || 'Player')}
+                                ${isWinner ? '<span class="text-emerald-400 ml-0.5">WIN</span>' : ''}
+                                ${isCaller ? '<span class="text-amber-400 ml-0.5">SHOW</span>' : ''}
+                            </div>
+                            <div class="flex flex-wrap items-center gap-0.5 min-w-0">
+                                ${
+                                    values.length
+                                        ? values.map(value =>
+                                            `<span class="inline-flex min-w-[18px] h-[17px] px-1 items-center justify-center rounded border border-zinc-700 bg-zinc-900 text-[9px] font-black text-zinc-100">${value}</span>`
+                                        ).join('')
+                                        : '<span class="text-[8px] text-zinc-500 italic">No cards</span>'
+                                }
+                            </div>
+                        </div>`;
+                })
+                .join('');
+
+            cardsEl.innerHTML = playerRows ||
+                '<div class="text-[9px] text-zinc-500 italic text-center">Cards are not available.</div>';
+        }
+
+        /*
+         * FINAL ROUND HISTORY
+         * Use the exact saved gameHistory record for the round that produced
+         * the tournament winner.
+         */
+        const historyRound =
+            finalRoundHistory && typeof finalRoundHistory === 'object'
+                ? finalRoundHistory
+                : (Array.isArray(gameHistory) && gameHistory.length
+                    ? gameHistory[gameHistory.length - 1]
+                    : null);
+
+        if (historyEl) {
+            if (historyRound) {
+                const details = Array.isArray(historyRound.details)
+                    ? historyRound.details
+                    : [];
+
+                const detailRows = details.map(detail => `
+                    <div class="grid grid-cols-[minmax(0,1fr)_42px_48px_50px] gap-1 items-center py-0.5 border-b border-zinc-900 last:border-b-0">
+                        <div class="truncate text-[8px] sm:text-[9px] font-semibold text-zinc-200">
+                            ${escapeRoundResultHtml(detail?.name || 'Player')}
+                        </div>
+                        <div class="text-right text-[8px] sm:text-[9px] text-zinc-400">
+                            ${escapeRoundResultHtml(detail?.sum ?? '—')}
+                        </div>
+                        <div class="text-right text-[8px] sm:text-[9px] ${
+                            Number(detail?.pointsAdded) > 0 ? 'text-rose-300' : 'text-emerald-300'
+                        }">
+                            ${Number(detail?.pointsAdded) > 0 ? '+' : ''}${escapeRoundResultHtml(detail?.pointsAdded ?? '0')}
+                        </div>
+                        <div class="text-right text-[8px] sm:text-[9px] font-black text-white">
+                            ${escapeRoundResultHtml(detail?.totalAfterRound ?? '—')}
+                        </div>
+                    </div>
+                `).join('');
+
+                historyEl.innerHTML = `
+                    <div class="grid grid-cols-[minmax(0,1fr)_42px_48px_50px] gap-1 pb-1 border-b border-zinc-800 text-[7px] uppercase tracking-wider text-zinc-500 font-black">
+                        <div>Player</div>
+                        <div class="text-right">Sum</div>
+                        <div class="text-right">Added</div>
+                        <div class="text-right">Total</div>
+                    </div>
+                    <div class="py-1 flex items-center justify-between gap-2">
+                        <span class="text-[8px] text-amber-300 font-black">
+                            Round ${escapeRoundResultHtml(historyRound.roundNumber ?? '—')}
+                        </span>
+                        <span class="text-[8px] text-zinc-400 truncate">
+                            ${escapeRoundResultHtml(historyRound.callerName || callerName || '—')} ·
+                            ${escapeRoundResultHtml(historyRound.outcome || '—')}
+                        </span>
+                    </div>
+                    ${detailRows || '<div class="text-[9px] text-zinc-500 italic text-center py-1">No round details available.</div>'}
+                `;
             } else {
-                cardsEl.innerHTML = '<div class="text-xs text-zinc-500 italic text-center">Cards are not available.</div>';
+                historyEl.innerHTML =
+                    '<div class="text-[9px] text-zinc-500 italic text-center">Round history is not available.</div>';
             }
         }
 
@@ -6498,11 +6609,19 @@
                     isSoloMode ? 'bot' : 'real'
                 );
 
+                if (Array.isArray(data.gameHistory)) {
+                    gameHistory = data.gameHistory;
+                }
+
                 showTournamentWinnerPopup(
                     data.winnerName,
                     data.roomCode,
                     data.players || players,
-                    data.callerName || ''
+                    data.callerName || '',
+                    data.finalRoundHistory ||
+                        (Array.isArray(data.gameHistory) && data.gameHistory.length
+                            ? data.gameHistory[data.gameHistory.length - 1]
+                            : null)
                 );
 
                 break;
@@ -7613,21 +7732,21 @@
 
         const cardsHtml = hand.length
             ? hand.map(card => {
-                const red = ['♥', '♦'].includes(card.suit);
-                return `<span class="inline-flex items-center justify-center min-w-[24px] h-[30px] px-1 rounded-md bg-white border border-slate-300 text-[12px] font-black leading-none ${red ? 'text-rose-600' : 'text-slate-900'} shadow-sm">${escapeRoundResultHtml(card.val)}${escapeRoundResultHtml(card.suit)}</span>`;
+                const value = String(card?.val ?? card?.value ?? '').trim().toUpperCase();
+                return `<span class="inline-flex items-center justify-center min-w-[18px] h-[17px] px-1 rounded border border-zinc-700 bg-zinc-900 text-[9px] font-black leading-none text-zinc-100">${escapeRoundResultHtml(value)}</span>`;
             }).join('')
-            : '<span class="text-zinc-500 italic text-[9px]">No cards</span>';
+            : '<span class="text-zinc-500 italic text-[8px]">No cards</span>';
 
         return `
-            <div class="min-w-0 rounded-lg border ${isCaller ? 'border-amber-400/70 bg-amber-500/10' : 'border-zinc-800 bg-black/80'} px-1.5 py-1.5">
-                <div class="flex items-center justify-between gap-1 mb-1">
-                    <div class="min-w-0 font-black text-white text-[10px] truncate">${escapeRoundResultHtml(player?.name || 'Player')}
-                        ${isCaller ? '<span class="text-amber-400 text-[8px] ml-0.5">SHOW</span>' : ''}
-                        ${isTournamentWinner ? '<span class="text-emerald-400 text-[8px] ml-0.5">WIN</span>' : ''}
+            <div class="min-w-0 rounded-md border ${isCaller ? 'border-amber-400/70 bg-amber-500/10' : 'border-zinc-800 bg-black/80'} px-1 py-1">
+                <div class="flex items-center justify-between gap-1 mb-0.5">
+                    <div class="min-w-0 font-black text-white text-[9px] truncate">${escapeRoundResultHtml(player?.name || 'Player')}
+                        ${isCaller ? '<span class="text-amber-400 text-[7px] ml-0.5">SHOW</span>' : ''}
+                        ${isTournamentWinner ? '<span class="text-emerald-400 text-[7px] ml-0.5">WIN</span>' : ''}
                     </div>
-                    <div class="text-[8px] text-zinc-500 shrink-0">${hand.length}</div>
+                    <div class="text-[7px] text-zinc-500 shrink-0">${hand.length}</div>
                 </div>
-                <div class="flex flex-nowrap items-center gap-0.5 overflow-hidden">${cardsHtml}</div>
+                <div class="flex flex-wrap items-center gap-0.5 overflow-hidden">${cardsHtml}</div>
             </div>`;
     }
 
@@ -8024,7 +8143,10 @@
                 roundWinner,
                 roomCode,
                 players,
-                caller.name
+                caller.name,
+                gameHistory.length
+                    ? gameHistory[gameHistory.length - 1]
+                    : null
             );
         }
 
@@ -8162,7 +8284,10 @@
                 players,
                 gameHistory.length && gameHistory[gameHistory.length - 1]
                     ? gameHistory[gameHistory.length - 1].callerName
-                    : ''
+                    : '',
+                gameHistory.length
+                    ? gameHistory[gameHistory.length - 1]
+                    : null
             );
 
             // Await the send so the room channel is not removed before
@@ -8184,6 +8309,16 @@
                     gameHistory.length && gameHistory[gameHistory.length - 1]
                         ? gameHistory[gameHistory.length - 1].callerName
                         : '',
+
+                // Carry the exact round that ended the tournament so every
+                // client can render the same compact winner-round history.
+                finalRoundHistory:
+                    gameHistory.length
+                        ? gameHistory[gameHistory.length - 1]
+                        : null,
+
+                gameHistory:
+                    gameHistory,
 
                 walletGameId:
                     walletGameId,
