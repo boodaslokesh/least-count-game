@@ -976,7 +976,7 @@
 
                 if (Array.isArray(round.details)) {
                     round.details.forEach(detail => {
-                        text += `- ${detail.name}: Hand Sum = ${detail.sum}, Points Added = ${detail.pointsAdded}, Total Score = ${detail.totalAfterRound ?? 'N/A'}\n`;
+                        text += `- ${detail.name}: Hand Sum = ${detail.sum}, Points Added = ${detail.pointsAdded}, Total Score = ${detail.totalAfterRound ?? 'N/A'}, Elimination Points = ${detail.eliminationPoints ?? round.eliminationTargetPoints ?? 'N/A'}, Eliminated At Points = ${detail.eliminatedAtPoints ?? 'N/A'}, Eliminated = ${detail.eliminated ? 'Yes' : 'No'}\n`;
                     });
                 }
 
@@ -8026,6 +8026,10 @@
             callerSum:
                 callerSum,
 
+            // Save the exact elimination limit active for this round.
+            eliminationTargetPoints:
+                Number(targetEliminationPoints) || 0,
+
             details:
                 []
         };
@@ -8228,6 +8232,50 @@
             }
         });
 
+        // Persist the elimination information for EVERY player in the round.
+        // Elimination Points = the configured elimination limit.
+        // Eliminated At Points = the player's actual score when the limit was reached.
+        // This same round object is used by the live history, room-session history,
+        // Supabase game_history and the Admin Panel history.
+        if (gameHistory.length) {
+            const latestRound = gameHistory[gameHistory.length - 1];
+            const eliminationLimit = Number(targetEliminationPoints) || 0;
+
+            latestRound.eliminationTargetPoints = eliminationLimit;
+            latestRound.details = Array.isArray(latestRound.details)
+                ? latestRound.details
+                : [];
+
+            latestRound.details.forEach(detail => {
+                const detailPlayer = players.find(p =>
+                    p && String(p.name) === String(detail.name)
+                );
+
+                detail.eliminationPoints = eliminationLimit;
+                detail.eliminated = !!(detailPlayer && detailPlayer.eliminated === true);
+
+                if (detail.eliminated) {
+                    detail.eliminatedAtPoints = Number(detailPlayer.scores || 0);
+                } else {
+                    detail.eliminatedAtPoints = null;
+                }
+            });
+
+            // Make sure a newly eliminated player is explicitly represented even
+            // if a future scoring change modifies the round details structure.
+            newlyEliminatedPlayers.forEach(eliminatedPlayer => {
+                const detail = latestRound.details.find(d =>
+                    d && String(d.name) === String(eliminatedPlayer.name)
+                );
+
+                if (detail) {
+                    detail.eliminated = true;
+                    detail.eliminationPoints = eliminationLimit;
+                    detail.eliminatedAtPoints = Number(eliminatedPlayer.scores || 0);
+                }
+            });
+        }
+
         // If the host itself was eliminated in this round, settle its -100
         // immediately. Other players settle on their own clients from the
         // dedicated elimination event, the synchronized state, or their
@@ -8268,12 +8316,25 @@
 
         resultsText += `</div></div>`;
 
-        // Capture each player's running score as part of the round history snapshot.
+        // Capture each player's running score and final elimination state as part
+        // of the same round history snapshot.
         if (gameHistory.length) {
             const latestRound = gameHistory[gameHistory.length - 1];
+            const eliminationLimit = Number(targetEliminationPoints) || 0;
+            latestRound.eliminationTargetPoints = eliminationLimit;
+
             latestRound.details.forEach(detail => {
-                const detailPlayer = players.find(p => p.name === detail.name);
-                if (detailPlayer) detail.totalAfterRound = detailPlayer.scores;
+                const detailPlayer = players.find(p =>
+                    p && String(p.name) === String(detail.name)
+                );
+                if (!detailPlayer) return;
+
+                detail.totalAfterRound = detailPlayer.scores;
+                detail.eliminationPoints = eliminationLimit;
+                detail.eliminated = detailPlayer.eliminated === true;
+                detail.eliminatedAtPoints = detail.eliminated
+                    ? Number(detailPlayer.scores || 0)
+                    : null;
             });
         }
 
@@ -9272,7 +9333,7 @@
                                 </span>
 
                                 <span class="font-mono text-amber-400">
-                                    +${d.pointsAdded} pts
+                                    +${d.pointsAdded} pts · Elim Limit ${d.eliminationPoints || round.eliminationTargetPoints || '—'} · ${d.eliminated ? `Eliminated at ${d.eliminatedAtPoints || d.totalAfterRound || '—'}` : 'Not Eliminated'}
                                 </span>
                             </div>`;
                     }
@@ -10102,13 +10163,16 @@
                 const details = [];
 
                 block.split('\n').forEach(line => {
-                    const m = line.match(/^[-]\s*(.+?):\s*Hand Sum\s*=\s*([^,]+),\s*Points Added\s*=\s*([^,]+),\s*Total Score\s*=\s*(.*)$/i);
+                    const m = line.match(/^[-]\s*(.+?):\s*Hand Sum\s*=\s*([^,]+),\s*Points Added\s*=\s*([^,]+),\s*Total Score\s*=\s*([^,]+)(?:,\s*Elimination Points\s*=\s*([^,]+))?(?:,\s*Eliminated At Points\s*=\s*([^,]+))?(?:,\s*Eliminated\s*=\s*(.*))?$/i);
                     if (m) {
                         details.push({
                             name: m[1].trim(),
                             sum: m[2].trim(),
                             pointsAdded: m[3].trim(),
-                            totalAfterRound: m[4].trim()
+                            totalAfterRound: m[4].trim(),
+                            eliminationPoints: m[5] ? m[5].trim() : '',
+                            eliminatedAtPoints: m[6] ? m[6].trim() : '',
+                            eliminated: m[7] ? String(m[7]).trim().toLowerCase() === 'yes' : false
                         });
                     }
                 });
@@ -10147,7 +10211,7 @@
                                 ${round.details.length ? round.details.map(d => `
                                     <div class="round-player-score-line">
                                         <span>${escapeDatabaseHistoryHtml(d.name)}</span>
-                                        <span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)}</span>
+                                        <span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)} · Elim Limit ${escapeDatabaseHistoryHtml(d.eliminationPoints || '—')} · ${d.eliminated ? `Eliminated at ${escapeDatabaseHistoryHtml(d.eliminatedAtPoints || d.totalAfterRound || '—')}` : 'Not Eliminated'}</span>
                                     </div>`).join('') : `<span class="text-zinc-600">No player details</span>`}
                             </div>
                         </div>`).join('')}
@@ -10261,16 +10325,19 @@
                     if (!clean || /^-?\s*(Caller|Caller Sum|Outcome)\s*:/i.test(clean)) return;
 
                     // Exact format written by buildCumulativeRoomHistoryText().
-                    let m = clean.match(/^[-•]\s*(.+?)\s*:\s*Hand\s+Sum\s*=\s*(.*?),\s*Points\s+Added\s*=\s*(.*?),\s*Total\s+Score\s*=\s*(.*?)\s*$/i);
+                    let m = clean.match(/^[-•]\s*(.+?)\s*:\s*Hand\s+Sum\s*=\s*([^,]+),\s*Points\s+Added\s*=\s*([^,]+),\s*Total\s+Score\s*=\s*([^,]+)(?:,\s*Elimination\s+Points\s*=\s*([^,]+))?(?:,\s*Eliminated\s+At\s+Points\s*=\s*([^,]+))?(?:,\s*Eliminated\s*=\s*(.*?))?\s*$/i);
                     if (!m) {
-                        m = clean.match(/^[-]\s*(.+?)\s*:\s*Hand\s+Sum\s*=\s*(.*?),\s*Points\s+Added\s*=\s*(.*?),\s*Total\s+Score\s*=\s*(.*?)\s*$/i);
+                        m = clean.match(/^[-]\s*(.+?)\s*:\s*Hand\s+Sum\s*=\s*([^,]+),\s*Points\s+Added\s*=\s*([^,]+),\s*Total\s+Score\s*=\s*([^,]+)(?:,\s*Elimination\s+Points\s*=\s*([^,]+))?(?:,\s*Eliminated\s+At\s+Points\s*=\s*([^,]+))?(?:,\s*Eliminated\s*=\s*(.*?))?\s*$/i);
                     }
                     if (m) {
                         details.push({
                             name: m[1].trim(),
                             sum: m[2].trim(),
                             pointsAdded: m[3].trim(),
-                            totalAfterRound: m[4].trim()
+                            totalAfterRound: m[4].trim(),
+                            eliminationPoints: m[5] ? m[5].trim() : '',
+                            eliminatedAtPoints: m[6] ? m[6].trim() : '',
+                            eliminated: m[7] ? String(m[7]).trim().toLowerCase() === 'yes' : false
                         });
                     }
                 });
@@ -10358,7 +10425,7 @@
                                             ${round.details.length ? round.details.map(d => `
                                                 <div class="round-player-score-line">
                                                     <span>${escapeDatabaseHistoryHtml(d.name)}</span>
-                                                    <span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)}</span>
+                                                    <span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)} · Elim Limit ${escapeDatabaseHistoryHtml(d.eliminationPoints || '—')} · ${d.eliminated ? `Eliminated at ${escapeDatabaseHistoryHtml(d.eliminatedAtPoints || d.totalAfterRound || '—')}` : 'Not Eliminated'}</span>
                                                 </div>`).join('') : `<span class="text-zinc-600">No player details</span>`}
                                         </div>
                                     </div>`).join('')}
@@ -12021,7 +12088,7 @@
                     text += `- Outcome: ${round.outcome || 'N/A'}\n`;
                     if (Array.isArray(round.details) && round.details.length) {
                         round.details.forEach(detail => {
-                            text += `- ${detail.name || 'N/A'}: Hand Sum = ${detail.sum ?? 'N/A'}, Points Added = ${detail.pointsAdded ?? 'N/A'}, Total Score = ${detail.totalAfterRound ?? 'N/A'}\n`;
+                            text += `- ${detail.name || 'N/A'}: Hand Sum = ${detail.sum ?? 'N/A'}, Points Added = ${detail.pointsAdded ?? 'N/A'}, Total Score = ${detail.totalAfterRound ?? 'N/A'}, Elimination Points = ${detail.eliminationPoints ?? round.eliminationTargetPoints ?? 'N/A'}, Eliminated At Points = ${detail.eliminatedAtPoints ?? 'N/A'}, Eliminated = ${detail.eliminated ? 'Yes' : 'No'}\n`;
                         });
                     } else {
                         text += `- Player Details: N/A\n`;
@@ -12069,7 +12136,7 @@
                 text += `- Caller Sum: ${round.callerSum ?? 'N/A'}\n`;
                 text += `- Outcome: ${round.outcome || 'N/A'}\n`;
                 (round.details || []).forEach(detail => {
-                    text += `- ${detail.name || 'N/A'}: Hand Sum = ${detail.sum ?? 'N/A'}, Points Added = ${detail.pointsAdded ?? 'N/A'}, Total Score = ${detail.totalAfterRound ?? 'N/A'}\n`;
+                    text += `- ${detail.name || 'N/A'}: Hand Sum = ${detail.sum ?? 'N/A'}, Points Added = ${detail.pointsAdded ?? 'N/A'}, Total Score = ${detail.totalAfterRound ?? 'N/A'}, Elimination Points = ${detail.eliminationPoints ?? round.eliminationTargetPoints ?? 'N/A'}, Eliminated At Points = ${detail.eliminatedAtPoints ?? 'N/A'}, Eliminated = ${detail.eliminated ? 'Yes' : 'No'}\n`;
                 });
                 text += `\n`;
             });
@@ -12131,7 +12198,13 @@
             game_code: roomCode,
             game_winner: winnerSummary,
             players_name: safePlayers.map(p => p.name).filter(Boolean).join(', '),
-            game_points: safePlayers.map(p => `${p.name}: ${p.scores || 0} pts`).join(', '),
+            game_points: safePlayers.map(p => {
+                const score = Number(p.scores || 0);
+                const eliminationText = p.eliminated
+                    ? ` (Elimination Points: ${Number(targetEliminationPoints) || 0}; Eliminated at: ${score} pts)`
+                    : ` (Elimination Points: ${Number(targetEliminationPoints) || 0}; Not Eliminated)`;
+                return `${p.name}: ${score} pts${eliminationText}`;
+            }).join(', '),
             game_history: buildCumulativeRoomHistoryText(finalWinner)
         };
     };
