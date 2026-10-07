@@ -15104,5 +15104,374 @@ console.log('Least Count first-card wallet/pot fix loaded');
     console.log('Least Count fast card action + minimal round history patch loaded');
 })();
 </script>
+
+<script>
+/* ================================================================
+   LEAST COUNT — HISTORY TABLE PRESENTATION PATCH
+   - Remove Host columns from Game History DB / Your History / Admin.
+   - Mark the host as bold "(H)" inside Players.
+   - SOLO games show only SOLO + date/time in the Game column.
+   - Status is human-readable: eliminated players while a game is running,
+     and the final winner only after the game is actually completed.
+   - Round history shows Player (sum X), points added and total score only.
+   - Elimination points are shown with each Game N heading.
+================================================================ */
+(function () {
+    'use strict';
+
+    const esc = (value, fn) => {
+        const f = typeof fn === 'function' ? fn : (v => String(v ?? ''));
+        return f(String(value ?? ''));
+    };
+
+    function isSoloHistoryRow(row) {
+        const code = String(row?.game_code || '').trim();
+        const history = String(row?.game_history || '');
+        const points = String(row?.game_points || '');
+        return /^SOLO-/i.test(code) ||
+               /SOLO\s*(?:GAME|MODE)|Solo vs Computer/i.test(history) ||
+               /\bBOT\b/i.test(points) && /SOLO/i.test(history);
+    }
+
+    function historyDateTime(row, formatter) {
+        if (!row?.created_at) return '—';
+        try {
+            if (typeof formatter === 'function') return formatter(row.created_at);
+            return new Date(row.created_at).toLocaleString();
+        } catch (e) {
+            return String(row.created_at);
+        }
+    }
+
+    function cleanPlayerName(value) {
+        return String(value ?? '').replace(/\s*\(H\)\s*$/i, '').trim();
+    }
+
+    function historyPlayersHtml(row, escapeFn) {
+        const host = cleanPlayerName(row?.game_host || '');
+        const names = String(row?.players_name || '')
+            .split(',')
+            .map(cleanPlayerName)
+            .filter(Boolean);
+
+        if (!names.length && host) names.push(host);
+        if (!names.length) return '—';
+
+        return names.map(name => {
+            const isHost = host && name.toLowerCase() === host.toLowerCase();
+            return isHost
+                ? `<strong class="text-white font-black">${esc(name, escapeFn)} <span class="text-amber-300 font-black">(H)</span></strong>`
+                : `<span>${esc(name, escapeFn)}</span>`;
+        }).join('<br>');
+    }
+
+    function historyGameHtml(row, escapeFn, formatter) {
+        const dateTime = historyDateTime(row, formatter);
+        if (isSoloHistoryRow(row)) {
+            return `<div class="database-history-game-code text-indigo-300 font-black">SOLO</div>
+                    <div class="database-history-date">${esc(dateTime, escapeFn)}</div>`;
+        }
+        return `<div class="database-history-game-code">${esc(row?.game_code || '—', escapeFn)}</div>
+                <div class="database-history-date">${esc(dateTime, escapeFn)}</div>`;
+    }
+
+    function extractFinalWinner(row) {
+        const raw = String(row?.game_winner || '').trim();
+        if (/^in\s*progress$/i.test(raw)) return '';
+        const explicit = raw.match(/Final\s+Winner\s*:\s*([^|]+)/i);
+        if (explicit && explicit[1].trim()) return explicit[1].trim();
+
+        const history = String(row?.game_history || '');
+        const finalMatch = history.match(/===\s*FINAL RESULT\s*===\s*\nWinner\s*:\s*([^\n]+)/i);
+        if (finalMatch && finalMatch[1].trim() && !/^in\s*progress$/i.test(finalMatch[1].trim())) {
+            return finalMatch[1].trim();
+        }
+
+        // A saved completed row can contain "Game N: Winner" without the
+        // explicit Final Winner label. Only use it when the row is completed.
+        if (raw && !/current\s+game/i.test(raw) && !/room\s+completed/i.test(raw)) {
+            const matches = [...raw.matchAll(/Game\s+\d+\s*:\s*([^|]+)/ig)];
+            if (matches.length) return matches[matches.length - 1][1].trim();
+            if (!/\|/.test(raw)) return raw;
+        }
+        return '';
+    }
+
+    function isHistoryGameCompleted(row) {
+        const raw = String(row?.game_winner || '').trim();
+        if (/^in\s*progress$/i.test(raw) || /Current\s+Game/i.test(raw)) return false;
+        const history = String(row?.game_history || '');
+        if (/===\s*FINAL RESULT\s*===/i.test(history)) return true;
+        return !!extractFinalWinner(row);
+    }
+
+    function getEliminatedNames(row) {
+        const names = [];
+        try {
+            const rounds = typeof parseSavedHistoryRoundRows === 'function'
+                ? parseSavedHistoryRoundRows(row?.game_history || '')
+                : [];
+            rounds.forEach(round => (round.details || []).forEach(d => {
+                if (d?.eliminated) {
+                    const name = cleanPlayerName(d.name);
+                    if (name && !names.some(n => n.toLowerCase() === name.toLowerCase())) names.push(name);
+                }
+            }));
+        } catch (e) {}
+        return names;
+    }
+
+    function historyStatusHtml(row, escapeFn) {
+        const completed = isHistoryGameCompleted(row);
+        const winner = extractFinalWinner(row);
+        const eliminated = getEliminatedNames(row);
+        const parts = [];
+
+        if (completed && winner) {
+            parts.push(`<div class="text-emerald-300 font-black leading-tight">Final Winner: ${esc(winner, escapeFn)}</div>`);
+        } else {
+            parts.push('<div class="text-amber-300 font-black leading-tight">In Progress</div>');
+        }
+
+        if (eliminated.length) {
+            parts.push(`<div class="text-red-300 font-bold leading-tight mt-1">Eliminated: ${eliminated.map(n => esc(n, escapeFn)).join(', ')}</div>`);
+        }
+
+        return parts.join('');
+    }
+
+    function eliminationPointsForRow(row) {
+        const text = `${String(row?.game_points || '')}\n${String(row?.game_history || '')}`;
+        const m = text.match(/Elimination\s+Points\s*[:=]\s*(\d+)/i);
+        if (m) return m[1];
+        const m2 = text.match(/Elim(?:ination)?\s+Limit\s*[:=]\s*(\d+)/i);
+        return m2 ? m2[1] : '';
+    }
+
+    // ---------------------------------------------------------------
+    // GAME HISTORY DB
+    // ---------------------------------------------------------------
+    if (typeof renderDatabaseGameHistoryForSelectedDate === 'function') {
+        renderDatabaseGameHistoryForSelectedDate = function () {
+            const status = document.getElementById('database-history-status');
+            const list = document.getElementById('database-history-list');
+            const dateSelect = document.getElementById('database-history-date');
+            if (!status || !list || !dateSelect) return;
+
+            const selectedDate = dateSelect.value || getDatabaseHistoryToday();
+            const rows = databaseGameHistoryRows.filter(row =>
+                getDatabaseHistoryLocalDate(row.created_at) === selectedDate
+            );
+            list.innerHTML = '';
+
+            if (!rows.length) {
+                status.innerText = `No games found for ${formatDatabaseHistoryDate(selectedDate)}.`;
+                list.innerHTML = '<div class="text-center text-xs text-zinc-600 py-12">No game history is available for the selected date.</div>';
+                return;
+            }
+
+            status.innerText = `${rows.length} game${rows.length === 1 ? '' : 's'} on ${formatDatabaseHistoryDate(selectedDate)}.`;
+            const table = document.createElement('div');
+            table.className = 'database-history-table lc-history-five-col';
+            const header = document.createElement('div');
+            header.className = 'database-history-grid database-history-header';
+            header.innerHTML = '<div>Game</div><div>Players</div><div>Final / Current Points</div><div>Status</div><div>History</div>';
+            table.appendChild(header);
+
+            rows.forEach(row => {
+                const rowIndex = databaseGameHistoryRows.indexOf(row);
+                const gridRow = document.createElement('div');
+                gridRow.className = 'database-history-grid database-history-row';
+                gridRow.innerHTML = `
+                    <div class="database-history-cell game-cell">${historyGameHtml(row, escapeDatabaseHistoryHtml)}</div>
+                    <div class="database-history-cell players-cell leading-5">${historyPlayersHtml(row, escapeDatabaseHistoryHtml)}</div>
+                    <div class="database-history-cell points-cell">${esc(row.game_points || '—', escapeDatabaseHistoryHtml)}</div>
+                    <div class="database-history-cell">${historyStatusHtml(row, escapeDatabaseHistoryHtml)}</div>
+                    <div class="database-history-cell history-action-cell">
+                        ${isDatabaseBetGame(row) ? `<div class="flex flex-col sm:flex-row gap-1.5 items-stretch justify-center">
+                            <button type="button" onclick="openDatabaseHistoryDetail(${rowIndex})" class="database-history-view-btn">View<br class="sm:hidden"> History</button>
+                            <button type="button" onclick="openDatabaseBetHistoryDetail(${rowIndex})" class="database-history-view-btn database-history-bet-btn">Bet<br class="sm:hidden"> History</button>
+                        </div>` : `<button type="button" onclick="openDatabaseHistoryDetail(${rowIndex})" class="database-history-view-btn">View<br class="sm:hidden"> History</button>`}
+                    </div>`;
+                table.appendChild(gridRow);
+            });
+            list.appendChild(table);
+        };
+    }
+
+    // ---------------------------------------------------------------
+    // YOUR GAME HISTORY
+    // ---------------------------------------------------------------
+    if (typeof renderMyGameHistoryTable === 'function') {
+        renderMyGameHistoryTable = function (rows) {
+            const typeSelect = document.getElementById('my-game-history-type');
+            const selectedType = typeSelect?.value || 'all';
+            const filtered = rows.filter(row => {
+                const isBot = isMyGameHistoryBotGame(row);
+                return selectedType === 'all' || (selectedType === 'bot' && isBot) || (selectedType === 'real' && !isBot);
+            });
+            const list = document.getElementById('my-game-history-list');
+            if (!list) return;
+            if (!filtered.length) {
+                list.innerHTML = '<div class="text-center text-xs text-zinc-600 py-12">No games found for the selected type.</div>';
+                return;
+            }
+
+            const table = document.createElement('div');
+            table.className = 'database-history-table lc-history-five-col';
+            table.innerHTML = '<div class="database-history-grid database-history-header"><div>Game</div><div>Players</div><div>Final / Current Points</div><div>Status</div><div>History</div></div>';
+
+            filtered.forEach(row => {
+                const rowIndex = myGameHistoryRows.indexOf(row);
+                const gridRow = document.createElement('div');
+                gridRow.className = 'database-history-grid database-history-row';
+                gridRow.innerHTML = `
+                    <div class="database-history-cell game-cell">
+                        ${historyGameHtml(row, escapeAccountStatsHtml, formatGameHistoryIndianTime)}
+                    </div>
+                    <div class="database-history-cell players-cell leading-5">${historyPlayersHtml(row, escapeAccountStatsHtml)}</div>
+                    <div class="database-history-cell points-cell">${esc(row.game_points || '—', escapeAccountStatsHtml)}</div>
+                    <div class="database-history-cell">${historyStatusHtml(row, escapeAccountStatsHtml)}</div>
+                    <div class="database-history-cell history-action-cell"><button type="button" onclick="openMyGameHistoryDetail(${rowIndex})" class="database-history-view-btn">View<br class="sm:hidden"> History</button></div>`;
+                table.appendChild(gridRow);
+            });
+            list.appendChild(table);
+        };
+    }
+
+    // ---------------------------------------------------------------
+    // ROUND HISTORY: Player (sum X) + current points + total only.
+    // No round winner is shown. Winner is shown only in the final game status.
+    // ---------------------------------------------------------------
+    if (typeof renderSavedHistoryRoundTable === 'function') {
+        renderSavedHistoryRoundTable = function (rows, title = 'All Games · Round History') {
+            if (!Array.isArray(rows) || !rows.length) return '<div class="database-history-no-rounds">No completed round records were found in the saved game history.</div>';
+            const grouped = [], map = new Map();
+            rows.forEach(row => {
+                const key = String(row?.gameNumber || '—');
+                if (!map.has(key)) { const g = { gameNumber:key, rows:[] }; map.set(key,g); grouped.push(g); }
+                map.get(key).rows.push(row);
+            });
+            const e = v => escapeDatabaseHistoryHtml(String(v ?? ''));
+            return `<div class="mb-4 border border-zinc-700 rounded-xl overflow-hidden bg-black">
+                <div class="px-3 py-2 bg-zinc-900 border-b border-zinc-700 flex flex-wrap items-center justify-between gap-2">
+                    <div class="font-black text-emerald-300">${e(title)}</div><div class="text-[9px] text-zinc-500">${rows.length} round(s)</div>
+                </div>
+                ${grouped.map(group => {
+                    const elimPoints = group.rows.flatMap(r => (r.details || []).map(d => d?.eliminationPoints)).find(v => v !== undefined && String(v).trim() !== '');
+                    const limit = elimPoints || '';
+                    return `<div class="border-b border-zinc-800 last:border-b-0">
+                        <div class="px-3 py-2 text-[10px] font-black text-amber-300 bg-zinc-950">Game ${e(group.gameNumber)}${limit ? ` <span class="text-zinc-400 font-bold">· Elimination Points: ${e(limit)}</span>` : ''}</div>
+                        <div class="database-round-history-table">
+                            <div class="database-round-history-grid database-round-history-header"><div>Round</div><div>Player</div><div>Current Points</div><div>Total Points</div><div>Status</div></div>
+                            ${group.rows.map(round => (round.details || []).length ? round.details.map((d, i) => `<div class="database-round-history-grid database-round-history-row">
+                                <div class="round-number-cell">${i === 0 ? e(round.roundNumber) : ''}</div>
+                                <div class="font-black">${e(d.name)} <span class="text-zinc-500 font-normal">(sum ${e(d.sum || '0')})</span></div>
+                                <div>+${e(d.pointsAdded || '0')}</div>
+                                <div>${e(d.totalAfterRound || '0')}</div>
+                                <div>${d.eliminated ? '<span class="text-red-400 font-black">Eliminated</span>' : ''}</div>
+                            </div>`).join('') : `<div class="database-round-history-grid database-round-history-row"><div>${e(round.roundNumber)}</div><div class="text-zinc-600">No player details</div><div></div><div></div><div></div></div>`).join('')}
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>`;
+        };
+    }
+
+    if (typeof renderDatabaseHistoryRoundsHtml === 'function') {
+        renderDatabaseHistoryRoundsHtml = function (historyText) {
+            const rounds = typeof parseDatabaseHistoryRounds === 'function' ? parseDatabaseHistoryRounds(historyText) : [];
+            if (!rounds.length) return '<div class="database-history-no-rounds">No completed rounds have been saved yet.</div>';
+            const e = v => escapeDatabaseHistoryHtml(String(v ?? ''));
+            const limit = rounds.flatMap(r => (r.details || []).map(d => d?.eliminationPoints)).find(v => v !== undefined && String(v).trim() !== '') || '';
+            return `<div class="database-round-history-table">
+                <div class="database-round-history-grid database-round-history-header"><div>Round</div><div>Player</div><div>Current Points</div><div>Total Points</div><div>Status</div></div>
+                ${rounds.map(round => (round.details || []).length ? round.details.map((d,i) => `<div class="database-round-history-grid database-round-history-row">
+                    <div class="round-number-cell">${i === 0 ? e(round.roundNumber) : ''}</div>
+                    <div class="font-black">${e(d.name)} <span class="text-zinc-500 font-normal">(sum ${e(d.sum || '0')})</span></div>
+                    <div>+${e(d.pointsAdded || '0')}</div><div>${e(d.totalAfterRound || '0')}</div>
+                    <div>${d.eliminated ? '<span class="text-red-400 font-black">Eliminated</span>' : ''}</div>
+                </div>`).join('') : '').join('')}
+                ${limit ? `<div class="px-3 py-2 text-[9px] text-zinc-500 border-t border-zinc-800">Elimination Points: ${e(limit)}</div>` : ''}
+            </div>`;
+        };
+    }
+
+    // ---------------------------------------------------------------
+    // ADMIN PLAYER DETAIL TABLE
+    // ---------------------------------------------------------------
+    if (typeof renderAdminPlayerDetail === 'function') {
+        const __lcAdminDetailOriginal = renderAdminPlayerDetail;
+        renderAdminPlayerDetail = function (playerId) {
+            __lcAdminDetailOriginal(playerId);
+            const table = document.querySelector('#admin-player-detail .admin-player-table');
+            if (!table) return;
+            const head = table.querySelector('thead tr');
+            if (head) {
+                head.innerHTML = '<th>Date / Time</th><th>Game</th><th>Players</th><th>Winner / Status</th><th>Points</th><th>History</th>';
+            }
+            table.querySelectorAll('tbody tr').forEach(tr => {
+                const cells = tr.children;
+                if (cells.length >= 7) {
+                    const hostCell = cells[2];
+                    const playersCell = cells[3];
+                    const winnerCell = cells[4];
+                    if (hostCell && playersCell) {
+                        // Recover the row using the player-specific game index.
+                        const idx = Array.from(tr.parentElement.children).indexOf(tr);
+                        const row = (window.adminSelectedGames || [])[idx];
+                        if (row) playersCell.innerHTML = historyPlayersHtml(row, escapeAdminHtml);
+                        tr.removeChild(hostCell);
+                    }
+                    if (winnerCell) winnerCell.innerHTML = cells.length ? winnerCell.innerHTML : '';
+                }
+            });
+        };
+    }
+
+    // More reliable Admin override: rebuild only the games table after the
+    // existing detail is rendered, preserving all other admin functionality.
+    if (typeof renderAdminPlayerDetail === 'function') {
+        const __lcAdminDetailPatched = renderAdminPlayerDetail;
+        renderAdminPlayerDetail = function (playerId) {
+            __lcAdminDetailPatched(playerId);
+            const detail = document.getElementById('admin-player-detail');
+            if (!detail || !Array.isArray(window.adminSelectedGames)) return;
+            const tables = detail.querySelectorAll('.admin-player-table');
+            const table = tables[0];
+            if (!table) return;
+            const head = table.querySelector('thead tr');
+            if (head) head.innerHTML = '<th>Date / Time</th><th>Game</th><th>Players</th><th>Winner / Status</th><th>Points</th><th>History</th>';
+            const body = table.querySelector('tbody');
+            if (!body) return;
+            body.innerHTML = window.adminSelectedGames.length ? window.adminSelectedGames.map((row,index) => `<tr>
+                <td class="whitespace-nowrap">${esc(formatAdminDate(row.created_at), escapeAdminHtml)}</td>
+                <td class="font-bold text-white">${historyGameHtml(row, escapeAdminHtml)}</td>
+                <td class="min-w-[180px] leading-5">${historyPlayersHtml(row, escapeAdminHtml)}</td>
+                <td>${historyStatusHtml(row, escapeAdminHtml)}</td>
+                <td class="min-w-[100px]">${esc(row.game_points || '—', escapeAdminHtml)}</td>
+                <td>${isAdminBetGame(row) ? `<div class="flex flex-col sm:flex-row gap-1.5 items-stretch justify-center"><button type="button" onclick="openAdminHistory(${index})" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-300 whitespace-nowrap">View History</button><button type="button" onclick="openAdminBetHistory(${index})" class="px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[9px] font-black text-amber-300 whitespace-nowrap">Bet History</button></div>` : `<button type="button" onclick="openAdminHistory(${index})" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-300 whitespace-nowrap">View History</button>`}</td>
+            </tr>`).join('') : '<tr><td colspan="6" class="text-center py-8 text-zinc-600">No game-history records currently contain this player.</td></tr>';
+        };
+    }
+
+    // Five-column layout for the three main history tables.
+    const style = document.createElement('style');
+    style.textContent = `
+        .lc-history-five-col { width:100%; }
+        .lc-history-five-col.database-history-grid { grid-template-columns: minmax(90px,1.05fr) minmax(150px,1.35fr) minmax(130px,1.15fr) minmax(150px,1.3fr) minmax(80px,.7fr) !important; }
+        .lc-history-five-col .database-history-cell { min-width:0; }
+        .lc-history-five-col .players-cell { white-space:normal; word-break:break-word; }
+        .lc-history-five-col .history-action-cell { text-align:center; }
+        @media (max-width:700px) {
+            .lc-history-five-col.database-history-grid { grid-template-columns: 90px 1.25fr 1fr 1.25fr 78px !important; }
+        }
+    `;
+    document.head.appendChild(style);
+
+    console.log('Least Count history table presentation patch loaded');
+})();
+</script>
+
 </body>
 </html>
