@@ -175,39 +175,25 @@
             </div>
         </div>
 
-        <div class="flex items-center space-x-2">
-            <div class="flex items-center gap-1.5">
-                <div id="bot-wallet-card"
-                     title="Bot game wallet"
-                     class="flex items-center gap-1 bg-zinc-900 border border-indigo-500/30 px-1.5 py-1 rounded-lg">
-                    <span class="text-[9px] text-indigo-300 font-bold">BOT</span>
-                    <span id="bot-wallet-balance" class="text-[10px] text-indigo-200 font-black tabular-nums">0</span>
-                </div>
-
-                <div id="real-wallet-card"
-                     title="Real multiplayer game wallet"
-                     class="flex items-center gap-1 bg-zinc-900 border border-emerald-500/30 px-1.5 py-1 rounded-lg">
-                    <span class="text-[9px] text-emerald-300 font-bold">REAL</span>
-                    <span id="real-wallet-balance" class="text-[10px] text-emerald-200 font-black tabular-nums">0</span>
-                </div>
-            </div>
-
+        <div class="flex items-center gap-1.5 shrink-0">
             <div id="game-status-banner"
                  class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden"
                  style="display:none;">
                 Waiting...
             </div>
 
-            <button id="logout-btn"
-                    onclick="logoutUser()"
-                    class="hidden bg-zinc-800 hover:bg-zinc-700 text-rose-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-700">
-                Logout
-            </button>
-            <button id="header-action-btn"
-                    onclick="refreshLobbyApp()"
-                    class="bg-emerald-600/85 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-emerald-700/50">
-                Refresh
-            </button>
+            <div class="flex items-center gap-1.5">
+                <button id="logout-btn"
+                        onclick="logoutUser()"
+                        class="hidden bg-zinc-800 hover:bg-zinc-700 text-rose-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-700">
+                    Logout
+                </button>
+                <button id="header-action-btn"
+                        onclick="refreshLobbyApp()"
+                        class="bg-emerald-600/85 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-emerald-700/50">
+                    Refresh
+                </button>
+            </div>
         </div>
     </header>
 
@@ -224,29 +210,8 @@
                     class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-amber-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
                 Total Game Users
             </button>
-            <span class="text-zinc-700">|</span>
-            <button type="button" onclick="toggleCoinInstructionsModal(true)"
-                    class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-indigo-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
-                Coins Instructions
-            </button>
-            <span id="admin-nav-separator" class="text-zinc-700 hidden">|</span>
-            <button id="admin-nav-btn" type="button" onclick="toggleAdminPanel(true)"
-                    class="hidden px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-black text-rose-300 hover:text-white hover:bg-rose-950/40 border border-transparent hover:border-rose-500/30 transition">
-                🛡 Admin
-            </button>
         </div>
     </nav>
-
-    <!-- LOBBY USER NAME STRIP -->
-    <div id="lobby-user-name-strip"
-         class="w-full bg-transparent px-0 py-1.5 sm:py-2 shrink-0 hidden overflow-hidden">
-        <div class="w-full overflow-hidden flex items-center justify-center">
-            <span id="logged-in-name"
-                  class="block w-full text-center font-black uppercase whitespace-nowrap overflow-hidden px-0 text-zinc-300/70 leading-none"
-                  style="font-size:clamp(20px,5.5vw,42px);letter-spacing:clamp(.12em,1.2vw,.55em);transform-origin:center center;">
-            </span>
-        </div>
-    </div>
 
     <!-- STICKY PLAYER SCORES ROW CONTAINER -->
     <div id="sticky-scores-wrapper"
@@ -306,7 +271,8 @@
 
                         <select id="cards-count-select"
                                 class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
-                            <option value="5" selected>5 Cards</option>
+<option value="1">1 Card</option>
+                           <option value="5" selected>5 Cards</option>
                             <option value="7">7 Cards</option>
                             <option value="9">9 Cards</option>
                         </select>
@@ -577,31 +543,32 @@
     <!-- FOOTER -->
     <footer class="p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
 
-        <div class="text-zinc-400 truncate max-w-[50vw]"
-             id="activity-log-ticker">
-            Ready
-        </div>
+        <div class="text-zinc-400 truncate max-w-[50vw]" id="activity-log-ticker">Ready</div>
 
-        <div class="flex space-x-2">
-            <button id="history-footer-btn" onclick="toggleHistoryModal(true)"
-                    class="game-only-footer-control hidden bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
-                History
-            </button>
+        <div class="flex items-center gap-3 shrink-0">
+            <div id="game-footer-links" class="hidden items-center gap-2 text-[11px]">
+                <button id="history-footer-btn" onclick="toggleHistoryModal(true)"
+                        class="game-only-footer-control hidden bg-transparent text-zinc-300 hover:text-white font-semibold underline underline-offset-2 transition">
+                    History
+                </button>
+                <span class="game-only-footer-control hidden text-zinc-700">|</span>
+                <button id="scores-footer-btn" onclick="toggleScoreboardModal(true)"
+                        class="game-only-footer-control hidden bg-transparent text-zinc-300 hover:text-white font-semibold underline underline-offset-2 transition">
+                    Scores
+                </button>
+            </div>
 
-            <button onclick="toggleInstructionsModal(true)"
-                    class="bg-zinc-900 hover:bg-zinc-800 text-emerald-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
-                Game Instructions
-            </button>
-
-            <button id="scores-footer-btn" onclick="toggleScoreboardModal(true)"
-                    class="game-only-footer-control hidden bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
-                Scores
-            </button>
-
-            <button onclick="toggleDatabaseHistory(true)"
-                    class="bg-zinc-900 hover:bg-zinc-800 text-amber-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
-                Game History DB
-            </button>
+            <div id="lobby-footer-links" class="flex items-center gap-2 text-[11px]">
+                <button id="instructions-footer-btn" onclick="toggleInstructionsModal(true)"
+                        class="bg-transparent text-zinc-300 hover:text-white font-semibold underline underline-offset-2 transition">
+                    Game Instructions
+                </button>
+                <span class="text-zinc-700">|</span>
+                <button id="database-history-footer-btn" onclick="toggleDatabaseHistory(true)"
+                        class="bg-transparent text-zinc-300 hover:text-white font-semibold underline underline-offset-2 transition">
+                    Game History DB
+                </button>
+            </div>
         </div>
     </footer>
 
@@ -781,61 +748,28 @@
         </div>
     </div>
 
-    <!-- TOURNAMENT WINNER CELEBRATION MODAL -->
+    <!-- COMBINED TOURNAMENT WINNER + FINAL ROUND MODAL -->
     <div id="tournament-winner-modal"
-         class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center p-4 z-[95] overflow-hidden">
-
-        <div class="relative bg-gradient-to-b from-zinc-950 to-black border border-amber-400/60 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-5 text-center overflow-hidden">
-
-            <div class="pointer-events-none absolute inset-0 text-3xl select-none">
-                <span class="absolute top-4 left-7 animate-bounce">🎉</span>
-                <span class="absolute top-12 right-8 animate-pulse">🎊</span>
-                <span class="absolute bottom-12 left-10 animate-pulse">✨</span>
-                <span class="absolute bottom-8 right-10 animate-bounce">🎆</span>
-                <span class="absolute top-24 left-1/2 animate-pulse">🧨</span>
+         class="fixed inset-0 bg-black/90 backdrop-blur-md hidden flex items-center justify-center p-3 z-[95] overflow-hidden">
+        <div class="relative bg-gradient-to-b from-zinc-950 to-black border border-amber-400/60 w-full max-w-sm rounded-2xl p-4 shadow-2xl space-y-3 text-center overflow-hidden">
+            <div class="pointer-events-none absolute inset-0 text-2xl select-none">
+                <span class="absolute top-2 left-4 animate-bounce">🎉</span>
+                <span class="absolute top-6 right-5 animate-pulse">🎊</span>
+                <span class="absolute bottom-8 left-5 animate-pulse">✨</span>
+                <span class="absolute bottom-5 right-5 animate-bounce">🎆</span>
             </div>
-
-            <div class="relative z-10 space-y-3">
-                <div class="text-5xl leading-none">🏆🎉</div>
-
-                <div class="text-xs uppercase tracking-[0.3em] text-amber-300 font-black">
-                    Tournament Winner
+            <div class="relative z-10 space-y-2.5">
+                <div class="text-3xl leading-none">🏆</div>
+                <div class="text-[9px] uppercase tracking-[0.25em] text-amber-300 font-black">Tournament Winner</div>
+                <h2 id="tournament-winner-name" class="text-2xl sm:text-3xl font-black text-white break-words">Winner</h2>
+                <p class="text-[11px] text-zinc-300">Tournament completed.</p>
+                <div class="text-left rounded-xl border border-zinc-800 bg-black/70 p-2">
+                    <div class="text-[9px] uppercase tracking-[0.18em] text-emerald-300 font-black mb-1">Final Round History</div>
+                    <div id="tournament-round-results" class="text-[10px] leading-4 text-zinc-300 max-h-28 overflow-y-auto pr-1">Final round details are not available.</div>
                 </div>
-
-                <h2 id="tournament-winner-name"
-                    class="text-3xl sm:text-4xl font-black text-white break-words">
-                    Winner
-                </h2>
-
-                <div class="text-2xl">🎇 🎆 🥳 🎊 🎇</div>
-
-                <p class="text-sm text-zinc-300">
-                    Congratulations! The tournament is complete.
-                </p>
-
-                <div class="text-left space-y-2 pt-1">
-                    <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-400 font-black">Cards at Final Show</div>
-                    <div id="tournament-winner-cards"
-                         class="max-h-44 overflow-y-auto grid grid-cols-2 gap-1.5 rounded-xl border border-zinc-800 bg-black/70 p-2">
-                        <div class="text-xs text-zinc-500 italic text-center">Cards are not available.</div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-3 gap-2 pt-2">
-                    <button onclick="stayInTournamentGame()"
-                            class="py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl shadow-lg transition text-xs sm:text-sm">
-                        Stay in Game
-                    </button>
-
-                    <button onclick="startAgainSamePlayers()"
-                            class="py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl shadow-lg transition text-xs sm:text-sm">
-                        Start Again
-                    </button>
-
-                    <button onclick="exitTournamentToLobby()"
-                            class="py-3 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-xl shadow-lg transition text-xs sm:text-sm">
-                        Exit Game
-                    </button>
+                <div class="grid grid-cols-2 gap-2 pt-1.5">
+                    <button onclick="stayInTournamentGame()" class="py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-lg shadow-lg transition text-[11px]">Stay in Room</button>
+                    <button onclick="exitTournamentToLobby()" class="py-2 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-lg shadow-lg transition text-[11px]">Exit Room</button>
                 </div>
             </div>
         </div>
@@ -919,6 +853,7 @@
             `Host: ${hostName}\n` +
             `Game Code: ${roomCode}\n` +
             `Players: ${safePlayers.map(p => p.name).join(', ')}\n` +
+            `Player IDs: ${safePlayers.map(p => `${p.name}=${p.clientToken || p.id || ''}`).join(', ')}\n` +
             `Settings: ${maxPlayersLimit} players, ${cardsPerPlayer} cards/player, ${targetEliminationPoints} elimination points, Joker: ${includeJoker ? 'Yes (0 points)' : 'No'}\n\n`;
 
         if (Array.isArray(gameHistory) && gameHistory.length) {
@@ -1075,7 +1010,21 @@
         return true;
     }
 
-    async function persistRoomStateToSupabase() {
+    function queueRoomStatePersistence() {
+        if (!isHost || !currentUser || !roomCode) return;
+        if (Number(roundCounter) <= 0 && !roundActive) return;
+
+        const snapshot = buildPersistentRoomSnapshot();
+        if (!snapshot) return;
+        const version = Number(authoritativeStateVersion) || 0;
+        roomStateWriteQueuedVersion = Math.max(roomStateWriteQueuedVersion, version);
+
+        roomStateWriteChain = roomStateWriteChain
+            .catch(() => {})
+            .then(() => persistRoomStateToSupabase(snapshot, version));
+    }
+
+    async function persistRoomStateToSupabase(snapshotOverride = null, versionOverride = null) {
         if (!roomCode) return false;
 
         // Do not create/update game-history room-state records while the
@@ -1083,7 +1032,18 @@
         // snapshot is written only after the actual game starts.
         if (Number(roundCounter) <= 0 && !roundActive) return false;
 
-        const snapshot = buildPersistentRoomSnapshot();
+        if (!snapshotOverride) {
+            const queuedSnapshot = buildPersistentRoomSnapshot();
+            if (!queuedSnapshot) return false;
+            const queuedVersion = Number(authoritativeStateVersion) || 0;
+            roomStateWriteQueuedVersion = Math.max(roomStateWriteQueuedVersion, queuedVersion);
+            roomStateWriteChain = roomStateWriteChain
+                .catch(() => {})
+                .then(() => persistRoomStateToSupabase(queuedSnapshot, queuedVersion));
+            return roomStateWriteChain;
+        }
+
+        const snapshot = snapshotOverride || buildPersistentRoomSnapshot();
         if (!snapshot) return false;
 
         saveLocalRoomSession();
@@ -1100,7 +1060,7 @@
                 ? players.map(p => p?.name || '').filter(Boolean).join(', ')
                 : '',
             game_points: 'ROOM_STATE',
-            game_history: `${GAME_ROOM_STATE_PREFIX}${JSON.stringify(snapshot)}`
+            game_history: `${GAME_ROOM_STATE_PREFIX}${JSON.stringify({ ...snapshot, stateVersion: Number(versionOverride ?? authoritativeStateVersion) || 0 })}`
         };
 
         try {
@@ -1400,51 +1360,22 @@
         winnerName,
         eventRoomCode = '',
         roundPlayers = null,
-        callerName = ''
+        callerName = '',
+        roundResultsHtml = ''
     ) {
         const eventRoom = String(eventRoomCode || '').trim().toUpperCase();
         const currentRoom = String(roomCode || '').trim().toUpperCase();
-
         if (!eventRoom || !currentRoom || eventRoom !== currentRoom) return false;
         if (tournamentWinnerShown) return false;
-
         tournamentWinnerShown = true;
-
         const modal = document.getElementById('tournament-winner-modal');
         const winnerEl = document.getElementById('tournament-winner-name');
-        const cardsEl = document.getElementById('tournament-winner-cards');
-
-        if (winnerEl) {
-            winnerEl.innerText = winnerName || 'Nobody';
-        }
-
-        const snapshotPlayers = Array.isArray(roundPlayers) && roundPlayers.length
-            ? roundPlayers
-            : players;
-
-        if (cardsEl) {
-            if (snapshotPlayers.length) {
-                cardsEl.innerHTML = snapshotPlayers
-                    .filter(player => player && Array.isArray(player.hand))
-                    .map(player => buildRoundCardPreviewHtml(
-                        player,
-                        String(player.name || '').trim() === String(callerName || '').trim(),
-                        String(player.name || '').trim() === String(winnerName || '').trim()
-                    ))
-                    .join('');
-
-                if (!cardsEl.innerHTML.trim()) {
-                    cardsEl.innerHTML = '<div class="text-xs text-zinc-500 italic text-center">Cards are not available.</div>';
-                }
-            } else {
-                cardsEl.innerHTML = '<div class="text-xs text-zinc-500 italic text-center">Cards are not available.</div>';
-            }
-        }
-
-        if (modal) {
-            modal.classList.remove('hidden');
-        }
-
+        const resultsEl = document.getElementById('tournament-round-results');
+        const roundModal = document.getElementById('round-over-modal');
+        if (winnerEl) winnerEl.innerText = winnerName || 'Nobody';
+        if (resultsEl) resultsEl.innerHTML = roundResultsHtml || '<div class="text-zinc-500 italic">Final round details are not available.</div>';
+        if (roundModal) roundModal.classList.add('hidden');
+        if (modal) modal.classList.remove('hidden');
         return true;
     }
 
@@ -1658,6 +1589,20 @@
     let realWallet = 0;
     let walletGameId = '';
     let gameOpponentCount = 1;
+
+    // Production concurrency guards. These prevent rapid double-clicks and
+    // duplicate realtime requests from starting the same game action twice.
+    let startGameInFlight = false;
+    let nextRoundInFlight = false;
+    let showRoundInFlight = false;
+    let tournamentEndInFlight = false;
+    const processedNextRoundRequestIds = new Set();
+
+    // Room-state persistence is serialized so an older PATCH can never finish
+    // after a newer snapshot and overwrite the authoritative state.
+    let roomStateWriteChain = Promise.resolve();
+    let roomStateWriteQueuedVersion = 0;
+
 
     // Per-browser settlement guards. The database also has a unique
     // (player_id, game_id, wallet_type) constraint, so retries are safe.
@@ -1997,16 +1942,6 @@
         );
         const password = document.getElementById('login-password').value;
 
-        // Admin UI access is enabled only for the supplied admin login credentials.
-        // This does not modify the existing authentication/database logic.
-        if (adminCredentialsMatch(mobile, password)) {
-            enableAdminForCurrentSession();
-        } else {
-            adminAuthenticatedThisSession = false;
-            try { sessionStorage.removeItem('leastCountAdminSession'); } catch (e) {}
-            setAdminButtonVisible(false);
-        }
-
         if (!mobile || !password) {
             setAuthMessage('Enter your mobile and password.');
             return;
@@ -2139,9 +2074,6 @@
             console.error('Logout failed:', error);
         }
 
-        adminAuthenticatedThisSession = false;
-        try { sessionStorage.removeItem('leastCountAdminSession'); } catch (e) {}
-        setAdminButtonVisible(false);
         clearAuthSession();
         currentUser = null;
         currentProfile = null;
@@ -3169,6 +3101,7 @@
 
         document.getElementById('lobby-screen').classList.remove('hidden');
         setLobbyDefaultSettings();
+        setupDeckCapacityGuard();
         setHeaderAction(true);
         document.getElementById('waiting-screen').classList.add('hidden');
         document.getElementById('game-board-screen').classList.add('hidden');
@@ -3330,10 +3263,21 @@
         if (pointsSelect) pointsSelect.value = '50';
     }
 
+    function setupDeckCapacityGuard() {
+        const playersSelect = document.getElementById('max-players-select');
+        const cardsSelect = document.getElementById('cards-count-select');
+        const jokerSelect = document.getElementById('joker-option-select');
+        playersSelect?.addEventListener('change', updateCardsPerPlayerAvailability);
+        cardsSelect?.addEventListener('change', updateCardsPerPlayerAvailability);
+        jokerSelect?.addEventListener('change', updateCardsPerPlayerAvailability);
+        updateCardsPerPlayerAvailability();
+    }
+
     function refreshLobbyApp() {
         // Always reset the lobby choices before reloading so the next
         // visit starts with the requested defaults.
         setLobbyDefaultSettings();
+        setupDeckCapacityGuard();
 
         try {
             sessionStorage.setItem(
@@ -3524,6 +3468,7 @@
         pendingRejoinRequest = null;
         document.getElementById('lobby-screen').classList.remove('hidden');
         setLobbyDefaultSettings();
+        setupDeckCapacityGuard();
         setHeaderAction(true);
         document.getElementById('waiting-screen').classList.add('hidden');
         document.getElementById('game-board-screen').classList.add('hidden');
@@ -3844,6 +3789,14 @@
             );
 
         includeJoker = document.getElementById('joker-option-select').value === 'yes';
+
+        if (!validateDeckCapacity(
+            Number(document.getElementById('max-players-select')?.value || maxPlayersLimit),
+            cardsPerPlayer
+        )) {
+            updateCardsPerPlayerAvailability();
+            return;
+        }
 
         maxPlayersLimit =
             parseInt(
@@ -4223,7 +4176,7 @@
     function broadcastPlayerList() {
 
         if (isHost) {
-            persistRoomStateToSupabase();
+            queueRoomStatePersistence();
         } else {
             saveLocalRoomSession();
         }
@@ -4959,10 +4912,13 @@
                 data.type ===
                 'CALL_SHOW'
             ) {
-
-                handleHostShowCall(
-                    data.peerId
-                );
+                handleHostAction({
+                    type: 'PLAYER_ACTION',
+                    action: 'SHOW',
+                    actionId: String(data.actionId || `LEGACY_SHOW-${data.peerId || data.clientToken || 'unknown'}-${Date.now()}`),
+                    clientToken: data.clientToken || data.peerId,
+                    senderId: data.senderId || data.peerId
+                });
             }
 
             // ----------------------------------------------------
@@ -5048,10 +5004,10 @@
                     broadcastPlayerList();
 
                     if (roundActive) {
-
                         broadcastGameState(
                             `${leaving.name} exited. Continuing without them.`
                         );
+                        await finishTournamentIfNeeded();
                     }
 
                     updateWaitingRoomUI();
@@ -5102,8 +5058,16 @@
                 'START_NEXT_ROUND_REQUEST'
             ) {
 
-                if (!roundActive)
-                    startNextRound();
+                if (!roundActive && !nextRoundInFlight) {
+                    const requestId = String(data.requestId || `${data.clientToken || 'unknown'}:${data.type}`);
+                    if (processedNextRoundRequestIds.has(requestId)) return;
+                    processedNextRoundRequestIds.add(requestId);
+                    if (processedNextRoundRequestIds.size > 500) {
+                        const first = processedNextRoundRequestIds.values().next().value;
+                        processedNextRoundRequestIds.delete(first);
+                    }
+                    await startNextRound();
+                }
             }
 
             return;
@@ -6339,28 +6303,27 @@
                     isSoloMode ? 'bot' : 'real'
                 );
 
-                showRoundOverModal(
-                    data.resultsData,
-                    data.callerName,
-                    data.tournamentWinner || ''
-                );
-
-                renderGameBoard();
-
                 if (data.tournamentWinner) {
                     await settleWalletForCompletedGame(
                         data.tournamentWinner,
                         gameOpponentCount,
                         isSoloMode ? 'bot' : 'real'
                     );
-
                     showTournamentWinnerPopup(
                         data.tournamentWinner,
                         data.roomCode,
                         data.players || players,
-                        data.callerName || ''
+                        data.callerName || '',
+                        data.resultsData || ''
+                    );
+                } else {
+                    showRoundOverModal(
+                        data.resultsData,
+                        data.callerName,
+                        ''
                     );
                 }
+                renderGameBoard();
 
                 break;
         }
@@ -6369,6 +6332,43 @@
     // ============================================================
     // DECK
     // ============================================================
+
+    function validateDeckCapacity(playerCount = maxPlayersLimit, cardCount = cardsPerPlayer) {
+        const participants = Number(playerCount) || 0;
+        const cards = Number(cardCount) || 0;
+        const available = 52 + (includeJoker ? 1 : 0);
+        const required = (participants * cards) + 1; // one discard card
+        return required <= available;
+    }
+
+    function updateCardsPerPlayerAvailability() {
+        const playersSelect = document.getElementById('max-players-select');
+        const cardsSelect = document.getElementById('cards-count-select');
+        if (!playersSelect || !cardsSelect) return;
+
+        const playerCount = Number(playersSelect.value) || 0;
+        Array.from(cardsSelect.options).forEach(option => {
+            const cards = Number(option.value) || 0;
+            const allowed = ((playerCount * cards) + 1) <= (52 + (includeJoker ? 1 : 0));
+            option.disabled = !allowed;
+        });
+
+        if (cardsSelect.selectedOptions[0]?.disabled) {
+            const fallback = Array.from(cardsSelect.options).find(option => !option.disabled);
+            if (fallback) cardsSelect.value = fallback.value;
+        }
+    }
+
+    function assertValidDeckConfiguration() {
+        if (!validateDeckCapacity(maxPlayersLimit, cardsPerPlayer)) {
+            const available = 52 + (includeJoker ? 1 : 0);
+            const required = (Number(maxPlayersLimit) * Number(cardsPerPlayer)) + 1;
+            alert(`Invalid game settings: ${required} cards are required, but only ${available} cards are available. Please reduce players or cards per player.`);
+            updateCardsPerPlayerAvailability();
+            return false;
+        }
+        return true;
+    }
 
     function createDeck() {
 
@@ -6453,10 +6453,17 @@
 
     async function startHostGame() {
 
+        if (startGameInFlight) return;
+        startGameInFlight = true;
+        setTimeout(() => { startGameInFlight = false; }, 15000);
+
         if (!isSoloMode && !isHost) {
             logTicker('Only the room host can start the game.');
+            startGameInFlight = false;
             return;
         }
+
+        if (!assertValidDeckConfiguration()) { startGameInFlight = false; return; }
 
         if (
             players.filter(
@@ -6470,6 +6477,7 @@
             alert(
                 "Need at least 2 players to start!"
             );
+            startGameInFlight = false;
 
             return;
         }
@@ -6633,6 +6641,7 @@
         logTicker(
             "Game started!"
         );
+        startGameInFlight = false;
     }
 
     // ============================================================
@@ -7224,15 +7233,20 @@
          * - player must be eligible
          * - requested action must match the current phase
          */
+        const isShowAction = data.action === 'SHOW';
         if (
-            currentTurnIndex !== playerIndex ||
+            (!isShowAction && currentTurnIndex !== playerIndex) ||
             !isPlayerAllowedToPlay(actionPlayer)
         )
             return;
-
+        if (isShowAction) {
+            const showSum = calculateHandSum(actionPlayer.hand || []);
+            if (showSum > 5) return;
+            executeShowRound(actionPlayer.id || actionPlayer.clientToken || senderToken);
+            return;
+        }
         let changed = false;
         let message = '';
-
         if (data.action === 'DROP') {
 
             changed = applyDropActionForPlayer(
@@ -7281,70 +7295,41 @@
     // CALL SHOW
     // ============================================================
 
-    function callShow() {
-
-        let me =
-            players[myIndex];
-
-        if (!me)
-            return;
-
-        /*
-         * NEW:
-         * View-only players cannot call Show.
-         */
-        if (
-            me.viewOnly === true ||
-            me.connected === false
-        )
-            return;
-
-        if (
-            currentTurnIndex !==
-            myIndex ||
-            turnPhase !== 'drop'
-        )
-            return;
-
-        let sum =
-            calculateHandSum(
-                me.hand
-            );
-
+    async function callShow() {
+        if (showRoundInFlight) return;
+        const me = players[myIndex];
+        if (!roundActive || !me) return;
+        if (me.viewOnly === true || me.connected === false || me.eliminated === true || me.rejoinPending === true) return;
+        const sum = calculateHandSum(me.hand || []);
         if (sum > 5) {
-
-            alert(
-                "Sum must be 5 or less!"
-            );
-
+            logTicker('Call Show is available only when your hand total is 5 or less.');
             return;
         }
-
-        if (
-            isHost ||
-            isSoloMode
-        ) {
-
-            executeShowRound(
-                myId
-            );
-
-        } else {
-
-            sendRealtimeMessage({
-
-                type:
-                    'CALL_SHOW',
-
-                peerId:
-                    myId
-            });
+        if (isHost || isSoloMode) {
+            showRoundInFlight = true;
+            try {
+                await executeShowRound(myId);
+            } finally {
+                showRoundInFlight = false;
+            }
+            return;
         }
+        const actionId = createGameActionId('SHOW');
+        await sendGameActionWithRetry({
+            type: 'PLAYER_ACTION',
+            action: 'SHOW',
+            actionId,
+            clientToken: myClientToken,
+            senderId: myClientToken
+        });
+        logTicker('Show request sent. Waiting for the room result...');
     }
 
-    function handleHostShowCall(
+    async function handleHostShowCall(
         callerPeerId
     ) {
+        if (showRoundInFlight) return;
+        showRoundInFlight = true;
 
         /*
          * NEW:
@@ -7364,12 +7349,16 @@
             !caller ||
             caller.viewOnly === true ||
             caller.connected === false
-        )
+        ) {
+            showRoundInFlight = false;
             return;
+        }
 
-        executeShowRound(
-            callerPeerId
-        );
+        try {
+            await executeShowRound(callerPeerId);
+        } finally {
+            showRoundInFlight = false;
+        }
     }
 
     function escapeRoundResultHtml(value) {
@@ -7697,18 +7686,23 @@
             }
         }
 
-        // Show every active player's exact cards at the moment SHOW was called.
-        // The same snapshot is broadcast to every room member in ROUND_OVER.
+        // Compact card snapshot: Player: 2, 3, A ---> 6 Total
         resultsText +=
             `<div class="mt-3 pt-3 border-t border-zinc-800">
                 <div class="text-amber-300 font-black mb-1.5">Cards at SHOW</div>
-                <div class="grid grid-cols-2 gap-1.5">`;
+                <div class="space-y-1">`;
 
         summaries.forEach(item => {
-            resultsText += buildRoundCardPreviewHtml(
-                item.player,
-                item.player.id === caller.id
-            );
+            const cardValues = Array.isArray(item.player?.hand) && item.player.hand.length
+                ? item.player.hand.map(card => `${card.val || ''}${card.suit || ''}`).join(', ')
+                : 'No cards';
+            resultsText +=
+                `<div class="text-[11px] leading-5">
+                    <strong class="text-white">${escapeRoundResultHtml(item.player.name)}</strong>:
+                    <span class="text-zinc-300">${escapeRoundResultHtml(cardValues)}</span>
+                    <span class="text-zinc-500">---></span>
+                    <strong class="text-emerald-300">${item.sum} Total</strong>
+                </div>`;
         });
 
         resultsText += `</div></div>`;
@@ -7782,24 +7776,22 @@
                 gameOpponentCount
         };
 
-        showRoundOverModal(
-            resultsText,
-            caller.name,
-            roundWinner
-        );
-
-        renderGameBoard();
-
         if (roundWinner) {
-            // Host/solo gets the popup immediately. Remote clients get it
-            // from the same ROUND_OVER broadcast below.
             showTournamentWinnerPopup(
                 roundWinner,
                 roomCode,
                 players,
-                caller.name
+                caller.name,
+                resultsText
+            );
+        } else {
+            showRoundOverModal(
+                resultsText,
+                caller.name,
+                ''
             );
         }
+        renderGameBoard();
 
         if (
             isHost &&
@@ -7857,10 +7849,55 @@
     }
 
     // ============================================================
+    // TOURNAMENT END SAFETY
+    // ============================================================
+
+    async function finishTournamentIfNeeded() {
+        if (!isHost && !isSoloMode) return false;
+        if (tournamentEndInFlight || !roundActive) return false;
+
+        const activePlayers = players.filter(p =>
+            p && !p.eliminated && p.connected !== false && p.viewOnly !== true
+        );
+        if (activePlayers.length > 1) return false;
+
+        tournamentEndInFlight = true;
+        try {
+            roundActive = false;
+            const finalWinner = activePlayers[0] ? activePlayers[0].name : 'Nobody';
+            const lastRound = gameHistory.length ? gameHistory[gameHistory.length - 1] : null;
+
+            await settleWalletForCompletedGame(
+                finalWinner,
+                gameOpponentCount,
+                isSoloMode ? 'bot' : 'real'
+            );
+            await syncGameHistoryToSupabase(finalWinner);
+            await sendRealtimeMessage({
+                type: 'TOURNAMENT_WINNER',
+                roomCode,
+                winnerName: finalWinner,
+                players,
+                callerName: lastRound?.callerName || '',
+                walletGameId,
+                gameOpponentCount
+            });
+            showTournamentWinnerPopup(finalWinner, roomCode, players, lastRound?.callerName || '');
+            renderGameBoard();
+            saveLocalRoomSession();
+            return true;
+        } finally {
+            tournamentEndInFlight = false;
+        }
+    }
+
+    // ============================================================
     // NEXT ROUND
     // ============================================================
 
     async function startNextRound() {
+
+        if (nextRoundInFlight) return;
 
         if (
             !isHost &&
@@ -7882,12 +7919,11 @@
             )
                 return;
 
+            const requestId = createGameActionId('NEXT_ROUND');
             sendRealtimeMessage({
-                type:
-                    'START_NEXT_ROUND_REQUEST',
-
-                clientToken:
-                    myClientToken
+                type: 'START_NEXT_ROUND_REQUEST',
+                requestId,
+                clientToken: myClientToken
             });
 
             document.getElementById(
@@ -7904,6 +7940,11 @@
             return;
         }
 
+        nextRoundInFlight = true;
+        setTimeout(() => { nextRoundInFlight = false; }, 15000);
+
+        if (!assertValidDeckConfiguration()) { nextRoundInFlight = false; return; }
+
         let activePlayers =
             players.filter(
                 p =>
@@ -7915,6 +7956,7 @@
         if (
             activePlayers.length <= 1
         ) {
+            nextRoundInFlight = false;
 
             const finalWinner =
                 activePlayers[0] ? activePlayers[0].name : 'Nobody';
@@ -8090,6 +8132,7 @@
         }
 
         checkBotTurn();
+        nextRoundInFlight = false;
     }
 
     // ============================================================
@@ -8099,9 +8142,20 @@
     function updateGameOnlyFooterControls(show) {
         const historyBtn = document.getElementById('history-footer-btn');
         const scoresBtn = document.getElementById('scores-footer-btn');
-
+        const separator = document.querySelector('#game-footer-links span');
+        const links = document.getElementById('game-footer-links');
+        const lobbyLinks = document.getElementById('lobby-footer-links');
         if (historyBtn) historyBtn.classList.toggle('hidden', !show);
         if (scoresBtn) scoresBtn.classList.toggle('hidden', !show);
+        if (separator) separator.classList.toggle('hidden', !show);
+        if (links) {
+            links.classList.toggle('hidden', !show);
+            links.classList.toggle('flex', show);
+        }
+        if (lobbyLinks) {
+            lobbyLinks.classList.toggle('hidden', show);
+            lobbyLinks.classList.toggle('flex', !show);
+        }
     }
 
     function renderGameBoard() {
@@ -8370,10 +8424,7 @@
          */
         let canShow =
             (
-                currentTurnIndex ===
-                    myIndex &&
-                turnPhase ===
-                    'drop' &&
+                roundActive &&
                 mySum <= 5 &&
                 !me.eliminated &&
                 me.connected !== false &&
@@ -8715,11 +8766,16 @@
             <div class="p-4 border-b border-zinc-800 shrink-0 space-y-3">
                 <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                     <label for="my-game-history-type" class="text-xs font-bold text-zinc-400">Game Type</label>
-                    <select id="my-game-history-type" onchange="loadMyGameHistory()"
+                    <select id="my-game-history-type" onchange="renderMyGameHistoryTable(myGameHistoryRows); updateMyGameHistorySummary(myGameHistoryRows)"
                             class="w-full sm:w-auto min-w-[180px] px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-emerald-500">
                         <option value="all">All Games</option>
                         <option value="bot">Bot Games</option>
                         <option value="real">Real Multiplayer Games</option>
+                    </select>
+                    <label for="my-game-history-date" class="text-xs font-bold text-zinc-400">Date</label>
+                    <select id="my-game-history-date" onchange="renderMyGameHistoryTable(myGameHistoryRows); updateMyGameHistorySummary(myGameHistoryRows)"
+                            class="w-full sm:w-auto min-w-[150px] px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-emerald-500">
+                        <option value="all">All Dates</option>
                     </select>
                     <button onclick="loadMyGameHistory()"
                             class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-emerald-300 hover:bg-zinc-800">
@@ -8739,7 +8795,7 @@
             <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
                 <div>
                     <h2 class="text-lg font-black text-amber-300">Total Game Users</h2>
-                    <p class="text-[11px] text-zinc-500 mt-1">Registered users, current coins, and completed game counts.</p>
+                    <p class="text-[11px] text-zinc-500 mt-1">Registered users and game counts.</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <button onclick="loadUsersStats()" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-amber-300 hover:bg-zinc-800">Refresh</button>
@@ -8752,63 +8808,25 @@
         </div>
     </div>
 
-    <div id="coin-instructions-modal"
-         class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-4 z-[210]">
-        <div class="bg-zinc-950 border border-indigo-500/30 w-full max-w-2xl max-h-[88vh] rounded-2xl p-5 shadow-2xl overflow-y-auto">
-            <div class="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
-                <div>
-                    <h2 class="text-lg font-black text-indigo-300">Coins Instructions</h2>
-                    <p class="text-[11px] text-zinc-500 mt-1">How Bot Coins and Real Coins are calculated.</p>
+    <!-- PLAYER COMPLETE GAME HISTORY -->
+    <div id="total-users-player-history-modal"
+         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[230]">
+        <div class="bg-zinc-950 border border-amber-500/25 w-full max-w-6xl h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
+                <div class="min-w-0">
+                    <h2 class="text-lg font-black text-amber-300">Player Complete Game History</h2>
+                    <p id="total-users-player-history-subtitle" class="text-[11px] text-zinc-500 mt-1 truncate">Player</p>
                 </div>
-                <button onclick="toggleCoinInstructionsModal(false)" class="text-zinc-400 hover:text-white font-bold text-xl px-2">&times;</button>
+                <button type="button" onclick="toggleTotalUsersPlayerHistory(false)"
+                        class="shrink-0 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">
+                    Close
+                </button>
             </div>
-
-            <div class="space-y-4 text-xs sm:text-sm text-zinc-300 leading-relaxed">
-                <section>
-                    <h3 class="font-black text-white mb-1">1. Two separate wallets</h3>
-                    <p><strong class="text-indigo-300">Bot Coins</strong> are used for games played against computer/bot players. <strong class="text-emerald-300">Real Coins</strong> are used for online multiplayer games with other registered players. The two balances are stored separately.</p>
-                </section>
-                <section>
-                    <h3 class="font-black text-white mb-1">2. Winning a game</h3>
-                    <p>A win gives <strong class="text-emerald-300">100 coins for each opponent</strong>.</p>
-                    <div class="bg-black border border-zinc-800 rounded-xl p-3 mt-2 font-mono text-[11px] text-zinc-200">Win reward = 100 × number of opponents</div>
-                    <p class="mt-2">Example: 3 total players means 2 opponents, so the winner receives <strong class="text-emerald-300">200 coins</strong>.</p>
-                </section>
-                <section>
-                    <h3 class="font-black text-white mb-1">3. Losing a game</h3>
-                    <p>A completed loss deducts <strong class="text-rose-300">100 coins</strong> from the wallet used for that game.</p>
-                </section>
-                <section>
-                    <h3 class="font-black text-white mb-1">4. Bots count as opponents</h3>
-                    <p>Every bot in a solo game counts as an opponent for the winner's reward. For example, you + 3 bots = 3 opponents = <strong class="text-emerald-300">300 Bot Coins</strong> for a win.</p>
-                </section>
-                <section>
-                    <h3 class="font-black text-white mb-1">5. No duplicate payout</h3>
-                    <p>Each completed game/wallet combination is settled only once in Supabase. Refreshing the page or receiving the game-over event again does not create another payout.</p>
-                </section>
-                <section>
-                    <h3 class="font-black text-white mb-1">6. When coins are added</h3>
-                    <p>Coins are added or deducted when the game reaches its completed winner/loss settlement. The server calculates the amount; the browser cannot choose an arbitrary coin amount.</p>
-                </section>
-                <section>
-                    <h3 class="font-black text-white mb-1">7. History</h3>
-                    <p>Your Game History shows every recorded win/loss settlement, the wallet used, game code, opponent count, coin change, and date/time.</p>
-                </section>
-                <section class="border-t border-zinc-800 pt-3">
-                    <h3 class="font-black text-white mb-1">8. Important</h3>
-                    <p>Coins are currently game-account balances only. They are not real money and cannot be withdrawn or converted to cash by this game logic.</p>
-                </section>
-            </div>
-
-            <div class="flex justify-end pt-4">
-                <button onclick="toggleCoinInstructionsModal(false)" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-bold">Close</button>
-            </div>
+            <div id="total-users-player-history-status" class="px-4 py-3 border-b border-zinc-800 shrink-0 text-xs text-zinc-500">Loading...</div>
+            <div id="total-users-player-history-list" class="p-4 overflow-y-auto flex-1"></div>
         </div>
     </div>
 
-    <!-- ========================================================= -->
-    <!-- ALL-IN-ONE: DATABASE GAME HISTORY VIEW                   -->
-    <!-- ========================================================= -->
     <div id="database-history-modal"
          class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[200]">
         <div class="bg-zinc-950 border border-zinc-800 w-full max-w-5xl h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
@@ -9138,6 +9156,13 @@
         }
 
         function rowContainsCurrentPlayer(row) {
+            const myToken = String(myClientToken || '').trim();
+            const history = String(row?.game_history || '');
+            const escapedToken = myToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const playerIdPattern = new RegExp('(?:^|[,\n])\\s*[^,\n=]+=' + escapedToken + '(?:[,\n]|$)', 'i');
+            if (myToken && playerIdPattern.test(history)) {
+                return true;
+            }
             const me = String(currentProfile?.name || currentUser?.name || myName || '').trim();
             if (!me) return false;
             return playerNamesFromGameRow(row).some(name => name.toLowerCase() === me.toLowerCase()) ||
@@ -9169,15 +9194,63 @@
             });
         }
 
-        function renderMyGameHistoryTable(rows) {
+        function getGameHistoryEliminationPoints(row) {
+            const historyText = String(row?.game_history || '');
+            const match = historyText.match(/Settings:\s*[^\n]*?,\s*(\d+)\s+elimination points/i);
+            if (match && match[1]) return match[1];
+
+            const alternate = historyText.match(/(\d+)\s+elimination\s+points/i);
+            if (alternate && alternate[1]) return alternate[1];
+
+            return '—';
+        }
+
+        function getMyGameHistoryDateKey(row) {
+            if (!row?.created_at) return '';
+            const date = new Date(row.created_at);
+            if (Number.isNaN(date.getTime())) return '';
+            return date.toLocaleDateString('en-CA');
+        }
+
+        function populateMyGameHistoryDates(rows) {
+            const select = document.getElementById('my-game-history-date');
+            if (!select) return;
+
+            const currentValue = select.value || 'all';
+            const dates = [...new Set(
+                rows.map(getMyGameHistoryDateKey).filter(Boolean)
+            )].sort((a, b) => b.localeCompare(a));
+
+            select.innerHTML = '<option value="all">All Dates</option>' + dates.map(dateKey => {
+                const date = new Date(`${dateKey}T00:00:00`);
+                const label = Number.isNaN(date.getTime())
+                    ? dateKey
+                    : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                return `<option value="${dateKey}">${label}</option>`;
+            }).join('');
+
+            select.value = dates.includes(currentValue) ? currentValue : 'all';
+        }
+
+        function getFilteredMyGameHistoryRows(rows) {
             const typeSelect = document.getElementById('my-game-history-type');
+            const dateSelect = document.getElementById('my-game-history-date');
             const selectedType = typeSelect?.value || 'all';
-            const filtered = rows.filter(row => {
+            const selectedDate = dateSelect?.value || 'all';
+
+            return rows.filter(row => {
                 const isBot = isMyGameHistoryBotGame(row);
-                return selectedType === 'all' ||
+                const typeMatches = selectedType === 'all' ||
                     (selectedType === 'bot' && isBot) ||
                     (selectedType === 'real' && !isBot);
+                const dateMatches = selectedDate === 'all' ||
+                    getMyGameHistoryDateKey(row) === selectedDate;
+                return typeMatches && dateMatches;
             });
+        }
+
+        function renderMyGameHistoryTable(rows) {
+            const filtered = getFilteredMyGameHistoryRows(rows);
 
             const list = document.getElementById('my-game-history-list');
             if (!list) return;
@@ -9199,6 +9272,7 @@
                 const inProgress = isMyGameHistoryInProgress(row);
                 const isBot = isMyGameHistoryBotGame(row);
                 const savedAt = row.created_at ? new Date(row.created_at).toLocaleString() : '—';
+                const eliminationPoints = getGameHistoryEliminationPoints(row);
                 const gridRow = document.createElement('div');
                 gridRow.className = 'database-history-grid database-history-row';
                 gridRow.innerHTML = `
@@ -9207,7 +9281,7 @@
                         <div class="database-history-date">${escapeAccountStatsHtml(savedAt)}</div>
                         <div class="mt-1 text-[8px] ${isBot ? 'text-indigo-300' : 'text-emerald-300'}">${isBot ? 'BOT' : 'REAL'}</div>
                     </div>
-                    <div class="database-history-cell">${escapeAccountStatsHtml(row.game_host || '—')}</div>
+                    <div class="database-history-cell font-bold">${escapeAccountStatsHtml(row.game_host || '—')} - EP=${escapeAccountStatsHtml(eliminationPoints)}</div>
                     <div class="database-history-cell players-cell">${escapeAccountStatsHtml(row.players_name || '—')}</div>
                     <div class="database-history-cell points-cell">${escapeAccountStatsHtml(row.game_points || '—')}</div>
                     <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeAccountStatsHtml(inProgress ? 'In Progress' : (row.game_winner || 'Completed'))}</div>
@@ -9216,18 +9290,20 @@
                     </div>`;
                 table.appendChild(gridRow);
             });
+            list.innerHTML = '';
             list.appendChild(table);
         }
 
         function updateMyGameHistorySummary(rows) {
             const summary = document.getElementById('my-game-history-summary');
             if (!summary) return;
-            const bot = rows.filter(isMyGameHistoryBotGame).length;
-            const real = rows.length - bot;
-            const inProgress = rows.filter(isMyGameHistoryInProgress).length;
-            const completed = rows.length - inProgress;
+            const filteredRows = getFilteredMyGameHistoryRows(rows);
+            const bot = filteredRows.filter(isMyGameHistoryBotGame).length;
+            const real = filteredRows.length - bot;
+            const inProgress = filteredRows.filter(isMyGameHistoryInProgress).length;
+            const completed = filteredRows.length - inProgress;
             summary.innerHTML =
-                `<span class="text-white font-bold">${rows.length}</span> games shown` +
+                `<span class="text-white font-bold">${filteredRows.length}</span> games shown` +
                 ` · Completed: <span class="text-emerald-300 font-bold">${completed}</span>` +
                 ` · In Progress: <span class="text-amber-300 font-bold">${inProgress}</span>` +
                 ` · Bot: <span class="text-indigo-300 font-bold">${bot}</span>` +
@@ -9267,6 +9343,7 @@
 
                 const rows = await response.json();
                 myGameHistoryRows = normalizeMyGameHistoryRows(rows);
+                populateMyGameHistoryDates(myGameHistoryRows);
                 updateMyGameHistorySummary(myGameHistoryRows);
                 renderMyGameHistoryTable(myGameHistoryRows);
             } catch (error) {
@@ -9281,6 +9358,161 @@
             const row = myGameHistoryRows[index];
             if (!row) return;
             openDatabaseHistoryDetail(row);
+        }
+
+        function toggleTotalUsersPlayerHistory(show) {
+            const modal = document.getElementById('total-users-player-history-modal');
+            if (!modal) return;
+            modal.classList.toggle('hidden', !show);
+            modal.classList.toggle('flex', show);
+        }
+
+        function getTotalUsersPlayerHistoryNames(row) {
+            return String(row?.players_name || '')
+                .split(/[,|]/)
+                .map(name => name.trim())
+                .filter(Boolean);
+        }
+
+        function getTotalUsersPlayerHistoryPlayerDetail(round, playerName) {
+            const wanted = String(playerName || '').trim().toLowerCase();
+            return (round.details || []).find(detail =>
+                String(detail.name || '').trim().toLowerCase() === wanted
+            ) || null;
+        }
+
+        function renderTotalUsersPlayerHistoryRows(rows, playerName) {
+            const list = document.getElementById('total-users-player-history-list');
+            const status = document.getElementById('total-users-player-history-status');
+            if (!list || !status) return;
+
+            const playerRows = (Array.isArray(rows) ? rows : []).filter(row =>
+                getTotalUsersPlayerHistoryNames(row).some(name =>
+                    name.toLowerCase() === String(playerName || '').trim().toLowerCase()
+                )
+            );
+
+            if (!playerRows.length) {
+                status.innerText = `No game history found for ${playerName}.`;
+                list.innerHTML = `<div class="text-center text-xs text-zinc-600 py-12">No games found for this player.</div>`;
+                return;
+            }
+
+            const historyRows = [];
+
+            playerRows.forEach(row => {
+                const rounds = parseDatabaseHistoryRounds(row.game_history || '');
+                if (!rounds.length) {
+                    historyRows.push({
+                        row,
+                        round: null,
+                        detail: null
+                    });
+                    return;
+                }
+
+                rounds.forEach(round => {
+                    historyRows.push({
+                        row,
+                        round,
+                        detail: getTotalUsersPlayerHistoryPlayerDetail(round, playerName)
+                    });
+                });
+            });
+
+            status.innerText = `${playerRows.length} game${playerRows.length === 1 ? '' : 's'} played by ${playerName} · ${historyRows.length} history row${historyRows.length === 1 ? '' : 's'}`;
+
+            const table = document.createElement('div');
+            table.className = 'overflow-x-auto rounded-xl border border-zinc-800 bg-black';
+            table.innerHTML = `
+                <table class="w-full min-w-[1100px] text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b border-zinc-800 text-zinc-500 uppercase tracking-wider text-[9px] bg-zinc-900">
+                            <th class="text-left p-3">Game</th>
+                            <th class="text-left p-3">Date</th>
+                            <th class="text-left p-3">Host</th>
+                            <th class="text-left p-3">Round</th>
+                            <th class="text-left p-3">Caller</th>
+                            <th class="text-left p-3">Caller Sum</th>
+                            <th class="text-left p-3">Outcome</th>
+                            <th class="text-left p-3">Hand Sum</th>
+                            <th class="text-left p-3">Points Added</th>
+                            <th class="text-left p-3">Total Score</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>`;
+
+            const tbody = table.querySelector('tbody');
+            historyRows.forEach(item => {
+                const row = item.row;
+                const round = item.round;
+                const detail = item.detail;
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/60 align-top';
+                const savedAt = row.created_at ? new Date(row.created_at).toLocaleString() : '—';
+                const winner = String(row.game_winner || '').trim();
+                const statusText = winner && !/^in\s*progress$/i.test(winner) ? winner : 'In Progress';
+
+                tr.innerHTML = `
+                    <td class="p-3 font-bold text-amber-300">${escapeAccountStatsHtml(row.game_code || '—')}</td>
+                    <td class="p-3 text-zinc-400">${escapeAccountStatsHtml(savedAt)}</td>
+                    <td class="p-3 text-white font-bold">${escapeAccountStatsHtml(row.game_host || '—')}</td>
+                    <td class="p-3 text-white font-bold">${escapeAccountStatsHtml(round?.roundNumber || '—')}</td>
+                    <td class="p-3 text-zinc-300">${escapeAccountStatsHtml(round?.caller || '—')}</td>
+                    <td class="p-3 text-zinc-300">${escapeAccountStatsHtml(round?.callerSum || '—')}</td>
+                    <td class="p-3 text-zinc-300 break-words max-w-[260px]">${escapeAccountStatsHtml(round?.outcome || statusText)}</td>
+                    <td class="p-3 text-emerald-300 font-bold">${escapeAccountStatsHtml(detail?.sum || '—')}</td>
+                    <td class="p-3 text-amber-300 font-bold">${escapeAccountStatsHtml(detail?.pointsAdded || '—')}</td>
+                    <td class="p-3 text-white font-black">${escapeAccountStatsHtml(detail?.totalAfterRound || '—')}</td>`;
+                tbody.appendChild(tr);
+            });
+
+            list.innerHTML = '';
+            list.appendChild(table);
+        }
+
+        async function openTotalUsersPlayerHistory(playerName) {
+            const modal = document.getElementById('total-users-player-history-modal');
+            const subtitle = document.getElementById('total-users-player-history-subtitle');
+            const status = document.getElementById('total-users-player-history-status');
+            const list = document.getElementById('total-users-player-history-list');
+            if (!modal || !subtitle || !status || !list) return;
+
+            subtitle.textContent = `Complete history for ${playerName}`;
+            status.innerText = 'Loading complete game history...';
+            list.innerHTML = '<div class="text-center text-xs text-zinc-500 py-12">Loading...</div>';
+            toggleTotalUsersPlayerHistory(true);
+
+            try {
+                let rows = databaseGameHistoryRows;
+
+                if (!Array.isArray(rows) || !rows.length) {
+                    const response = await fetch(
+                        `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                        {
+                            method: 'GET',
+                            headers: {
+                                'apikey': SUPABASE_APIKEY,
+                                'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                                'Content-Type': 'application/json'
+                            }
+                        }
+                    );
+
+                    if (!response.ok) {
+                        throw new Error(`Game history request failed: ${response.status}`);
+                    }
+
+                    rows = normalizeDatabaseGameHistoryRows(await response.json());
+                }
+
+                renderTotalUsersPlayerHistoryRows(rows, playerName);
+            } catch (error) {
+                console.error('Unable to load selected player game history:', error);
+                status.innerText = 'Unable to load player game history.';
+                list.innerHTML = `<div class="text-center text-xs text-rose-400 py-12">Unable to load history. ${escapeAccountStatsHtml(error?.message || '')}</div>`;
+            }
         }
 
         async function loadUsersStats() {
@@ -9326,8 +9558,6 @@
                         <thead>
                             <tr class="border-b border-zinc-800 text-zinc-500 uppercase tracking-wider text-[9px]">
                                 <th class="text-left p-3">Player</th>
-                                <th class="text-right p-3">Bot Coins</th>
-                                <th class="text-right p-3">Real Coins</th>
                                 <th class="text-right p-3">Bot Games</th>
                                 <th class="text-right p-3">Real Games</th>
                                 <th class="text-right p-3">Total Games</th>
@@ -9340,18 +9570,18 @@
                 rows.forEach(row => {
                     const tr = document.createElement('tr');
                     tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/60';
-                    const botCoins = Number(row.bot_coins || 0);
-                    const realCoins = Number(row.real_coins || 0);
-                    const botCoinsClass = botCoins < 0 ? 'text-rose-400' : 'text-indigo-300';
-                    const realCoinsClass = realCoins < 0 ? 'text-rose-400' : 'text-emerald-300';
                     const botGames = Number(row.bot_games_played || 0);
                     const realGames = Number(row.real_games_played || 0);
                     tr.innerHTML = `
-                        <td class="p-3 text-left"><div class="font-bold text-white">${escapeAccountStatsHtml(row.name)}</div></td>
-                        <td class="p-3 text-right font-black ${botCoinsClass}">${botCoins}</td>
-                        <td class="p-3 text-right font-black ${realCoinsClass}">${realCoins}</td>
-                        <td class="p-3 text-right text-zinc-300">${botGames}</td>
-                        <td class="p-3 text-right text-zinc-300">${realGames}</td>
+                        <td class="p-3 text-left">
+                            <button type="button"
+                                    onclick="openTotalUsersPlayerHistory(${JSON.stringify(String(row.name || ''))})"
+                                    class="font-bold text-amber-300 hover:text-amber-200 hover:underline text-left">
+                                ${escapeAccountStatsHtml(row.name)}
+                            </button>
+                        </td>
+                        <td class="p-3 text-right font-black text-indigo-300">${botGames}</td>
+                        <td class="p-3 text-right font-black text-emerald-300">${realGames}</td>
                         <td class="p-3 text-right font-bold text-white">${botGames + realGames}</td>`;
                     tbody.appendChild(tr);
                 });
@@ -9685,6 +9915,7 @@
                 const savedAt = row.created_at
                     ? new Date(row.created_at).toLocaleString()
                     : '—';
+                const eliminationPoints = getGameHistoryEliminationPoints(row);
 
                 const gridRow = document.createElement('div');
                 gridRow.className = 'database-history-grid database-history-row';
@@ -9693,7 +9924,7 @@
                         <div class="database-history-game-code">${escapeDatabaseHistoryHtml(row.game_code || '—')}</div>
                         <div class="database-history-date">${escapeDatabaseHistoryHtml(savedAt)}</div>
                     </div>
-                    <div class="database-history-cell">${escapeDatabaseHistoryHtml(row.game_host || '—')}</div>
+                    <div class="database-history-cell font-bold">${escapeDatabaseHistoryHtml(row.game_host || '—')} - EP=${escapeDatabaseHistoryHtml(eliminationPoints)}</div>
                     <div class="database-history-cell players-cell">${escapeDatabaseHistoryHtml(row.players_name || '—')}</div>
                     <div class="database-history-cell points-cell">${escapeDatabaseHistoryHtml(row.game_points || '—')}</div>
                     <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeDatabaseHistoryHtml(inProgress ? 'In Progress' : winner)}</div>
@@ -9757,498 +9988,6 @@
         }
     </script>
 
-
-    <!-- ========================================================= -->
-    <!-- ADMIN PANEL - MOBILE-FIRST NAVIGATION ONLY                -->
-    <!-- Existing game logic and data logic are untouched.        -->
-    <!-- ========================================================= -->
-    <div id="admin-panel-modal" class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center z-[300] admin-mobile-shell">
-        <div class="bg-zinc-950 border border-rose-500/25 w-full h-full sm:h-[96vh] sm:max-w-6xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden admin-mobile-panel">
-            <div class="flex items-center justify-between gap-2 px-3 py-3 border-b border-zinc-800 shrink-0 admin-mobile-header">
-                <div class="min-w-0">
-                    <h2 class="text-base sm:text-xl font-black text-rose-300 truncate">🛡 Admin Panel</h2>
-                    <p class="text-[9px] sm:text-[11px] text-zinc-500 truncate">Players & game history</p>
-                </div>
-                <div class="flex items-center gap-1.5 shrink-0">
-                    <button onclick="loadAdminOverview()" class="px-2.5 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] font-bold text-rose-300">↻</button>
-                    <button onclick="toggleAdminPanel(false)" class="px-2.5 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] font-bold text-white">Close</button>
-                </div>
-            </div>
-            <div id="admin-panel-status" class="px-3 py-1.5 border-b border-zinc-800 text-[10px] text-zinc-500 shrink-0">Ready</div>
-
-            <!-- PAGE 1: PLAYERS -->
-            <section id="admin-players-view" class="admin-view flex flex-col min-h-0 flex-1">
-                <div class="p-3 border-b border-zinc-800 shrink-0 space-y-2">
-                    <input id="admin-player-search" type="search" placeholder="Search player name / mobile..." oninput="renderAdminPlayerList()"
-                           class="w-full px-3 py-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-rose-500">
-                    <div id="admin-summary" class="text-[10px] text-zinc-500">Loading...</div>
-                </div>
-                <div id="admin-player-list" class="admin-player-grid p-2 sm:p-3 overflow-y-auto flex-1"></div>
-            </section>
-
-            <!-- PAGE 2: SELECTED PLAYER -->
-            <section id="admin-player-view" class="admin-view hidden flex-col min-h-0 flex-1">
-                <div class="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 shrink-0">
-                    <button type="button" onclick="showAdminPlayersView()" class="px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-black text-white">← Players</button>
-                    <div id="admin-player-view-title" class="min-w-0 text-sm font-black text-white truncate">Player</div>
-                </div>
-                <section id="admin-player-detail" class="min-h-0 overflow-y-auto p-3 sm:p-5"></section>
-            </section>
-        </div>
-    </div>
-
-    <style>
-        /* Admin-only responsive presentation. No game logic changes. */
-        .admin-mobile-shell { padding: 0; }
-        .admin-mobile-panel { min-width: 0; }
-        .admin-player-grid { display:block; width:100%; min-width:0; }
-        .admin-player-card { min-width:0; }
-        .admin-player-card .admin-card-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .admin-player-table-wrap { width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid rgb(39 39 42); border-radius:.75rem; }
-        .admin-player-table { width:100%; min-width:650px; border-collapse:collapse; }
-        .admin-player-table th,.admin-player-table td { padding:.55rem .65rem; border-bottom:1px solid rgb(39 39 42); text-align:left; vertical-align:top; font-size:10px; }
-        .admin-player-table th { color:#a1a1aa; background:rgb(24 24 27); font-weight:800; white-space:nowrap; position:sticky; top:0; z-index:1; }
-        .admin-player-table td { color:#d4d4d8; }
-        .admin-game-stats-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:.4rem; width:100%; }
-        .admin-game-stat-card { min-width:0; background:rgb(24 24 27); border:1px solid rgb(39 39 42); border-radius:.75rem; padding:.55rem .25rem; text-align:center; }
-        .admin-game-stat-label { min-height:1.55rem; display:flex; align-items:center; justify-content:center; font-size:7px; line-height:1.05; font-weight:800; letter-spacing:.02em; text-transform:uppercase; color:#71717a; overflow:hidden; }
-        .admin-game-stat-value { margin-top:.15rem; font-size:1rem; line-height:1.1; font-weight:900; }
-        @media (max-width:420px) {
-            .admin-game-stats-grid { gap:.25rem; }
-            .admin-game-stat-card { padding:.45rem .12rem; border-radius:.6rem; }
-            .admin-game-stat-label { font-size:6px; min-height:1.65rem; }
-            .admin-game-stat-value { font-size:.9rem; }
-        }
-        .admin-players-table-wrap { width:100%; max-width:100%; overflow-x:hidden; overflow-y:visible; border:1px solid rgb(39 39 42); border-radius:.65rem; }
-        .admin-players-table { width:100%; table-layout:fixed; border-collapse:collapse; }
-        .admin-players-table th, .admin-players-table td { border-right:1px solid rgb(39 39 42); border-bottom:1px solid rgb(39 39 42); }
-        .admin-players-table th:last-child, .admin-players-table td:last-child { border-right:0; }
-        .admin-players-table th { padding:.55rem .35rem; font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:#a1a1aa; background:rgb(24 24 27); text-align:center; font-weight:900; }
-        .admin-players-table th:first-child { width:52%; text-align:left; }
-        .admin-players-table th:not(:first-child) { width:16%; }
-        .admin-players-table td { padding:.45rem .35rem; font-size:11px; }
-        .admin-player-name-cell { text-align:left !important; min-width:0; }
-        .admin-player-name-button { display:block; width:100%; min-width:0; text-align:left; padding:0; background:none; border:0; color:inherit; cursor:pointer; }
-        .admin-player-name-text { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#fff; font-weight:800; font-size:11px; }
-        .admin-player-mobile { display:block; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#71717a; font-size:8px; }
-        .admin-players-table tbody tr { background:#050505; }
-        .admin-players-table tbody tr:nth-child(even) { background:#09090b; }
-        .admin-players-table tbody tr:active { background:#18181b; }
-        @media (max-width:380px) {
-            .admin-players-table th { font-size:8px; padding:.5rem .25rem; }
-            .admin-players-table td { padding:.42rem .25rem; font-size:10px; }
-            .admin-player-name-text { font-size:10px; }
-            .admin-player-mobile { font-size:7px; }
-        }
-        .admin-game-history { white-space:pre-wrap; word-break:break-word; max-height:55vh; overflow:auto; font-size:10px; line-height:1.5; }
-        @media (min-width:640px) {
-            .admin-mobile-shell { padding:.75rem; }
-            .admin-player-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-        }
-        @media (min-width:900px) {
-            .admin-player-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
-        }
-        @media (max-width:380px) {
-            .admin-mobile-header { padding-left:.6rem; padding-right:.6rem; }
-            .admin-player-grid { gap:.4rem; }
-        }
-    </style>
-
-<script>
-        // ============================================================
-        // ADMIN PANEL (ADDED FEATURE ONLY)
-        // Existing game logic is intentionally untouched.
-        // ============================================================
-        const ADMIN_MOBILE = '9912517895';
-        const ADMIN_PASSWORD = '11223344';
-        let adminAuthenticatedThisSession = false;
-        let adminPlayers = [];
-        let adminGameHistoryRows = [];
-        let adminSelectedPlayerId = '';
-
-        function setAdminButtonVisible(visible) {
-            const btn = document.getElementById('admin-nav-btn');
-            const sep = document.getElementById('admin-nav-separator');
-            if (!btn) return;
-            btn.classList.toggle('hidden', !visible);
-            if (sep) sep.classList.toggle('hidden', !visible);
-        }
-
-        function adminCredentialsMatch(mobile, password) {
-            return String(mobile || '').replace(/\D/g, '') === ADMIN_MOBILE &&
-                   String(password || '') === ADMIN_PASSWORD;
-        }
-
-        function enableAdminForCurrentSession() {
-            adminAuthenticatedThisSession = true;
-            try { sessionStorage.setItem('leastCountAdminSession', '1'); } catch (e) {}
-            setAdminButtonVisible(true);
-        }
-
-        function restoreAdminSessionFlag() {
-            try {
-                adminAuthenticatedThisSession = sessionStorage.getItem('leastCountAdminSession') === '1';
-            } catch (e) {
-                adminAuthenticatedThisSession = false;
-            }
-            // The admin button is only a UI convenience. Data access still uses the
-            // existing public/readable RPCs and game-history table; no schema is changed.
-            setAdminButtonVisible(adminAuthenticatedThisSession);
-        }
-
-        function escapeAdminHtml(value) {
-            return String(value ?? '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        }
-
-        function formatAdminDate(value) {
-            if (!value) return '—';
-            const d = new Date(value);
-            return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
-        }
-
-        function showAdminPlayersView() {
-            const players = document.getElementById('admin-players-view');
-            const player = document.getElementById('admin-player-view');
-            if (players) { players.classList.remove('hidden'); players.classList.add('flex'); }
-            if (player) { player.classList.add('hidden'); player.classList.remove('flex'); }
-            adminSelectedPlayerId = '';
-            // Always reset the player filter when returning to the Admin player list.
-            // This prevents a previously typed search/autofilled value from hiding players.
-            const search = document.getElementById('admin-player-search');
-            if (search) search.value = '';
-            renderAdminPlayerList();
-        }
-
-        function showAdminPlayerView(playerId) {
-            const players = document.getElementById('admin-players-view');
-            const player = document.getElementById('admin-player-view');
-            if (players) { players.classList.add('hidden'); players.classList.remove('flex'); }
-            if (player) { player.classList.remove('hidden'); player.classList.add('flex'); }
-            renderAdminPlayerDetail(playerId);
-        }
-
-        function toggleAdminPanel(show) {
-            const modal = document.getElementById('admin-panel-modal');
-            if (!modal) return;
-            if (!adminAuthenticatedThisSession) {
-                // Do not expose the admin panel just because the button is manually invoked.
-                setAdminButtonVisible(false);
-                return;
-            }
-            modal.classList.toggle('hidden', !show);
-            modal.classList.toggle('flex', show);
-            if (show) { showAdminPlayersView(); loadAdminOverview(); }
-        }
-
-        async function loadAdminOverview() {
-            const status = document.getElementById('admin-panel-status');
-            const summary = document.getElementById('admin-summary');
-            const list = document.getElementById('admin-player-list');
-            if (!status || !summary || !list) return;
-
-            status.innerText = 'Loading players and game history...';
-            summary.innerText = 'Loading...';
-            list.innerHTML = '<div class="p-4 text-xs text-zinc-600 text-center">Loading...</div>';
-
-            try {
-                // Existing RPC. No new table or RPC is required.
-                if (!authSessionToken) throw new Error('Admin session expired. Please log in again.');
-                const statsResult = await supabaseClient.rpc(
-                    'get_least_count_user_statistics',
-                    { p_session_token: authSessionToken }
-                );
-                if (statsResult.error) throw statsResult.error;
-                // Normalize the existing RPC response without changing the database/RPC.
-                // Some Supabase responses can arrive as an array, a single object, or a
-                // JSON-encoded array depending on the deployed function version.
-                let playerRows = statsResult.data;
-                if (typeof playerRows === 'string') {
-                    try { playerRows = JSON.parse(playerRows); } catch (e) {}
-                }
-                if (playerRows && !Array.isArray(playerRows) && typeof playerRows === 'object') {
-                    playerRows = Array.isArray(playerRows.rows) ? playerRows.rows :
-                                 Array.isArray(playerRows.data) ? playerRows.data : [playerRows];
-                }
-                adminPlayers = Array.isArray(playerRows) ? playerRows.filter(Boolean) : [];
-
-                // Existing game-history table is already readable by the current policy.
-                const historyResponse = await fetch(
-                    `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
-                    {
-                        method: 'GET',
-                        headers: {
-                            'apikey': SUPABASE_APIKEY,
-                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
-                            'Content-Type': 'application/json'
-                        }
-                    }
-                );
-                if (!historyResponse.ok) {
-                    throw new Error(`Game history request failed: ${historyResponse.status}`);
-                }
-                const historyRows = await historyResponse.json();
-                // STRICT SOURCE OF TRUTH:
-                // All BOT / REAL / TOTAL game counts in the Admin Panel must come
-                // ONLY from public.least_count_game_history. The user-statistics RPC
-                // is intentionally never used for game counts because its counters
-                // may remain non-zero after the history table has been cleared.
-                // If the table returns zero rows, every game count is therefore zero.
-                adminGameHistoryRows = normalizeDatabaseGameHistoryRows(
-                    Array.isArray(historyRows) ? historyRows : []
-                );
-
-                const botGames = adminGameHistoryRows.filter(isAdminBotGame).length;
-                const realGames = adminGameHistoryRows.filter(row => !isAdminBotGame(row)).length;
-                const totalGames = adminGameHistoryRows.length;
-                summary.innerHTML = `<span class="text-white font-bold">${adminPlayers.length}</span> players · ` +
-                    `<span class="text-indigo-300 font-bold">${botGames}</span> bot records · ` +
-                    `<span class="text-emerald-300 font-bold">${realGames}</span> real records · ` +
-                    `<span class="text-amber-300 font-bold">${totalGames}</span> saved game-history records`;
-
-                renderAdminPlayerList();
-                const actualAdminGameRows = adminGameHistoryRows.filter(row => !isAdminRoomStateRow(row));
-                // Do not fall back to any RPC/statistics value here. This count is the
-                // exact number of normalized real game rows currently present in the
-                // database history table.
-                status.innerText = `Loaded ${adminPlayers.length} players and ${actualAdminGameRows.length} game records from least_count_game_history.`;
-
-                // Always land on the Players list after opening/refreshing Admin.
-                // Never auto-open the first player.
-                adminSelectedPlayerId = '';
-                showAdminPlayersView();
-            } catch (error) {
-                console.error('Admin overview load failed:', error);
-                status.innerText = 'Unable to load admin data.';
-                summary.innerText = 'Unable to load player statistics.';
-                list.innerHTML = `<div class="p-4 text-xs text-rose-400 text-center">${escapeAdminHtml(error?.message || 'Request failed.')}</div>`;
-            }
-        }
-
-        function renderAdminPlayerList() {
-            const list = document.getElementById('admin-player-list');
-            const search = document.getElementById('admin-player-search');
-            if (!list) return;
-            const q = String(search?.value || '').trim().toLowerCase();
-
-            const joinedValue = (p) => p?.created_at || p?.joined_at || p?.registered_at || p?.createdAt || p?.created || '';
-            const rows = [...adminPlayers]
-                .filter(p => !q || String(p.name || '').toLowerCase().includes(q) || String(p.mobile || '').toLowerCase().includes(q))
-                .sort((a,b) => {
-                    const da = new Date(joinedValue(a)).getTime();
-                    const db = new Date(joinedValue(b)).getTime();
-                    if (Number.isFinite(db) && Number.isFinite(da)) return db - da;
-                    if (Number.isFinite(db)) return 1;
-                    if (Number.isFinite(da)) return -1;
-                    return String(b.name || '').localeCompare(String(a.name || ''));
-                });
-
-            if (!rows.length) {
-                list.innerHTML = '<div class="p-8 text-xs text-zinc-600 text-center">No players found.</div>';
-                return;
-            }
-
-            // Compact 4-column table: designed to fit completely on phones without horizontal scrolling.
-            list.innerHTML = `
-                <div class="admin-players-table-wrap">
-                    <table class="admin-players-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Bot</th>
-                                <th>Real</th>
-                                <th>Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rows.map(p => {
-                                // Player list counts are derived strictly from the
-                                // normalized game-history table. This prevents stale
-                                // counters returned by get_least_count_user_statistics
-                                // from showing games that no longer exist in DB.
-                                const playerGames = getAdminPlayerGames(p);
-                                const bot = playerGames.filter(isAdminBotGame).length;
-                                const real = playerGames.length - bot;
-                                return `<tr>
-                                    <td class="admin-player-name-cell">
-                                        <button type="button" onclick="showAdminPlayerView('${escapeAdminHtml(p.player_id)}')" class="admin-player-name-button">
-                                            <span class="admin-player-name-text">${escapeAdminHtml(p.name || 'Unnamed')}</span>
-                                            <span class="admin-player-mobile">${escapeAdminHtml(p.mobile || '')}</span>
-                                        </button>
-                                    </td>
-                                    <td class="text-center font-black text-indigo-300">${bot}</td>
-                                    <td class="text-center font-black text-emerald-300">${real}</td>
-                                    <td class="text-center font-black text-white">${bot + real}</td>
-                                </tr>`;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>`;
-        }
-
-        // Room-state snapshots are stored in the same history table as real game
-        // records. They are useful for recovery/debugging, but they are NOT games.
-        // Exclude them from player game counts and the player game-history list.
-        function isAdminRoomStateRow(row) {
-            const code = String(row?.game_code || '').trim();
-            const points = String(row?.game_points || '').trim().toUpperCase();
-            return code.startsWith(GAME_ROOM_STATE_PREFIX) || points === 'ROOM_STATE';
-        }
-
-        function isAdminInProgressGame(row) {
-            const winner = String(row?.game_winner || '').trim().toLowerCase();
-            return !winner || winner === 'in progress' || winner === 'in-progress' || winner === 'ongoing';
-        }
-
-        function isAdminBotGame(row) {
-            const playersText = String(row?.players_name || '');
-            const hostText = String(row?.game_host || '');
-            const pointsText = String(row?.game_points || '');
-            const historyText = String(row?.game_history || '');
-            // Bot games in this game are represented as names such as "Bot 1",
-            // "Bot 2", etc. Keep the test case-insensitive and boundary-safe.
-            return /\bbot(?:\s*\d+)?\b/i.test(playersText) ||
-                   /\bbot(?:\s*\d+)?\b/i.test(hostText) ||
-                   /\bbot(?:\s*\d+)?\b/i.test(pointsText) ||
-                   /\bbot(?:\s*\d+)?\b/i.test(historyText);
-        }
-
-        function getAdminPlayerGames(player) {
-            // This array is populated exclusively from public.least_count_game_history.
-            // Never supplement it with RPC statistics or wallet/session information.
-            if (!Array.isArray(adminGameHistoryRows) || adminGameHistoryRows.length === 0) {
-                return [];
-            }
-            return adminGameHistoryRows.filter(row =>
-                !isAdminRoomStateRow(row) && playerAppearsInGame(row, player)
-            );
-        }
-
-        function getAdminPlayerGameStats(games) {
-            const botGames = games.filter(isAdminBotGame);
-            const realGames = games.filter(row => !isAdminBotGame(row));
-            const botInProgress = botGames.filter(isAdminInProgressGame).length;
-            const realInProgress = realGames.filter(isAdminInProgressGame).length;
-            const botTotal = botGames.length;
-            const realTotal = realGames.length;
-            return {
-                botCompleted: botTotal - botInProgress,
-                botInProgress,
-                realCompleted: realTotal - realInProgress,
-                realInProgress,
-                botTotal,
-                realTotal
-            };
-        }
-
-        function playerAppearsInGame(row, player) {
-            const name = String(player?.name || '').trim().toLowerCase();
-            if (!name) return false;
-            const playersText = String(row?.players_name || '').toLowerCase();
-            const hostText = String(row?.game_host || '').toLowerCase();
-            const historyText = String(row?.game_history || '').toLowerCase();
-            return playersText.includes(name) || hostText.includes(name) || historyText.includes(name);
-        }
-
-        function renderAdminPlayerDetail(playerId) {
-            const detail = document.getElementById('admin-player-detail');
-            const title = document.getElementById('admin-player-view-title');
-            if (!detail) return;
-            const player = adminPlayers.find(p => String(p.player_id) === String(playerId));
-            if (!player) return;
-            adminSelectedPlayerId = String(playerId);
-            if (title) title.textContent = player.name || 'Player';
-
-            // Only actual game rows are counted. Room-state snapshots are ignored,
-            // so one started game appears exactly once even if a state snapshot exists.
-            const games = getAdminPlayerGames(player);
-            const gameStats = getAdminPlayerGameStats(games);
-            const botCoins = Number(player.bot_coins || 0), realCoins = Number(player.real_coins || 0);
-
-            detail.innerHTML = `
-                <div class="space-y-3">
-                    <div class="grid grid-cols-2 gap-2">
-                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Mobile</div><div class="text-xs font-bold text-white mt-1 break-all">${escapeAdminHtml(player.mobile || '—')}</div></div>
-                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Player ID</div><div class="text-[9px] font-mono text-zinc-300 mt-1 break-all">${escapeAdminHtml(player.player_id || '—')}</div></div>
-                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Bot Coins</div><div class="text-sm font-black text-indigo-300 mt-1">${botCoins}</div></div>
-                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Real Coins</div><div class="text-sm font-black text-emerald-300 mt-1">${realCoins}</div></div>
-                    </div>
-
-                    <!-- Exactly six compact columns on one row, including in-progress games. -->
-                    <div class="admin-game-stats-grid">
-                        <div class="admin-game-stat-card"><div class="admin-game-stat-label">BOT</div><div class="admin-game-stat-value text-indigo-300">${gameStats.botCompleted}</div></div>
-                        <div class="admin-game-stat-card"><div class="admin-game-stat-label">BOT IN PROGRESS</div><div class="admin-game-stat-value text-amber-300">${gameStats.botInProgress}</div></div>
-                        <div class="admin-game-stat-card"><div class="admin-game-stat-label">REAL</div><div class="admin-game-stat-value text-emerald-300">${gameStats.realCompleted}</div></div>
-                        <div class="admin-game-stat-card"><div class="admin-game-stat-label">REAL IN PROGRESS</div><div class="admin-game-stat-value text-amber-300">${gameStats.realInProgress}</div></div>
-                        <div class="admin-game-stat-card"><div class="admin-game-stat-label">BOT TOTAL</div><div class="admin-game-stat-value text-indigo-300">${gameStats.botTotal}</div></div>
-                        <div class="admin-game-stat-card"><div class="admin-game-stat-label">REAL TOTAL</div><div class="admin-game-stat-value text-emerald-300">${gameStats.realTotal}</div></div>
-                    </div>
-
-                    <div class="text-[10px] text-zinc-600">Password is not displayed because the existing authentication data does not contain the plaintext password.</div>
-                    <div class="flex items-center justify-between gap-2 pt-1">
-                        <h3 class="text-sm font-black text-emerald-300">Games involving this player</h3>
-                        <span class="text-[9px] text-zinc-600">${games.length} games</span>
-                    </div>
-                    <div class="admin-player-table-wrap">
-                        <table class="admin-player-table">
-                            <thead><tr><th>Date / Time</th><th>Game</th><th>Host</th><th>Players</th><th>Winner</th><th>Points</th><th>History</th></tr></thead>
-                            <tbody>
-                                ${games.length ? games.map((row, index) => `<tr>
-                                    <td class="whitespace-nowrap">${escapeAdminHtml(formatAdminDate(row.created_at))}</td>
-                                    <td class="font-bold text-white">${escapeAdminHtml(row.game_code || '—')}</td>
-                                    <td>${escapeAdminHtml(row.game_host || '—')}</td>
-                                    <td class="min-w-[180px]">${escapeAdminHtml(row.players_name || '—')}</td>
-                                    <td class="${isAdminInProgressGame(row) ? 'text-amber-300' : 'text-emerald-300'} font-bold">${escapeAdminHtml(row.game_winner || 'In Progress')}</td>
-                                    <td class="min-w-[100px]">${escapeAdminHtml(row.game_points || '—')}</td>
-                                    <td><button type="button" onclick="openAdminHistory(${index})" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-300 whitespace-nowrap">Open</button></td>
-                                </tr>`).join('') : '<tr><td colspan="7" class="text-center py-8 text-zinc-600">No game-history records currently contain this player.</td></tr>'}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div id="admin-history-modal" class="hidden fixed inset-0 z-[350] bg-black/95 p-2 sm:p-6 items-center justify-center">
-                        <div class="w-full max-w-3xl max-h-full bg-zinc-950 border border-emerald-500/20 rounded-2xl overflow-hidden flex flex-col">
-                            <div class="flex items-center justify-between gap-2 p-3 border-b border-zinc-800"><div id="admin-history-title" class="text-sm font-black text-emerald-300 truncate">Complete Game History</div><button onclick="closeAdminHistory()" class="px-3 py-2 rounded-lg bg-zinc-900 text-xs font-bold text-white">Close</button></div>
-                            <div id="admin-history-content" class="p-3 overflow-auto"></div>
-                        </div>
-                    </div>
-                </div>`;
-            window.adminSelectedGames = games;
-        }
-
-        function openAdminHistory(index) {
-            const row = (window.adminSelectedGames || [])[index];
-            const modal = document.getElementById('admin-history-modal');
-            const content = document.getElementById('admin-history-content');
-            const title = document.getElementById('admin-history-title');
-            if (!row || !modal || !content) return;
-            if (title) title.textContent = `Complete History · ${row.game_code || 'Game'}`;
-            content.innerHTML = `<div class="grid grid-cols-2 gap-2 mb-3">
-                <div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">DATE</div><div class="text-[10px] text-white mt-1">${escapeAdminHtml(formatAdminDate(row.created_at))}</div></div>
-                <div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">WINNER</div><div class="text-[10px] text-emerald-300 mt-1">${escapeAdminHtml(row.game_winner || 'In Progress')}</div></div>
-            </div><div class="admin-player-table-wrap"><table class="admin-player-table"><tbody>
-                <tr><th>Game Code</th><td>${escapeAdminHtml(row.game_code || '—')}</td></tr>
-                <tr><th>Host</th><td>${escapeAdminHtml(row.game_host || '—')}</td></tr>
-                <tr><th>Players</th><td>${escapeAdminHtml(row.players_name || '—')}</td></tr>
-                <tr><th>Points</th><td>${escapeAdminHtml(row.game_points || '—')}</td></tr>
-                <tr><th>Complete Round History</th><td><pre class="admin-game-history">${escapeAdminHtml(row.game_history || 'No detailed history saved.')}</pre></td></tr>
-            </tbody></table></div>`;
-            modal.classList.remove('hidden'); modal.classList.add('flex');
-        }
-        function closeAdminHistory() {
-            const modal = document.getElementById('admin-history-modal');
-            if (modal) { modal.classList.add('hidden'); modal.classList.remove('flex'); }
-        }
-
-        // Hook into the existing login flow without replacing it.
-        const _adminOriginalLoginUser = typeof loginUser === 'function' ? loginUser : null;
-        // The actual credential check is inserted into the existing function below by
-        // a lightweight event hook, so no existing authentication logic is replaced.
-        document.addEventListener('DOMContentLoaded', restoreAdminSessionFlag);
-    </script>
 
 </body>
 </html>
