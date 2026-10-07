@@ -10933,47 +10933,77 @@
             const status = document.getElementById('database-history-status');
             const list = document.getElementById('database-history-list');
             const dateSelect = document.getElementById('database-history-date');
-
             if (!status || !list || !dateSelect) return;
 
             status.innerText = 'Loading game history...';
             list.innerHTML = '';
 
+            let lastError = null;
+            let rows = null;
+
+            // Prefer the already-created Supabase client. This avoids failures
+            // caused by a stale/manual REST request while keeping the same table
+            // and permissions.
             try {
-                const response = await fetch(
-                    `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
-                    {
-                        method: 'GET',
-                        headers: {
-                            'apikey': SUPABASE_APIKEY,
-                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
-                            'Content-Type': 'application/json'
-                        }
-                    }
-                );
-
-                if (!response.ok) {
-                    throw new Error(`Game history request failed: ${response.status}`);
+                if (typeof supabaseClient !== 'undefined' && supabaseClient) {
+                    const result = await supabaseClient
+                        .from('least_count_game_history')
+                        .select('*')
+                        .order('created_at', { ascending: false });
+                    if (result.error) throw result.error;
+                    rows = Array.isArray(result.data) ? result.data : [];
                 }
-
-                const rows = await response.json();
-
-                // One real game can have multiple DB writes. Collapse them by
-                // game_code and remove all room-state snapshot records.
-                databaseGameHistoryRows = normalizeDatabaseGameHistoryRows(rows);
-
-                populateDatabaseHistoryDateDropdown(databaseGameHistoryRows);
-                renderDatabaseGameHistoryForSelectedDate();
             } catch (error) {
-                console.error('Unable to load database game history:', error);
+                lastError = error;
+            }
+
+            // REST fallback for deployments where the client query is blocked
+            // or temporarily unavailable. Retry once before reporting failure.
+            if (!Array.isArray(rows)) {
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    try {
+                        const response = await fetch(
+                            `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                            {
+                                method: 'GET',
+                                headers: {
+                                    'apikey': SUPABASE_APIKEY,
+                                    'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json'
+                                },
+                                cache: 'no-store'
+                            }
+                        );
+                        if (!response.ok) {
+                            const body = await response.text().catch(() => '');
+                            throw new Error(`Game history request failed: ${response.status}${body ? ` - ${body.slice(0,180)}` : ''}`);
+                        }
+                        rows = await response.json();
+                        if (!Array.isArray(rows)) throw new Error('Supabase returned an invalid game-history response.');
+                        break;
+                    } catch (error) {
+                        lastError = error;
+                        if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
+            }
+
+            if (!Array.isArray(rows)) {
+                console.error('Unable to load database game history:', lastError);
                 databaseGameHistoryRows = [];
-                status.innerText =
-                    'Unable to load game history from Supabase.';
+                status.innerText = 'Unable to load game history from Supabase.';
                 list.innerHTML = `
                     <div class="text-center text-xs text-red-400 py-12">
                         Unable to load game history from Supabase.
+                        <div class="text-[9px] text-zinc-600 mt-2 break-words">${escapeDatabaseHistoryHtml(String(lastError?.message || 'Please try again.').slice(0,240))}</div>
                     </div>`;
+                return;
             }
+
+            databaseGameHistoryRows = normalizeDatabaseGameHistoryRows(rows);
+            populateDatabaseHistoryDateDropdown(databaseGameHistoryRows);
+            renderDatabaseGameHistoryForSelectedDate();
         }
     </script>
 
@@ -15639,23 +15669,32 @@ console.log('Least Count first-card wallet/pot fix loaded');
             const table=detail.querySelector('.admin-player-table');
             if(!table) return;
             const head=table.querySelector('thead tr');
-            if(head) head.innerHTML='<th>Date / Time</th><th>Game</th><th>Players</th><th>Status</th><th>Points</th><th>History</th>';
+            if(head) head.innerHTML='<th>Game</th><th>Players</th><th>Final / Current Points</th><th>Status</th><th>History</th>';
             const body=table.querySelector('tbody');
             if(!body) return;
             body.innerHTML=rows.length?rows.map((row,i)=>`<tr>
-                <td class="whitespace-nowrap">${esc(formatAdminDate(row.created_at),escapeAdminHtml)}</td>
                 <td class="font-bold text-white">${historyGameHtml(row,escapeAdminHtml)}</td>
                 <td class="leading-5">${__lcHistoryPlayersHtml(row,escapeAdminHtml)}</td>
-                <td>${__lcHistoryStatusHtml(row,escapeAdminHtml)}</td>
                 <td class="leading-5">${__lcHistoryPointsHtml(row,escapeAdminHtml)}</td>
+                <td>${__lcHistoryStatusHtml(row,escapeAdminHtml)}</td>
                 <td>${__lcHistoryButtonsHtml(i,isAdminBetGame(row),'openAdminHistory','openAdminBetHistory')}</td>
-            </tr>`).join(''):'<tr><td colspan="6" class="text-center py-8 text-zinc-600">No game-history records currently contain this player.</td></tr>';
+            </tr>`).join(''):'<tr><td colspan="5" class="text-center py-8 text-zinc-600">No game-history records currently contain this player.</td></tr>';
         };
     }
 
     const st=document.createElement('style');
     st.textContent=`
         .lc-history-five-col.database-history-grid{grid-template-columns:minmax(90px,1.05fr) minmax(150px,1.35fr) minmax(130px,1.15fr) minmax(150px,1.3fr) minmax(118px,.9fr)!important}
+        #admin-player-detail .admin-player-table-wrap{overflow-x:auto;width:100%}
+        #admin-player-detail .admin-player-table{width:100%;table-layout:fixed}
+        #admin-player-detail .admin-player-table th:nth-child(1){width:18%}
+        #admin-player-detail .admin-player-table th:nth-child(2){width:24%}
+        #admin-player-detail .admin-player-table th:nth-child(3){width:22%}
+        #admin-player-detail .admin-player-table th:nth-child(4){width:21%}
+        #admin-player-detail .admin-player-table th:nth-child(5){width:15%}
+        #admin-player-detail .admin-player-table td{vertical-align:top}
+        #admin-player-detail .admin-player-table .database-history-view-btn{width:54px;min-width:54px;max-width:54px;white-space:normal}
+
         .lc-history-five-col .points-cell>div,.lc-history-five-col .players-cell>div{margin-bottom:2px}
         .lc-history-five-col .history-action-cell{white-space:nowrap;overflow:visible}
         .lc-history-five-col .database-history-view-btn{width:54px;max-width:54px;min-width:54px;white-space:normal}
