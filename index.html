@@ -177,7 +177,22 @@
 
         <div class="flex items-center space-x-2">
             <div class="flex items-center gap-1.5">
-<div id="game-status-banner"
+                <div id="bot-wallet-card"
+                     title="Bot game wallet"
+                     class="flex items-center gap-1 bg-zinc-900 border border-indigo-500/30 px-1.5 py-1 rounded-lg">
+                    <span class="text-[9px] text-indigo-300 font-bold">BOT</span>
+                    <span id="bot-wallet-balance" class="text-[10px] text-indigo-200 font-black tabular-nums">0</span>
+                </div>
+
+                <div id="real-wallet-card"
+                     title="Real multiplayer game wallet"
+                     class="flex items-center gap-1 bg-zinc-900 border border-emerald-500/30 px-1.5 py-1 rounded-lg">
+                    <span class="text-[9px] text-emerald-300 font-bold">REAL</span>
+                    <span id="real-wallet-balance" class="text-[10px] text-emerald-200 font-black tabular-nums">0</span>
+                </div>
+            </div>
+
+            <div id="game-status-banner"
                  class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden"
                  style="display:none;">
                 Waiting...
@@ -195,7 +210,34 @@
             </button>
         </div>
     </header>
-<!-- LOBBY USER NAME STRIP -->
+
+    <!-- ACCOUNT / STATS QUICK LINKS -->
+    <nav id="account-stats-nav"
+         class="w-full bg-zinc-950 border-b border-zinc-800 px-2 py-1.5 shrink-0 overflow-x-auto">
+        <div class="max-w-5xl mx-auto flex items-center justify-center sm:justify-start gap-1.5 min-w-max">
+            <button type="button" onclick="toggleMyGameHistoryModal(true)"
+                    class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-emerald-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
+                Your Game History
+            </button>
+            <span class="text-zinc-700">|</span>
+            <button type="button" onclick="toggleUsersStatsModal(true)"
+                    class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-amber-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
+                Total Game Users
+            </button>
+            <span class="text-zinc-700">|</span>
+            <button type="button" onclick="toggleCoinInstructionsModal(true)"
+                    class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-indigo-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
+                Coins Instructions
+            </button>
+            <span id="admin-nav-separator" class="text-zinc-700 hidden">|</span>
+            <button id="admin-nav-btn" type="button" onclick="toggleAdminPanel(true)"
+                    class="hidden px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-black text-rose-300 hover:text-white hover:bg-rose-950/40 border border-transparent hover:border-rose-500/30 transition">
+                🛡 Admin
+            </button>
+        </div>
+    </nav>
+
+    <!-- LOBBY USER NAME STRIP -->
     <div id="lobby-user-name-strip"
          class="w-full bg-transparent px-0 py-1.5 sm:py-2 shrink-0 hidden overflow-hidden">
         <div class="w-full overflow-hidden flex items-center justify-center">
@@ -223,11 +265,6 @@
             <h2 class="text-xl sm:text-2xl font-bold text-emerald-300">
                 Multiplayer & Solo Lobby
             </h2>
-
-            <button id="lobby-game-history-db-btn" type="button" onclick="openGameHistoryDb()"
-                    class="w-full py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-200 text-xs font-black transition">
-                Game History DB
-            </button>
 
             <div class="space-y-2.5 text-left">
                 <div>
@@ -259,7 +296,6 @@
                             <option value="4" selected>4 Players</option>
                             <option value="5">5 Players</option>
                             <option value="6">6 Players</option>
-                            <option value="7">7 Players</option>
                         </select>
                     </div>
 
@@ -367,23 +403,7 @@
                class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
-        <!-- LOBBY-ONLY GAME HISTORY DB -->
-    <div id="game-history-db-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-3 z-[80]">
-        <div class="bg-black border border-indigo-500/30 w-full max-w-5xl rounded-2xl p-4 shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div class="flex items-center justify-between border-b border-zinc-800 pb-2 mb-3">
-                <div>
-                    <h3 class="text-base font-black text-indigo-300">Game History DB</h3>
-                    <p class="text-[9px] text-zinc-500">Completed and in-progress room records</p>
-                </div>
-                <button onclick="closeGameHistoryDb()" class="text-zinc-400 hover:text-white text-xl font-bold px-2">&times;</button>
-            </div>
-            <div id="game-history-db-table-wrap" class="overflow-auto flex-1 rounded-xl border border-zinc-800">
-                <div class="p-5 text-center text-xs text-zinc-500">Loading game history...</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- WAITING ROOM SCREEN -->
+        <!-- WAITING ROOM SCREEN -->
         <div id="waiting-screen"
              class="hidden bg-black p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-zinc-800 text-center space-y-4">
 
@@ -556,13 +576,35 @@
 
     <!-- FOOTER -->
     <footer class="p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
-        <div class="text-zinc-400 truncate max-w-[50vw]" id="activity-log-ticker">Ready</div>
-        <div class="flex items-center gap-3">
-            <a id="lobby-history-footer-btn" href="#" onclick="event.preventDefault(); openGameHistoryDb()" class="lobby-only-footer-control text-indigo-300 hover:text-indigo-200 underline underline-offset-2 font-medium transition text-[10px]">Game History</a>
-            <a id="history-footer-btn" href="#" onclick="event.preventDefault(); toggleHistoryModal(true)" class="game-only-footer-control hidden text-emerald-400 hover:text-emerald-300 underline underline-offset-2 font-medium transition text-[10px]">History</a>
-            <button id="scores-footer-btn" onclick="toggleScoreboardModal(true)" class="game-only-footer-control hidden bg-transparent hover:text-white text-zinc-300 underline underline-offset-2 px-0 py-0 font-medium transition text-[10px]">Scores</button>
+
+        <div class="text-zinc-400 truncate max-w-[50vw]"
+             id="activity-log-ticker">
+            Ready
+        </div>
+
+        <div class="flex space-x-2">
+            <button id="history-footer-btn" onclick="toggleHistoryModal(true)"
+                    class="game-only-footer-control hidden bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+                History
+            </button>
+
+            <button onclick="toggleInstructionsModal(true)"
+                    class="bg-zinc-900 hover:bg-zinc-800 text-emerald-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+                Game Instructions
+            </button>
+
+            <button id="scores-footer-btn" onclick="toggleScoreboardModal(true)"
+                    class="game-only-footer-control hidden bg-zinc-900 hover:bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+                Scores
+            </button>
+
+            <button onclick="toggleDatabaseHistory(true)"
+                    class="bg-zinc-900 hover:bg-zinc-800 text-amber-300 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-zinc-800">
+                Game History DB
+            </button>
         </div>
     </footer>
+
     <!-- ========================================================= -->
     <!-- NEW: REJOIN PERMISSION MODAL                              -->
     <!-- ========================================================= -->
@@ -636,7 +678,64 @@
             </div>
         </div>
     </div>
-</div>
+
+    <!-- GAME INSTRUCTIONS MODAL -->
+    <div id="instructions-modal"
+         class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 z-[70]">
+        <div class="bg-black border border-emerald-500/30 w-full max-w-lg rounded-2xl p-5 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-zinc-800 pb-2">
+                <h3 class="text-base sm:text-lg font-black text-emerald-300">How to Play Least Count</h3>
+                <button onclick="toggleInstructionsModal(false)" aria-label="Close instructions"
+                        class="text-zinc-400 hover:text-white font-bold text-xl px-2">&times;</button>
+            </div>
+            <div class="space-y-3 text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">1. Goal</h4>
+                    <p>Keep the total points in your hand as low as possible. Players collect points when a round ends; reaching the game's elimination limit removes a player from later rounds. The last eligible player remaining wins.</p>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">2. Starting a round</h4>
+                    <p>Each active player receives the configured number of cards. A card is placed face-up to begin the discard pile, and the remaining cards form the stock deck. Only active, connected players who are allowed to play take turns.</p>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">3. Taking your turn</h4>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li>Choose a card from your hand to discard. All cards in your hand with the same rank/value as the selected card are discarded together.</li>
+                        <li>If that rank/value matches the top card already on the discard pile, your turn ends immediately and the next player goes.</li>
+                        <li>Otherwise, draw one card from the stock deck. Your turn then ends and play moves to the next eligible player.</li>
+                        <li>If the stock deck runs out while cards remain in the discard pile, the discard pile is recycled into the stock while its top card stays face-up.</li>
+                    </ul>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">4. Round-robin first player</h4>
+                    <p>The opening turn rotates by seat order from round to round: the host starts Round 1, the next eligible seat starts Round 2, then the following eligible seat starts Round 3, and so on. If the scheduled player is eliminated, disconnected, or view-only, the next eligible player is selected.</p>
+                    <p class="text-emerald-300">Example with four seats: Round 1 — Player 1; Round 2 — Player 2; Round 3 — Player 3; Round 4 — Player 4; Round 5 — back to Player 1 (skipping any ineligible seat).</p>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">5. Calling “Show”</h4>
+                    <p>When your hand total is 5 points or less, you can use <strong class="text-white">Call Show! (≤5)</strong> to end the round. The game compares the hand totals of eligible players.</p>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li><strong class="text-white">Failed Show:</strong> if any other eligible player has a lower total than the caller, the caller receives a 25-point penalty.</li>
+                        <li><strong class="text-white">Matched Show:</strong> if another eligible player has the same total as the caller and nobody has a lower total, the tied players avoid points for that round; other eligible players add their hand totals.</li>
+                        <li><strong class="text-white">Good Show:</strong> if nobody has a lower or equal total, the caller avoids points and each other eligible player adds their hand total.</li>
+                    </ul>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">6. Points and elimination</h4>
+                    <p>For example, if a player has cards worth 1, 2, and 2 points, their hand total is 5. When a round result says that player adds their hand total, 5 points are added to their running score. A player is marked eliminated when their score reaches the configured elimination threshold. Eliminated players do not take turns in following rounds.</p>
+                </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">7. Multiplayer and rejoining</h4>
+                    <p>The host controls starting rounds. A view-only spectator can watch but cannot play cards or call Show. If you leave, use the room's rejoin process to request access again; the host can allow viewing, allow playing, or deny the request.</p>
+                </section>
+                <p class="text-[11px] text-zinc-500 border-t border-zinc-800 pt-2">Card point values and round settings follow the values configured in this game. Check the Scores and History panels to review totals and completed rounds.</p>
+            </div>
+            <div class="flex justify-end pt-1">
+                <button onclick="toggleInstructionsModal(false)"
+                        class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 font-bold text-black rounded-xl text-xs">Got it</button>
+            </div>
+        </div>
+    </div>
 
     <!-- SCOREBOARD MODAL -->
     <div id="scoreboard-modal"
@@ -777,16 +876,6 @@
         </div>
     </div>
 
-    <div id="game-history-host-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-3 z-[90]">
-        <div class="bg-black border border-emerald-500/30 w-full max-w-3xl rounded-2xl p-4 shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div class="flex items-center justify-between border-b border-zinc-800 pb-2 mb-3">
-                <h3 id="game-history-host-title" class="text-sm font-black text-emerald-300">Room History</h3>
-                <button onclick="closeGameHistoryHost()" class="text-zinc-400 hover:text-white text-xl font-bold px-2">&times;</button>
-            </div>
-            <div id="game-history-host-content" class="overflow-auto flex-1 bg-zinc-950 rounded-xl border border-zinc-900 p-3"></div>
-        </div>
-    </div>
-
 <script>
     // ============================================================
     // SUPABASE CLIENT & REALTIME CHANNEL INITIALIZATION
@@ -795,57 +884,6 @@
     const SUPABASE_BASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co';
     const SUPABASE_URL = `${SUPABASE_BASE_URL}/rest/v1/least-count`;
     const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
-
-    let gameHistoryDbRows = [];
-
-    function escapeDbHtml(value) {
-        return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
-    }
-
-    async function openGameHistoryDb() {
-        const modal=document.getElementById('game-history-db-modal'); const wrap=document.getElementById('game-history-db-table-wrap');
-        if(!modal||!wrap)return; modal.classList.remove('hidden'); modal.classList.add('flex');
-        wrap.innerHTML='<div class="p-5 text-center text-xs text-zinc-500">Loading game history...</div>';
-        const ist=v=>{const d=new Date(v||0);return Number.isNaN(d.getTime())?'—':d.toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})+' IST'};
-        const split=v=>String(v||'').split(',').map(x=>x.trim()).filter(Boolean);
-        try{
-            const response=await fetch(`${GAME_HISTORY_URL}?select=id,game_code,players_name,game_host,game_points,game_winner,game_history,created_at&game_points=neq.ROOM_STATE&order=created_at.desc&limit=300`,{headers:{apikey:SUPABASE_APIKEY,Authorization:`Bearer ${SUPABASE_APIKEY}`}});
-            if(!response.ok)throw new Error('history '+response.status);
-            const raw=await response.json(), byRoom=new Map();
-            (Array.isArray(raw)?raw:[]).forEach(r=>{const k=String(r?.game_code||'').trim().toUpperCase();if(!k)return;const old=byRoom.get(k);if(!old||new Date(r.created_at||0)>new Date(old.created_at||0))byRoom.set(k,r)});
-            gameHistoryDbRows=Array.from(byRoom.values()).sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0));
-            if(!gameHistoryDbRows.length){wrap.innerHTML='<div class="p-8 text-center text-xs text-zinc-500">No game history available.</div>';return;}
-            wrap.innerHTML=`<table class="w-full min-w-[720px] text-left text-[10px] sm:text-xs border-collapse"><thead class="sticky top-0 bg-zinc-950 z-10"><tr class="border-b border-zinc-700 text-zinc-400 uppercase"><th class="px-2 py-2">RoomId</th><th class="px-2 py-2">Players</th><th class="px-2 py-2">Final Points</th><th class="px-2 py-2">Winner</th></tr></thead><tbody class="divide-y divide-zinc-900">${gameHistoryDbRows.map((r,i)=>{const host=String(r.game_host||'').trim().toLowerCase();const ph=split(r.players_name).map(n=>`<div class="${n.toLowerCase()===host?'font-black text-white':'text-zinc-300'}">${escapeDbHtml(n)}${n.toLowerCase()===host?' <span class="text-amber-300">(H)</span>':''}</div>`).join('')||'—';const pts=split(r.game_points).map(x=>`<div>${escapeDbHtml(x)}</div>`).join('')||'—';const code=r.game_code||r.id||'—';return `<tr class="align-top hover:bg-zinc-950/80"><td class="px-2 py-2"><button type="button" onclick="openGameHistoryHost(${i})" class="text-indigo-300 hover:text-white underline underline-offset-2 font-black">${escapeDbHtml(code)}</button><div class="text-[8px] text-zinc-500 mt-1 whitespace-nowrap">${escapeDbHtml(ist(r.created_at))}</div></td><td class="px-2 py-2 leading-4">${ph}</td><td class="px-2 py-2 text-amber-300 font-bold leading-4">${pts}</td><td class="px-2 py-2 text-emerald-300 font-black">${escapeDbHtml(r.game_winner||'In progress')}</td></tr>`}).join('')}</tbody></table>`;
-        }catch(e){console.error(e);wrap.innerHTML='<div class="p-8 text-center text-xs text-rose-300">Unable to load game history right now. Please try again.</div>'}
-    }
-
-    function closeGameHistoryDb() {
-        const modal = document.getElementById('game-history-db-modal');
-        if (!modal) return;
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-    }
-
-    function openGameHistoryHost(index) {
-        const row = gameHistoryDbRows[index];
-        if (!row) return;
-        const modal = document.getElementById('game-history-host-modal');
-        const title = document.getElementById('game-history-host-title');
-        const content = document.getElementById('game-history-host-content');
-        if (!modal || !title || !content) return;
-        title.textContent = `Room ${row.game_code || 'Game'} — Rounds History`;
-        const rounds=parseDatabaseHistoryRounds(row.game_history||'');
-        content.innerHTML=rounds.length?`<div class="overflow-auto"><table class="w-full min-w-[620px] text-left text-[10px] sm:text-xs border-collapse"><thead class="sticky top-0 bg-zinc-950"><tr class="border-b border-zinc-700 text-zinc-400 uppercase"><th class="px-2 py-2">Round</th><th class="px-2 py-2">Caller</th><th class="px-2 py-2">Caller Sum</th><th class="px-2 py-2">Outcome</th><th class="px-2 py-2">Player Scores</th></tr></thead><tbody class="divide-y divide-zinc-900">${rounds.map(r=>`<tr class="align-top"><td class="px-2 py-2 font-black text-indigo-300">${escapeDbHtml(r.roundNumber)}</td><td class="px-2 py-2 font-bold">${escapeDbHtml(r.caller)}</td><td class="px-2 py-2">${escapeDbHtml(r.callerSum)}</td><td class="px-2 py-2 text-amber-300">${escapeDbHtml(r.outcome)}</td><td class="px-2 py-2 leading-4">${r.details.map(d=>`<div>${escapeDbHtml(d.name)}: +${escapeDbHtml(d.pointsAdded)} → <b class="text-emerald-300">${escapeDbHtml(d.totalAfterRound)}</b></div>`).join('')||'—'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="p-6 text-center text-xs text-zinc-500">No completed rounds have been saved yet.</div>';
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-    }
-
-    function closeGameHistoryHost() {
-        const modal = document.getElementById('game-history-host-modal');
-        if (!modal) return;
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-    }
 
     // ============================================================
     // GAME HISTORY DATABASE
@@ -953,6 +991,8 @@
             roundActive: !!roundActive,
             gameHistory: Array.isArray(gameHistory) ? gameHistory : [],
             roundCounter: Number(roundCounter) || 0,
+            walletGameId: String(walletGameId || ''),
+            gameOpponentCount: Number(gameOpponentCount) || 1,
             gameHistoryHostName: String(getGameHistoryHostName() || ''),
             authoritativeStateVersion: Number(authoritativeStateVersion) || 0
         };
@@ -1011,7 +1051,8 @@
         roundActive = snapshot.roundActive === true;
         gameHistory = Array.isArray(snapshot.gameHistory) ? snapshot.gameHistory : [];
         roundCounter = Number(snapshot.roundCounter) || 0;
-
+        walletGameId = String(snapshot.walletGameId || '');
+        gameOpponentCount = Number(snapshot.gameOpponentCount) || 1;
         gameHistoryHostName = String(snapshot.gameHistoryHostName || '');
         authoritativeStateVersion = Number(snapshot.authoritativeStateVersion) || 0;
         lastAppliedStateVersion = authoritativeStateVersion;
@@ -1034,7 +1075,7 @@
         return true;
     }
 
-    async function persistRoomStateToSupabaseNow() {
+    async function persistRoomStateToSupabase() {
         if (!roomCode) return false;
 
         // Do not create/update game-history room-state records while the
@@ -1114,63 +1155,6 @@
             console.error('Persistent room state sync failed:', error);
             return false;
         }
-    }
-
-    function persistRoomStateToSupabase(options = {}) {
-        const immediate = options === true || options?.immediate === true;
-
-        if (!roomCode) return Promise.resolve(false);
-        if (Number(roundCounter) <= 0 && !roundActive) return Promise.resolve(false);
-
-        // Non-host clients only keep their own local recovery snapshot.
-        if (!isHost || !currentUser) {
-            saveLocalRoomSession();
-            return Promise.resolve(true);
-        }
-
-        roomStatePersistRequested = true;
-
-        if (immediate) {
-            if (roomStatePersistTimer) {
-                clearTimeout(roomStatePersistTimer);
-                roomStatePersistTimer = null;
-            }
-            return runRoomStatePersistence();
-        }
-
-        if (roomStatePersistTimer) return roomStatePersistInFlight || Promise.resolve(true);
-
-        roomStatePersistTimer = setTimeout(() => {
-            roomStatePersistTimer = null;
-            runRoomStatePersistence();
-        }, ROOM_STATE_PERSIST_DELAY_MS);
-
-        return roomStatePersistInFlight || Promise.resolve(true);
-    }
-
-    async function runRoomStatePersistence() {
-        if (roomStatePersistInFlight) return roomStatePersistInFlight;
-        if (!roomStatePersistRequested) return true;
-
-        roomStatePersistRequested = false;
-
-        // Capture the newest snapshot only when the actual write begins.
-        // This prevents an older slow request from overwriting a newer turn.
-        roomStatePersistInFlight = (async () => {
-            try {
-                return await persistRoomStateToSupabaseNow();
-            } finally {
-                roomStatePersistInFlight = null;
-                if (roomStatePersistRequested && !roomStatePersistTimer) {
-                    roomStatePersistTimer = setTimeout(() => {
-                        roomStatePersistTimer = null;
-                        runRoomStatePersistence();
-                    }, ROOM_STATE_PERSIST_DELAY_MS);
-                }
-            }
-        })();
-
-        return roomStatePersistInFlight;
     }
 
     async function loadPersistentRoomState(roomKey) {
@@ -1296,10 +1280,9 @@
                 await persistRoomStateToSupabase();
                 await syncGameHistoryToSupabase('');
             }
-            logTicker('');
+            logTicker(`Reconnected to room ${roomCode}.`);
         } else {
-            // Keep gameplay UI unchanged while transport reconnects.
-            logTicker('');
+            logTicker(`Reconnecting to room ${roomCode}...`);
         }
 
         return true;
@@ -1375,9 +1358,9 @@
             console.error('Game history sync failed:', error);
         }
 
-        // Live room-state persistence is scheduled independently from the
-        // human-readable history row. Never block a game action on it.
-        persistRoomStateToSupabase();
+        // Keep a separate hidden state row so the visible game-history
+        // record remains human-readable while the live room is recoverable.
+        await persistRoomStateToSupabase();
     }
 
     const nicknameInput = document.getElementById('nickname-input');
@@ -1388,7 +1371,7 @@
     );
 
     // Custom game account session. No email address is created and no
-
+    // Supabase Auth signup/login/email service is used. Coin balances live
     // only in Supabase; the browser stores only this login session token.
     const GAME_AUTH_TOKEN_KEY = 'leastCountGameAuthTokenV1';
     let authSessionToken = '';
@@ -1544,7 +1527,7 @@
         gameHistory = [];
         roundCounter = 0;
         roundActive = false;
-
+        walletGameId = '';
         authoritativeStateVersion = 0;
         lastAppliedStateVersion = 0;
         processedGameActionIds.clear();
@@ -1663,12 +1646,210 @@
     let roundCounter = 0;
 
     // ============================================================
-
+    // SUPABASE USER WALLETS
     // BOT = games against computer players
     // REAL = online multiplayer games
     // Balances and settlement records are stored in Supabase.
     // ============================================================
-    
+    const WIN_REWARD_PER_OPPONENT = 100;
+    const LOSS_PENALTY = 100;
+
+    let botWallet = 0;
+    let realWallet = 0;
+    let walletGameId = '';
+    let gameOpponentCount = 1;
+
+    // Per-browser settlement guards. The database also has a unique
+    // (player_id, game_id, wallet_type) constraint, so retries are safe.
+    const walletSettlementInFlight = new Map();
+    const walletSettlementCompleted = new Set();
+
+    function renderWallets() {
+        const botEl = document.getElementById('bot-wallet-balance');
+        const realEl = document.getElementById('real-wallet-balance');
+
+        if (botEl)
+            botEl.innerText = String(Math.trunc(Number(botWallet) || 0));
+
+        if (realEl)
+            realEl.innerText = String(Math.trunc(Number(realWallet) || 0));
+
+        if (botEl)
+            botEl.className =
+                `text-[10px] font-black tabular-nums ${
+                    botWallet < 0 ? 'text-rose-300' : 'text-indigo-200'
+                }`;
+
+        if (realEl)
+            realEl.className =
+                `text-[10px] font-black tabular-nums ${
+                    realWallet < 0 ? 'text-rose-300' : 'text-emerald-200'
+                }`;
+    }
+
+    async function loadWallets() {
+        if (!currentUser || !authSessionToken) {
+            botWallet = 0;
+            realWallet = 0;
+            renderWallets();
+            return;
+        }
+
+        try {
+            const { data, error } = await supabaseClient.rpc(
+                'get_least_count_wallet',
+                { p_session_token: authSessionToken }
+            );
+
+            if (error) throw error;
+
+            const result = Array.isArray(data) ? data[0] : data;
+            botWallet = Number(result?.bot_coins || 0);
+            realWallet = Number(result?.real_coins || 0);
+            renderWallets();
+        } catch (error) {
+            console.error('Wallet load failed:', error);
+            logTicker('Unable to load wallet balances.');
+        }
+    }
+
+    function setWalletGameId() {
+        walletGameId =
+            String(roomCode || '') + '-' +
+            Date.now().toString(36) + '-' +
+            Math.random().toString(36).slice(2, 8);
+    }
+
+    async function settleWalletForCompletedGame(winnerName, opponentCount, forceType = '') {
+        if (!currentUser || !authSessionToken) return false;
+        if (!walletGameId && roomCode) walletGameId = roomCode;
+        if (!walletGameId) return false;
+
+        const me = String(myName || '').trim();
+        const winner = String(winnerName || '').trim();
+
+        if (!me || !winner || winner === 'Nobody') return false;
+
+        const opponents = Math.max(1, Math.trunc(Number(opponentCount) || 1));
+
+        const useBotWallet =
+            forceType === 'bot' ||
+            (forceType !== 'real' && isSoloMode);
+
+        const won = me === winner;
+        const delta = won
+            ? WIN_REWARD_PER_OPPONENT * opponents
+            : -LOSS_PENALTY;
+
+        const walletType = useBotWallet ? 'bot' : 'real';
+        const settlementKey = `${String(walletGameId)}::${walletType}`;
+
+        if (walletSettlementCompleted.has(settlementKey)) {
+            return true;
+        }
+
+        if (walletSettlementInFlight.has(settlementKey)) {
+            return walletSettlementInFlight.get(settlementKey);
+        }
+
+        const settlementPromise = (async () => {
+            let lastError = null;
+
+            // Realtime room messages can arrive while the browser/network
+            // is still busy. Retry the same idempotent RPC a few times.
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    const { data, error } = await supabaseClient.rpc(
+                        'settle_least_count_game_wallet',
+                        {
+                            p_session_token: authSessionToken,
+                            p_game_id: String(walletGameId),
+                            p_wallet_type: walletType,
+                            p_opponent_count: opponents,
+                            p_game_code: String(roomCode || ''),
+                            p_result: won ? 'win' : 'loss'
+                        }
+                    );
+
+                    if (error) throw error;
+
+                    const result = Array.isArray(data) ? data[0] : data;
+
+                    if (result) {
+                        botWallet = Number(result.bot_coins ?? botWallet);
+                        realWallet = Number(result.real_coins ?? realWallet);
+                    } else {
+                        await loadWallets();
+                    }
+
+                    renderWallets();
+                    walletSettlementCompleted.add(settlementKey);
+
+                    const walletName = useBotWallet ? 'BOT wallet' : 'REAL wallet';
+                    const amountText = delta >= 0 ? `+${delta}` : `${delta}`;
+
+                    logTicker(
+                        `${won ? 'WIN' : 'LOSS'}: ${amountText} coins → ${walletName}`
+                    );
+
+                    return true;
+                } catch (error) {
+                    lastError = error;
+                    console.error(
+                        `Wallet settlement attempt ${attempt} failed:`,
+                        error
+                    );
+
+                    if (attempt < 3) {
+                        await new Promise(resolve =>
+                            setTimeout(resolve, attempt * 300)
+                        );
+                    }
+                }
+            }
+
+            throw lastError || new Error('Wallet settlement failed');
+        })();
+
+        walletSettlementInFlight.set(settlementKey, settlementPromise);
+
+        try {
+            await settlementPromise;
+            return true;
+        } catch (error) {
+            console.error('Wallet settlement failed after retries:', error);
+            logTicker('Coin settlement failed. Please refresh your wallet.');
+            return false;
+        } finally {
+            walletSettlementInFlight.delete(settlementKey);
+        }
+    }
+
+    // Settle the player's loss as soon as the local player is eliminated.
+    // This is intentionally independent of the final tournament result so
+    // an eliminated player can leave immediately and still receive -100.
+    async function settleWalletForEliminatedPlayer(forceType = '') {
+        const me = players.find(
+            p =>
+                p &&
+                (
+                    p.id === myId ||
+                    p.clientToken === myClientToken
+                )
+        );
+
+        if (!me || me.eliminated !== true)
+            return false;
+
+        return await settleWalletForCompletedGame(
+            '__ELIMINATION__',
+            gameOpponentCount,
+            forceType
+        );
+    }
+
+
+    // ============================================================
     // CUSTOM GAME ACCOUNT AUTHENTICATION
     // ============================================================
 
@@ -1893,6 +2074,14 @@
         // A fresh login always lands in the lobby, never in a previous room header state.
         setHeaderAction(true);
 
+        if (account.bot_coins !== undefined) {
+            botWallet = Number(account.bot_coins || 0);
+            realWallet = Number(account.real_coins || 0);
+            renderWallets();
+        } else {
+            await loadWallets();
+        }
+
         refreshPublicRoomsList();
         logTicker(`Welcome, ${currentProfile.name}!`);
     }
@@ -1903,7 +2092,8 @@
             currentUser = null;
             currentProfile = null;
             showAuthScreen(true);
-return;
+            renderWallets();
+            return;
         }
 
         try {
@@ -1929,7 +2119,8 @@ return;
             currentUser = null;
             currentProfile = null;
             showAuthScreen(true);
-}
+            renderWallets();
+        }
     }
 
     async function logoutUser() {
@@ -1955,7 +2146,8 @@ return;
         currentUser = null;
         currentProfile = null;
         myName = '';
-
+        botWallet = 0;
+        realWallet = 0;
         roomCode = '';
         clearLocalRoomSession();
         players = [];
@@ -1965,7 +2157,9 @@ return;
         if (document.getElementById('game-status-banner')) {
             document.getElementById('game-status-banner').style.display = 'none';
         }
-const loggedName = document.getElementById('logged-in-name');
+        renderWallets();
+
+        const loggedName = document.getElementById('logged-in-name');
         const nameStrip = document.getElementById('lobby-user-name-strip');
         if (loggedName) {
             loggedName.innerText = '';
@@ -2059,30 +2253,8 @@ const loggedName = document.getElementById('logged-in-name');
     let realtimeOutboundQueue = [];
     let authoritativeStateVersion = 0;
     let lastAppliedStateVersion = 0;
-
-    // Connection stability guards. A transient Presence/Realtime hiccup must
-    // NEVER mark a player disconnected or trigger a host takeover immediately.
-    let roomChannelGeneration = 0;
-    let realtimeReconnectTimer = null;
-    let realtimeReconnectAttempt = 0;
-    let hostMissingSince = 0;
-    let lastPresenceSyncAt = 0;
-    let roomConnectionState = 'idle';
-    const HOST_ABSENCE_GRACE_MS = 12000;
-    const REALTIME_RECONNECT_MAX_MS = 10000;
     const processedGameActionIds = new Set();
-    const processedShowActionIds = new Set();
     const pendingGameActionRetries = new Map();
-    let showButtonLocked = false;
-    let showResolutionInProgress = false;
-
-    // Database persistence is deliberately decoupled from live gameplay.
-    // A card action must never wait for REST/database I/O. Multiple fast
-    // actions are coalesced into one latest-state save.
-    let roomStatePersistTimer = null;
-    let roomStatePersistInFlight = null;
-    let roomStatePersistRequested = false;
-    const ROOM_STATE_PERSIST_DELAY_MS = 1800;
 
     function createGameActionId(actionType) {
         return [
@@ -2091,15 +2263,6 @@ const loggedName = document.getElementById('logged-in-name');
             Date.now().toString(36),
             Math.random().toString(36).slice(2, 10)
         ].join('-');
-    }
-
-    async function waitForRoomChannelReady(timeoutMs = 5000) {
-        const started = Date.now();
-        while (Date.now() - started < timeoutMs) {
-            if (roomChannelReady && roomChannel && roomCode) return true;
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        return roomChannelReady && !!roomChannel && !!roomCode;
     }
 
     function sendGameActionWithRetry(payload, maxAttempts = 3) {
@@ -2117,10 +2280,6 @@ const loggedName = document.getElementById('logged-in-name');
             try {
                 for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 
-                    // If a player clicks during a short transport flap, keep
-                    // the intent alive briefly instead of silently dropping it.
-                    // The host still performs the final turn/phase validation.
-                    await waitForRoomChannelReady(5000);
                     const result = await sendRealtimeMessage(payload);
 
                     /*
@@ -2149,60 +2308,44 @@ const loggedName = document.getElementById('logged-in-name');
     }
 
     function sendRealtimeMessage(payload) {
-        if (!payload) return Promise.resolve(false);
-
         if (!roomChannel) {
             return Promise.resolve(false);
         }
 
         if (!roomChannelReady) {
-            // Never queue arbitrary room packets across a transport outage.
-            // Old state packets/actions can become invalid after reconnect and
-            // replaying them is a common cause of wrong turns and scores.
-            return Promise.resolve(false);
-        }
-        try {
-            return roomChannel.send({
-                type: 'broadcast',
-                event: 'game_event',
-                payload
-            }).then(result => {
-                // Supabase returns an error-like status for some transport
-                // failures without throwing. Do not mark the room disconnected;
-                // the channel status callback owns connection state.
-                return result || 'ok';
-            }).catch(error => {
-                console.warn('Realtime send temporarily failed:', error);
-                return false;
+            return new Promise(resolve => {
+                realtimeOutboundQueue.push({
+                    payload,
+                    resolve
+                });
             });
-        } catch (error) {
-            console.warn('Realtime send failed:', error);
-            return Promise.resolve(false);
         }
+
+        return roomChannel.send({
+            type: 'broadcast',
+            event: 'game_event',
+            payload
+        });
     }
 
     async function flushRealtimeOutboundQueue() {
-        if (!roomChannel || !roomChannelReady || !realtimeOutboundQueue.length) return;
+        if (!roomChannel || !roomChannelReady || !realtimeOutboundQueue.length) {
+            return;
+        }
 
         const queue = realtimeOutboundQueue.splice(0);
+
         for (const item of queue) {
-            // Drop packets that have been waiting through a dead connection.
-            // Game actions are independently idempotent and will be regenerated
-            // by the caller when needed; stale UI packets should not flood a room.
-            if (Date.now() - Number(item.queuedAt || Date.now()) > 15000) {
-                try { item.resolve(false); } catch (e) {}
-                continue;
-            }
             try {
                 const result = await roomChannel.send({
                     type: 'broadcast',
                     event: 'game_event',
                     payload: item.payload
                 });
-                try { item.resolve(result || 'ok'); } catch (e) {}
+                item.resolve(result);
             } catch (error) {
-                try { item.resolve(false); } catch (e) {}
-                console.warn('Realtime queued message failed:', error);
+                item.resolve(false);
+                console.error('Realtime queued message failed:', error);
             }
         }
     }
@@ -2263,30 +2406,10 @@ const loggedName = document.getElementById('logged-in-name');
 
         if (!currentHostToken) return;
 
-        // The browser that currently owns host authority must never elect
-        // another host because its own Presence snapshot briefly lagged.
-        if (currentHostToken === myClientToken && isHost) {
-            hostMissingSince = 0;
-            return;
-        }
-
         const presentTokens = getPresentRoomClientTokens();
-        lastPresenceSyncAt = Date.now();
 
-        // Presence is eventually consistent. A missing host in ONE sync is not
-        // a disconnect. Wait through the full grace window before changing any
-        // player's connected flag or transferring authority.
-        if (presentTokens.has(currentHostToken)) {
-            hostMissingSince = 0;
-            return;
-        }
-
-        if (!hostMissingSince) {
-            hostMissingSince = Date.now();
-            return;
-        }
-
-        if (Date.now() - hostMissingSince < HOST_ABSENCE_GRACE_MS) return;
+        // The current host is still present; nothing to do.
+        if (presentTokens.has(currentHostToken)) return;
 
         const candidate = chooseDeterministicHostCandidate(presentTokens);
         if (!candidate) return;
@@ -2297,7 +2420,6 @@ const loggedName = document.getElementById('logged-in-name');
 
         hostTransferInProgress = true;
         lastHostTransferAt = Date.now();
-        hostMissingSince = 0;
 
         const oldHost = players.find(p => getPlayerRoomToken(p) === currentHostToken);
         if (oldHost) {
@@ -2342,7 +2464,6 @@ const loggedName = document.getElementById('logged-in-name');
             turnPhase,
             roundActive,
             gameHistory,
-            roundCounter,
             gameHistoryHostName,
             processedActionIds: Array.from(processedGameActionIds).slice(-500),
             stateVersion: authoritativeStateVersion
@@ -2369,163 +2490,114 @@ const loggedName = document.getElementById('logged-in-name');
         setTimeout(() => { hostTransferInProgress = false; }, 1500);
     }
 
-    function scheduleRealtimeReconnect(code, generation, reason = '') {
-        if (isSoloMode || !roomCode || String(roomCode) !== String(code)) return;
-        if (generation !== roomChannelGeneration) return;
-        if (realtimeReconnectTimer) return;
-
-        const delay = Math.min(
-            REALTIME_RECONNECT_MAX_MS,
-            750 * Math.pow(2, Math.min(realtimeReconnectAttempt, 4))
-        );
-        realtimeReconnectAttempt++;
-
-        realtimeReconnectTimer = setTimeout(async () => {
-            realtimeReconnectTimer = null;
-            if (generation !== roomChannelGeneration) return;
-            if (!roomCode || String(roomCode) !== String(code)) return;
-
-            try {
-                initRealtimeChannel(code, { reconnect: true });
-            } catch (e) {
-                console.warn('Realtime reconnect attempt failed:', e);
-                scheduleRealtimeReconnect(code, generation, 'retry-failed');
-            }
-        }, delay);
-
-        if (reason) console.warn(`Realtime transport ${reason}; retrying in ${delay}ms.`);
-    }
-
-    function initRealtimeChannel(code, options = {}) {
+    function initRealtimeChannel(code) {
         resetTournamentWinnerState(code);
+
+        // A new room gets a completely fresh chat context.
+        // If this is only a reconnect to the same room, keep its current chat.
         resetRoomChatState(code);
 
-        roomChannelGeneration++;
-        const generation = roomChannelGeneration;
-        const isReconnect = options.reconnect === true;
-
         roomChannelReady = false;
-        roomConnectionState = 'connecting';
-        if (!isReconnect) {
-            // A brand-new room must never inherit state/version/action ids
-            // from the previous room. Reconnects to the SAME room preserve
-            // them so a temporary network flap cannot rewind the game.
-            realtimeReconnectAttempt = 0;
-            hostMissingSince = 0;
-            lastPresenceSyncAt = 0;
-            authoritativeStateVersion = 0;
-            lastAppliedStateVersion = 0;
-            processedGameActionIds.clear();
-            realtimeOutboundQueue.forEach(item => { try { item.resolve(false); } catch (e) {} });
-            realtimeOutboundQueue = [];
-        } else {
-            authoritativeStateVersion = Number(authoritativeStateVersion) || 0;
-            lastAppliedStateVersion = Number(lastAppliedStateVersion) || 0;
+        realtimeOutboundQueue = [];
+        authoritativeStateVersion = 0;
+        lastAppliedStateVersion = 0;
+        processedGameActionIds.clear();
+        if (!roomHostToken) {
+            const saved = readLocalRoomSession();
+            roomHostToken = String(saved?.roomHostToken || '').trim();
         }
+        // Preserve roomOwnerToken across reconnects to the same room.
+        // It is loaded by createRoom/joinRoom and must not be reset here.
         hostTransferInProgress = false;
         lastHostTransferAt = 0;
 
-        if (realtimeReconnectTimer && !isReconnect) {
-            clearTimeout(realtimeReconnectTimer);
-            realtimeReconnectTimer = null;
+        if (roomChannel) {
+            try {
+                supabaseClient.removeChannel(roomChannel);
+            } catch (e) {}
         }
 
-        const previousChannel = roomChannel;
-        roomChannel = null;
-
-        // Do not wait for removal of a possibly broken channel. Creating the
-        // replacement immediately is safer; callbacks are generation-guarded.
-        if (previousChannel) {
-            try { supabaseClient.removeChannel(previousChannel); } catch (e) {}
-        }
-
-        const channel = supabaseClient.channel(`room_${String(code).toUpperCase()}`, {
+        const channel = supabaseClient.channel(`room_${code}`, {
             config: {
-                broadcast: { self: false },
-                presence: { key: myClientToken }
+                broadcast: {
+                    self: true
+                }
             }
         });
 
         roomChannel = channel;
 
-        channel.on('presence', { event: 'sync' }, () => {
-            if (roomChannel !== channel || generation !== roomChannelGeneration || isSoloMode) return;
-            // Presence is transport telemetry only. It must NEVER change game
-            // state, player.connected, turn order, or host ownership.
-            lastPresenceSyncAt = Date.now();
-        });
-
-        channel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
-            if (roomChannel !== channel || generation !== roomChannelGeneration || isSoloMode) return;
-            // A returning host/player is evidence that the connection is alive.
-            if (key === myClientToken) hostMissingSince = 0;
-        });
-
-        channel.on('presence', { event: 'leave' }, ({ key }) => {
-            if (roomChannel !== channel || generation !== roomChannelGeneration || isSoloMode) return;
-            // Do NOT mark anyone disconnected here. Presence leave events can be
-            // transient during reconnect. The grace-period sync check decides.
-            if (key && key === myClientToken) {
-                // Our own transient leave is handled by the channel reconnect.
-                // Never mark the player disconnected from a Presence event.
-                hostMissingSince = 0;
+        // Supabase Presence is used only for host-failure detection.
+        // It does not carry game state; the game state remains the
+        // authoritative snapshot already synchronized to every client.
+        channel.on(
+            'presence',
+            { event: 'sync' },
+            () => {
+                if (roomChannel !== channel || isSoloMode) return;
+                maybeElectNewHost('presence-sync');
             }
-        });
+        );
 
-        channel.on('broadcast', { event: 'game_event' }, ({ payload }) => {
-            if (roomChannel !== channel || generation !== roomChannelGeneration) return;
-            try { handleIncomingNetworkData(payload); } catch (error) {
-                console.error('Network event handling failed:', error);
-            }
-        });
+        channel
+            .on(
+                'broadcast',
+                { event: 'game_event' },
+                ({ payload }) => {
+                    handleIncomingNetworkData(payload);
+                }
+            )
+            .subscribe((status) => {
 
-        channel.subscribe((status) => {
-            if (roomChannel !== channel || generation !== roomChannelGeneration) return;
-
-            if (status === 'SUBSCRIBED') {
-                roomChannelReady = true;
-                roomConnectionState = 'connected';
-                realtimeReconnectAttempt = 0;
-                hostMissingSince = 0;
-
-                try {
-                    channel.track({
-                        clientToken: myClientToken,
-                        playerId: myId || myClientToken,
-                        roomCode: String(code).toUpperCase(),
-                        isHost: isHost === true,
-                        connectedAt: Date.now()
-                    });
-                } catch (e) {
-                    console.warn('Presence tracking failed:', e);
+                // Ignore callbacks from an old channel after a room/session
+                // has already created a replacement channel.
+                if (roomChannel !== channel) {
+                    return;
                 }
 
-                flushRealtimeOutboundQueue();
+                if (status === 'SUBSCRIBED') {
+                    roomChannelReady = true;
 
-                // Only request room admission/recovery after the channel is
-                // genuinely subscribed. This prevents a race where a JOIN_REQUEST
-                // is sent into a channel that has not finished connecting.
-                if (!isHost && !isSoloMode) {
-                    sendRealtimeMessage({
-                        type: 'JOIN_REQUEST',
-                        name: myName,
-                        clientToken: myClientToken,
-                        senderId: myClientToken,
-                        roomCode: String(code).toUpperCase(),
-                        rejoinRequest: true,
-                        autoRejoin: true
-                    });
+                    // Presence lets every client detect a host browser that
+                    // closes/crashes without pressing Exit.
+                    try {
+                        channel.track({
+                            clientToken: myClientToken,
+                            playerId: myId || myClientToken,
+                            roomCode: code,
+                            isHost: isHost === true
+                        });
+                    } catch (e) {
+                        console.warn('Could not track room presence:', e);
+                    }
+
+                    flushRealtimeOutboundQueue();
+
+                    if (!isHost && !isSoloMode) {
+                        /*
+                         * Existing player:
+                         * DO NOT automatically reconnect.
+                         *
+                         * The host must approve the rejoin.
+                         */
+                        sendRealtimeMessage({
+                            type: 'JOIN_REQUEST',
+                            name: myName,
+                            clientToken: myClientToken,
+                            senderId: myClientToken,
+                            roomCode: code,
+                            rejoinRequest: true,
+                            autoRejoin: true
+                        });
+                    }
+                } else if (
+                    status === 'CHANNEL_ERROR' ||
+                    status === 'TIMED_OUT' ||
+                    status === 'CLOSED'
+                ) {
+                    roomChannelReady = false;
                 }
-            } else if (
-                status === 'CHANNEL_ERROR' ||
-                status === 'TIMED_OUT' ||
-                status === 'CLOSED'
-            ) {
-                roomChannelReady = false;
-                roomConnectionState = String(status).toLowerCase();
-                scheduleRealtimeReconnect(code, generation, status);
-            }
-        });
+            });
     }
 
 
@@ -3046,7 +3118,13 @@ const loggedName = document.getElementById('logged-in-name');
         // If this player was already eliminated, settle the -100 loss before
         // disconnecting from the room. This covers leaving before the final
         // tournament result is reached.
-
+        try {
+            await settleWalletForEliminatedPlayer(
+                isSoloMode ? 'bot' : 'real'
+            );
+        } catch (e) {
+            console.error('Elimination wallet settlement before lobby failed:', e);
+        }
 
         try {
             if (roomChannel) {
@@ -3056,11 +3134,6 @@ const loggedName = document.getElementById('logged-in-name');
 
         roomChannel = null;
         roomChannelReady = false;
-        roomConnectionState = 'idle';
-        if (realtimeReconnectTimer) { clearTimeout(realtimeReconnectTimer); realtimeReconnectTimer = null; }
-        realtimeReconnectAttempt = 0;
-        hostMissingSince = 0;
-        realtimeOutboundQueue.forEach(item => { try { item.resolve(false); } catch (e) {} });
         realtimeOutboundQueue = [];
         authoritativeStateVersion = 0;
         lastAppliedStateVersion = 0;
@@ -3107,6 +3180,7 @@ const loggedName = document.getElementById('logged-in-name');
         document.getElementById('scoreboard-modal').classList.add('hidden');
         document.getElementById('round-over-modal').classList.add('hidden');
         document.getElementById('tournament-winner-modal')?.classList.add('hidden');
+        document.getElementById('database-history-modal')?.classList.add('hidden');
         document.getElementById('lobby-error').classList.add('hidden');
 
         logTicker(message || 'Ready');
@@ -3172,10 +3246,8 @@ const loggedName = document.getElementById('logged-in-name');
         const roomId = document.getElementById('current-room-id');
         const eliminationControl = document.getElementById('game-eliminate-control');
         const eliminationSelect = document.getElementById('game-target-points-select');
-        const lobbyHistoryDbBtn = document.getElementById('lobby-game-history-db-btn');
 
         if (isLobby) {
-            if (lobbyHistoryDbBtn) lobbyHistoryDbBtn.classList.remove('hidden');
             if (title) title.classList.remove('hidden');
 
             if (loggedName) {
@@ -3215,7 +3287,6 @@ const loggedName = document.getElementById('logged-in-name');
                 'bg-emerald-600/85 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-emerald-700/50';
             btn.title = 'Refresh the app / website';
         } else {
-            if (lobbyHistoryDbBtn) lobbyHistoryDbBtn.classList.add('hidden');
             // GAME ROOM HEADER: only the Exit action remains.
             if (title) title.classList.add('hidden');
             if (loggedName) {
@@ -3300,7 +3371,13 @@ const loggedName = document.getElementById('logged-in-name');
         // A player who is already eliminated must pay the -100 loss even
         // when leaving before the whole game has finished. A player who is
         // not eliminated is not charged for simply exiting the room.
-
+        try {
+            await settleWalletForEliminatedPlayer(
+                isSoloMode ? 'bot' : 'real'
+            );
+        } catch (e) {
+            console.error('Elimination wallet settlement on exit failed:', e);
+        }
 
         if (
             !isSoloMode &&
@@ -3392,9 +3469,6 @@ const loggedName = document.getElementById('logged-in-name');
 
                             gameHistory:
                                 gameHistory,
-
-                            roundCounter:
-                                roundCounter,
 
                             processedActionIds:
                                 Array.from(processedGameActionIds).slice(-500),
@@ -3673,6 +3747,12 @@ const loggedName = document.getElementById('logged-in-name');
         }
     }
 
+    function toggleInstructionsModal(show) {
+        const modal = document.getElementById('instructions-modal');
+        if (!modal) return;
+        modal.classList.toggle('hidden', !show);
+    }
+
     function toggleHistoryModal(show) {
 
         document.getElementById(
@@ -3786,6 +3866,8 @@ const loggedName = document.getElementById('logged-in-name');
             '-' +
             Math.random().toString(36).slice(2, 6).toUpperCase();
 
+        setWalletGameId();
+
         gameHistoryHostName = myName;
 
         gameHistory = [];
@@ -3830,6 +3912,7 @@ const loggedName = document.getElementById('logged-in-name');
         // Lock the payout multiplier to the number of opponents
         // at the beginning of this game. Eliminations later do not
         // change the win reward.
+        gameOpponentCount = Math.max(1, players.length - 1);
 
         myIndex = 0;
 
@@ -3855,8 +3938,7 @@ const loggedName = document.getElementById('logged-in-name');
         deck =
             fullDeck;
 
-        currentTurnIndex = players.findIndex(isPlayerEligibleForRound);
-        if (currentTurnIndex < 0) currentTurnIndex = 0;
+        currentTurnIndex = 0;
         turnPhase = 'drop';
         roundActive = true;
 
@@ -4565,7 +4647,7 @@ const loggedName = document.getElementById('logged-in-name');
     async function handleIncomingNetworkData(data) {
 
         // Save shortly after processing starts; incoming authoritative state
-
+        // is applied synchronously before any awaited wallet work.
         if (roomCode) {
             setTimeout(() => {
                 try { saveLocalRoomSession(); } catch (e) {}
@@ -4637,12 +4719,12 @@ const loggedName = document.getElementById('logged-in-name');
                             turnPhase,
                             stateVersion: authoritativeStateVersion,
                             roundActive,
-                            roundCounter,
                             gameHistory,
                             gameHistoryHostName,
+                            walletGameId,
+                            gameOpponentCount,
                             roomOwnerToken,
                             roomHostToken,
-                            roomCode,
                             message: `${existingPlayer.name} rejoined and recovered the existing player record.`
                         });
 
@@ -4699,9 +4781,6 @@ const loggedName = document.getElementById('logged-in-name');
 
                                 gameHistory:
                                     gameHistory,
-
-                                roundCounter:
-                                    roundCounter,
 
                                 message:
                                     `${existingPlayer.name} is already connected.`
@@ -4882,8 +4961,7 @@ const loggedName = document.getElementById('logged-in-name');
             ) {
 
                 handleHostShowCall(
-                    data.peerId,
-                    data.actionId || ''
+                    data.peerId
                 );
             }
 
@@ -5116,6 +5194,15 @@ const loggedName = document.getElementById('logged-in-name');
                 if (data.targetToken !== myClientToken)
                     break;
 
+                if (data.walletGameId)
+                    walletGameId = data.walletGameId;
+
+                if (data.gameOpponentCount !== undefined)
+                    gameOpponentCount = Math.max(
+                        1,
+                        Math.trunc(Number(data.gameOpponentCount) || 1)
+                    );
+
                 const eliminatedMe = players.find(
                     p =>
                         p &&
@@ -5132,7 +5219,9 @@ const loggedName = document.getElementById('logged-in-name');
                 // Settle immediately, before the final tournament result.
                 // The RPC is idempotent, so later ROUND_OVER / Exit calls
                 // cannot deduct the same game twice.
-
+                await settleWalletForEliminatedPlayer(
+                    data.forceWalletType || (isSoloMode ? 'bot' : 'real')
+                );
 
                 renderGameBoard();
                 break;
@@ -5150,10 +5239,17 @@ const loggedName = document.getElementById('logged-in-name');
 
                     // Host removal itself is NOT a loss. Only a player
                     // who is marked eliminated is charged -100.
+                    if (data.eliminated === true) {
+                        await settleWalletForCompletedGame(
+                            '__ELIMINATION__',
+                            gameOpponentCount,
+                            isSoloMode ? 'bot' : 'real'
+                        );
+                    }
 
                     alert(
                         data.eliminated === true
-                            ? "You were removed by host after elimination."
+                            ? "You were removed by host after elimination. -100 coins applied."
                             : "You were removed by host."
                     );
 
@@ -5564,8 +5660,6 @@ const loggedName = document.getElementById('logged-in-name');
                     roundActive = data.roundActive;
                 if (Array.isArray(data.gameHistory))
                     gameHistory = data.gameHistory;
-                if (data.roundCounter !== undefined)
-                    roundCounter = Math.max(0, Math.trunc(Number(data.roundCounter) || 0));
                 if (data.gameHistoryHostName)
                     gameHistoryHostName = data.gameHistoryHostName;
                 if (data.stateVersion !== undefined)
@@ -5803,7 +5897,7 @@ const loggedName = document.getElementById('logged-in-name');
 
                 if (
                     data.stateVersion !== undefined &&
-                    Number(data.stateVersion) <= Number(lastAppliedStateVersion)
+                    Number(data.stateVersion) < Number(lastAppliedStateVersion)
                 ) {
                     break;
                 }
@@ -5821,6 +5915,21 @@ const loggedName = document.getElementById('logged-in-name');
                 if (synchronizedHost) {
                     roomHostToken = getPlayerRoomToken(synchronizedHost);
                 }
+
+
+                walletGameId =
+                    data.walletGameId ||
+                    walletGameId ||
+                    roomCode;
+
+                gameOpponentCount =
+                    Math.max(
+                        1,
+                        Math.trunc(
+                            Number(data.gameOpponentCount) ||
+                            Math.max(1, data.players.length - 1)
+                        )
+                    );
 
                 deck =
                     data.deck;
@@ -5845,10 +5954,6 @@ const loggedName = document.getElementById('logged-in-name');
                     data.gameHistory ||
                     gameHistory;
 
-                if (data.roundCounter !== undefined) {
-                    roundCounter = Math.max(0, Math.trunc(Number(data.roundCounter) || 0));
-                }
-
                 roundActive = true;
                 setHeaderAction(false);
 
@@ -5867,9 +5972,11 @@ const loggedName = document.getElementById('logged-in-name');
                     'hidden'
                 );
 
-                if (roundActive) {
-                    document.getElementById('round-over-modal')?.classList.add('hidden');
-                }
+                document.getElementById(
+                    'round-over-modal'
+                ).classList.add(
+                    'hidden'
+                );
 
                 document.getElementById(
                     'game-board-screen'
@@ -5948,13 +6055,7 @@ const loggedName = document.getElementById('logged-in-name');
                 turnPhase =
                     data.turnPhase;
 
-                if (data.roundCounter !== undefined) {
-                    roundCounter = Math.max(0, Math.trunc(Number(data.roundCounter) || 0));
-                }
-
-                roundActive = data.roundActive !== undefined
-                    ? data.roundActive === true
-                    : roundActive;
+                roundActive = true;
 
                 myIndex =
                     players.findIndex(
@@ -5965,6 +6066,9 @@ const loggedName = document.getElementById('logged-in-name');
                             myClientToken
                     );
 
+                await settleWalletForEliminatedPlayer(
+                    isSoloMode ? 'bot' : 'real'
+                );
 
                 document.getElementById(
                     'waiting-screen'
@@ -5984,9 +6088,11 @@ const loggedName = document.getElementById('logged-in-name');
                     'hidden'
                 );
 
-                if (roundActive) {
-                    document.getElementById('round-over-modal')?.classList.add('hidden');
-                }
+                document.getElementById(
+                    'round-over-modal'
+                ).classList.add(
+                    'hidden'
+                );
 
                 document.getElementById(
                     'room-badge'
@@ -6102,7 +6208,8 @@ const loggedName = document.getElementById('logged-in-name');
                     gameHistory = [];
                     roundCounter = 0;
                     roundActive = false;
-
+                    walletGameId = '';
+                    gameOpponentCount = Math.max(1, players.filter(p => p && !p.isBot).length - 1);
                     myIndex = players.findIndex(p => p && (p.clientToken === myClientToken || p.id === myId));
                     if (myIndex >= 0) {
                         players[myIndex].connected = true;
@@ -6152,6 +6259,16 @@ const loggedName = document.getElementById('logged-in-name');
 
             case 'TOURNAMENT_WINNER':
 
+                if (data.walletGameId)
+                    walletGameId = data.walletGameId;
+
+                if (data.gameOpponentCount !== undefined)
+                    gameOpponentCount =
+                        Math.max(
+                            1,
+                            Math.trunc(Number(data.gameOpponentCount) || 1)
+                        );
+
                 if (Array.isArray(data.players) && data.players.length) {
                     players = data.players;
                     myIndex = players.findIndex(
@@ -6161,6 +6278,11 @@ const loggedName = document.getElementById('logged-in-name');
                     );
                 }
 
+                await settleWalletForCompletedGame(
+                    data.winnerName,
+                    gameOpponentCount,
+                    isSoloMode ? 'bot' : 'real'
+                );
 
                 showTournamentWinnerPopup(
                     data.winnerName,
@@ -6192,9 +6314,15 @@ const loggedName = document.getElementById('logged-in-name');
                     data.gameHistory ||
                     gameHistory;
 
-                if (data.roundCounter !== undefined) {
-                    roundCounter = Math.max(0, Math.trunc(Number(data.roundCounter) || 0));
-                }
+                if (data.walletGameId)
+                    walletGameId = data.walletGameId;
+
+                if (data.gameOpponentCount !== undefined)
+                    gameOpponentCount =
+                        Math.max(
+                            1,
+                            Math.trunc(Number(data.gameOpponentCount) || 1)
+                        );
 
                 roundActive = false;
 
@@ -6207,6 +6335,9 @@ const loggedName = document.getElementById('logged-in-name');
                             myClientToken
                     );
 
+                await settleWalletForEliminatedPlayer(
+                    isSoloMode ? 'bot' : 'real'
+                );
 
                 showRoundOverModal(
                     data.resultsData,
@@ -6217,7 +6348,11 @@ const loggedName = document.getElementById('logged-in-name');
                 renderGameBoard();
 
                 if (data.tournamentWinner) {
-
+                    await settleWalletForCompletedGame(
+                        data.tournamentWinner,
+                        gameOpponentCount,
+                        isSoloMode ? 'bot' : 'real'
+                    );
 
                     showTournamentWinnerPopup(
                         data.tournamentWinner,
@@ -6302,21 +6437,15 @@ const loggedName = document.getElementById('logged-in-name');
 
         return d;
     }
+
     function calculateHandSum(hand) {
-        return (Array.isArray(hand) ? hand : []).reduce((total, card) => {
-            const points = Number(card?.points);
-            return total + (Number.isFinite(points) ? Math.trunc(points) : 0);
-        }, 0);
-    }
 
-    function isPlayerEligibleForRound(player) {
-        return !!player &&
-            player.eliminated !== true &&
-            player.connected !== false &&
-            player.viewOnly !== true &&
-            player.rejoinPending !== true;
+        return hand.reduce(
+            (acc, card) =>
+                acc + card.points,
+            0
+        );
     }
-
 
     // ============================================================
     // START HOST GAME
@@ -6345,13 +6474,6 @@ const loggedName = document.getElementById('logged-in-name');
             return;
         }
 
-        const totalCardsNeeded = players.filter(p => p && p.connected !== false && !p.eliminated && p.viewOnly !== true).length * cardsPerPlayer;
-        const availableCards = includeJoker ? 53 : 52;
-        if (totalCardsNeeded + 1 > availableCards) {
-            alert(`Too many cards for ${players.length} players with ${cardsPerPlayer} cards each. Choose fewer cards per player.`);
-            return;
-        }
-
         roundCounter = 1;
         gameHistory = [];
 
@@ -6359,9 +6481,21 @@ const loggedName = document.getElementById('logged-in-name');
         lastAppliedStateVersion = 0;
         processedGameActionIds.clear();
 
+        // One unique wallet settlement per online game session.
+        setWalletGameId();
+
         // Lock the payout multiplier to the number of real players
         // participating when the room starts. Later eliminations do
         // not reduce the winner's reward.
+        gameOpponentCount = Math.max(
+            1,
+            players.filter(
+                p =>
+                    p.connected !== false &&
+                    !p.eliminated &&
+                    p.viewOnly !== true
+            ).length - 1
+        );
 
         let fullDeck =
             createDeck();
@@ -6430,18 +6564,6 @@ const loggedName = document.getElementById('logged-in-name');
             currentTurnIndex:
                 currentTurnIndex,
 
-            turnPhase:
-                turnPhase,
-
-            roundActive:
-                roundActive,
-
-            roundCounter:
-                roundCounter,
-
-            stateVersion:
-                authoritativeStateVersion,
-
             targetPoints:
                 targetEliminationPoints,
 
@@ -6450,17 +6572,20 @@ const loggedName = document.getElementById('logged-in-name');
 
             includeJoker:
                 includeJoker,
-gameHistory:
+
+            walletGameId:
+                walletGameId,
+
+            gameOpponentCount:
+                gameOpponentCount,
+
+            gameHistory:
                 gameHistory
         };
 
         sendRealtimeMessage(
             startPayload
         );
-
-        // One initial recovery snapshot is useful; subsequent gameplay saves
-        // are background/coalesced and never sit on the critical play path.
-        persistRoomStateToSupabase({ immediate: true });
 
         document.getElementById(
             'waiting-screen'
@@ -6547,9 +6672,6 @@ gameHistory:
             gameHistory:
                 gameHistory,
 
-            roundCounter:
-                roundCounter,
-
             message:
                 msg
         };
@@ -6558,8 +6680,8 @@ gameHistory:
             payload
         );
 
-        // Realtime is the live gameplay path. Database persistence is only a
-        // background recovery path and is deliberately coalesced.
+        // Realtime carries the update to connected clients; Supabase keeps
+        // the same authoritative snapshot for browser-refresh recovery.
         if (isHost) {
             persistRoomStateToSupabase();
         } else {
@@ -7160,36 +7282,94 @@ gameHistory:
     // ============================================================
 
     function callShow() {
-        const me=players[myIndex];
-        if(!me||me.viewOnly===true||me.connected===false)return;
-        if(currentTurnIndex!==myIndex||turnPhase!=='drop')return;
-        if(showButtonLocked||showResolutionInProgress)return;
-        const sum=calculateHandSum(me.hand);
-        if(sum>5){alert('Sum must be 5 or less!');return;}
-        showButtonLocked=true;
-        const actionId=createGameActionId('SHOW');
-        const btn=document.getElementById('call-show-btn');
-        if(btn){btn.disabled=true;btn.dataset.showLocked='1';}
-        if(isHost||isSoloMode) executeShowRound(myId,actionId);
-        else sendGameActionWithRetry({type:'CALL_SHOW',peerId:myId,actionId,clientToken:myClientToken,senderId:myClientToken});
+
+        let me =
+            players[myIndex];
+
+        if (!me)
+            return;
+
+        /*
+         * NEW:
+         * View-only players cannot call Show.
+         */
+        if (
+            me.viewOnly === true ||
+            me.connected === false
+        )
+            return;
+
+        if (
+            currentTurnIndex !==
+            myIndex ||
+            turnPhase !== 'drop'
+        )
+            return;
+
+        let sum =
+            calculateHandSum(
+                me.hand
+            );
+
+        if (sum > 5) {
+
+            alert(
+                "Sum must be 5 or less!"
+            );
+
+            return;
+        }
+
+        if (
+            isHost ||
+            isSoloMode
+        ) {
+
+            executeShowRound(
+                myId
+            );
+
+        } else {
+
+            sendRealtimeMessage({
+
+                type:
+                    'CALL_SHOW',
+
+                peerId:
+                    myId
+            });
+        }
     }
 
-    function handleHostShowCall(callerPeerId, actionId = '') {
-        if (!isHost || isSoloMode || !roundActive || turnPhase !== 'drop') return;
-        const aid=String(actionId||'');
-        if(aid&&processedShowActionIds.has(aid))return;
-        if(aid)processedShowActionIds.add(aid);
+    function handleHostShowCall(
+        callerPeerId
+    ) {
 
-        const callerIndex = players.findIndex(
-            p => p && (p.id === callerPeerId || p.clientToken === callerPeerId)
+        /*
+         * NEW:
+         * Do not accept Show from a view-only
+         * or disconnected player.
+         */
+        let caller =
+            players.find(
+                p =>
+                    p.id ===
+                        callerPeerId ||
+                    p.clientToken ===
+                        callerPeerId
+            );
+
+        if (
+            !caller ||
+            caller.viewOnly === true ||
+            caller.connected === false
+        )
+            return;
+
+        executeShowRound(
+            callerPeerId
         );
-
-        if (callerIndex < 0 || callerIndex !== currentTurnIndex) return;
-
-        const caller = players[callerIndex];
-        if (!isPlayerAllowedToPlay(caller)) return;
-
-        executeShowRound(callerPeerId, aid);
     }
 
     function escapeRoundResultHtml(value) {
@@ -7202,196 +7382,436 @@ gameHistory:
     }
 
     function buildRoundCardPreviewHtml(player, isCaller = false, isTournamentWinner = false) {
-        const handCount = Array.isArray(player?.hand) ? player.hand.length : 0;
+        const hand = Array.isArray(player?.hand) ? player.hand : [];
+
+        const cardsHtml = hand.length
+            ? hand.map(card => {
+                const red = ['♥', '♦'].includes(card.suit);
+                return `<span class="inline-flex items-center justify-center min-w-[24px] h-[30px] px-1 rounded-md bg-white border border-slate-300 text-[12px] font-black leading-none ${red ? 'text-rose-600' : 'text-slate-900'} shadow-sm">${escapeRoundResultHtml(card.val)}${escapeRoundResultHtml(card.suit)}</span>`;
+            }).join('')
+            : '<span class="text-zinc-500 italic text-[9px]">No cards</span>';
+
         return `
-            <div class="flex items-center justify-between gap-2 rounded-md border ${isCaller ? 'border-amber-400/60 bg-amber-500/10' : 'border-zinc-800 bg-black/70'} px-2 py-1.5 min-w-0">
-                <span class="font-bold text-white text-[10px] truncate">${escapeRoundResultHtml(player?.name || 'Player')}
-                    ${isCaller ? '<span class="text-amber-400 text-[8px] ml-1">SHOW</span>' : ''}
-                    ${isTournamentWinner ? '<span class="text-emerald-400 text-[8px] ml-1">WIN</span>' : ''}
-                </span>
-                <span class="text-[10px] text-zinc-300 font-black tabular-nums shrink-0">Cards: ${handCount}</span>
+            <div class="min-w-0 rounded-lg border ${isCaller ? 'border-amber-400/70 bg-amber-500/10' : 'border-zinc-800 bg-black/80'} px-1.5 py-1.5">
+                <div class="flex items-center justify-between gap-1 mb-1">
+                    <div class="min-w-0 font-black text-white text-[10px] truncate">${escapeRoundResultHtml(player?.name || 'Player')}
+                        ${isCaller ? '<span class="text-amber-400 text-[8px] ml-0.5">SHOW</span>' : ''}
+                        ${isTournamentWinner ? '<span class="text-emerald-400 text-[8px] ml-0.5">WIN</span>' : ''}
+                    </div>
+                    <div class="text-[8px] text-zinc-500 shrink-0">${hand.length}</div>
+                </div>
+                <div class="flex flex-nowrap items-center gap-0.5 overflow-hidden">${cardsHtml}</div>
             </div>`;
     }
 
     // ============================================================
     // SHOW ROUND
     // ============================================================
-    function executeShowRound(callerPeerId, actionId = '') {
-        // The host is the only authority that can resolve a round.
-        // Reject stale/duplicate SHOW packets before changing any score.
-        if (showResolutionInProgress || !roundActive || turnPhase !== 'drop') return;
 
-        const callerIndex = players.findIndex(p =>
-            p &&
-            (p.id === callerPeerId || p.clientToken === callerPeerId)
-        );
+    async function executeShowRound(
+        callerPeerId
+    ) {
 
-        if (callerIndex < 0 || callerIndex !== currentTurnIndex) return;
+        let caller =
+            players.find(
+                p =>
+                    p.id ===
+                        callerPeerId ||
+                    p.clientToken ===
+                        callerPeerId
+            );
 
-        const caller = players[callerIndex];
-        if (!isPlayerAllowedToPlay(caller)) return;
-        showResolutionInProgress=true;
-        showButtonLocked=true;
-        if(actionId)processedShowActionIds.add(String(actionId));
+        if (!caller)
+            return;
 
-        // Normalize scores once so arithmetic can never concatenate strings.
+        if (
+            caller.viewOnly === true ||
+            caller.connected === false
+        )
+            return;
+
+        let callerSum =
+            calculateHandSum(
+                caller.hand
+            );
+
+        let summaries = [];
+
         players.forEach(p => {
-            p.scores = Number.isFinite(Number(p.scores))
-                ? Math.max(0, Math.trunc(Number(p.scores)))
-                : 0;
-        });
 
-        const summaries = players
-            .map((player, index) => ({
-                player,
-                index,
-                sum: calculateHandSum(Array.isArray(player.hand) ? player.hand : [])
-            }))
-            .filter(item => isPlayerEligibleForRound(item.player));
+            if (
+                !p.eliminated &&
+                p.connected !== false &&
+                p.viewOnly !== true
+            ) {
 
-        if (!summaries.some(item => item.index === callerIndex)) return;
+                summaries.push({
+                    player:
+                        p,
 
-        const callerSum = summaries.find(item => item.index === callerIndex).sum;
-        const lowerPlayers = summaries.filter(
-            item => item.index !== callerIndex && item.sum < callerSum
-        );
-        const equalPlayers = summaries.filter(
-            item => item.index !== callerIndex && item.sum === callerSum
-        );
-
-        const roundNumber = Math.max(1, Math.trunc(Number(roundCounter) || 1));
-        const roundRecord = {
-            roundNumber,
-            callerName: caller.name,
-            callerSum,
-            outcome: '',
-            details: []
-        };
-
-        let outcomeLabel = '';
-        const pointsAddedByPlayer = new Map();
-
-        if (lowerPlayers.length > 0) {
-            // Failed show: caller alone receives the fixed 25-point penalty.
-            outcomeLabel = 'Failed Show (+25 penalty)';
-            caller.scores += 25;
-            pointsAddedByPlayer.set(caller.id, 25);
-        } else if (equalPlayers.length > 0) {
-            // Matched show: caller and every player tied with caller score 0;
-            // every other eligible player adds their hand total.
-            outcomeLabel = 'Matched Show';
-            const matchedIds = new Set([
-                caller.id,
-                ...equalPlayers.map(item => item.player.id)
-            ]);
-
-            summaries.forEach(item => {
-                if (!matchedIds.has(item.player.id)) {
-                    const points = Math.max(0, Math.trunc(item.sum));
-                    item.player.scores += points;
-                    pointsAddedByPlayer.set(item.player.id, points);
-                }
-            });
-        } else {
-            // Good show: caller scores 0; every other eligible player adds hand total.
-            outcomeLabel = 'Good Show';
-            summaries.forEach(item => {
-                if (item.player.id !== caller.id) {
-                    const points = Math.max(0, Math.trunc(item.sum));
-                    item.player.scores += points;
-                    pointsAddedByPlayer.set(item.player.id, points);
-                }
-            });
-        }
-
-        roundRecord.outcome = outcomeLabel;
-
-        // Clamp/normalize every score after arithmetic and apply elimination
-        // exactly once from the authoritative score.
-        players.forEach(p => {
-            p.scores = Number.isFinite(Number(p.scores))
-                ? Math.max(0, Math.trunc(Number(p.scores)))
-                : 0;
-            const wasEliminated = p.eliminated === true;
-            if (isPlayerEligibleForRound(p) &&
-                p.scores >= Math.max(1, Math.trunc(Number(targetEliminationPoints) || 1))) {
-                p.eliminated = true;
+                    sum:
+                        calculateHandSum(
+                            p.hand
+                        )
+                });
             }
-            if (wasEliminated) p.eliminated = true;
         });
-
-        summaries.forEach(item => {
-            const pointsAdded = pointsAddedByPlayer.get(item.player.id) || 0;
-            roundRecord.details.push({
-                name: item.player.name,
-                sum: item.sum,
-                pointsAdded,
-                totalAfterRound: item.player.scores
-            });
-        });
-
-        gameHistory.push(roundRecord);
 
         let resultsText =
-            `<strong>${escapeRoundResultHtml(caller.name)}</strong> called SHOW with sum: <strong>${callerSum}</strong>!<br><br>`;
+            `<strong>${caller.name}</strong> called SHOW with sum: <strong>${callerSum}</strong>!<br><br>`;
 
-        if (outcomeLabel === 'Failed Show (+25 penalty)') {
-            resultsText += `<span class="text-rose-400 font-bold">FAILED SHOW! Someone had a lower count.</span><br>`;
-        } else if (outcomeLabel === 'Matched Show') {
-            resultsText += `<span class="text-amber-400 font-bold">MATCHED SHOW!</span><br>`;
-        } else {
-            resultsText += `<span class="text-emerald-400 font-bold">GOOD SHOW!</span><br>`;
-        }
+        let roundRecord = {
 
-        resultsText += `<hr class="border-zinc-800 my-2"><div class="text-xs space-y-1">`;
-        summaries.forEach(item => {
-            resultsText += `<div>${escapeRoundResultHtml(item.player.name)}: Sum = <strong>${item.sum}</strong> | Total = <strong>${item.player.scores}</strong></div>`;
-        });
-        resultsText += `</div>`;
+            roundNumber:
+                roundCounter++,
 
-        resultsText += `
-            <div class="mt-3 pt-3 border-t border-zinc-800">
-                <div class="text-amber-300 font-black mb-1.5">Round Cards</div>
-                <div class="flex flex-col gap-1">
-                    ${summaries.map(item => `
-                        <div class="flex items-center justify-between gap-2 rounded-md border border-zinc-800 bg-black/70 px-2 py-1 text-[10px]">
-                            <span class="font-bold text-white truncate">${escapeRoundResultHtml(item.player.name)}</span>
-                            <span class="text-zinc-300 font-black tabular-nums">Cards: ${Array.isArray(item.player.hand) ? item.player.hand.length : 0}</span>
-                            <span class="text-zinc-400 font-black tabular-nums">Sum: ${item.sum}</span>
-                            <span class="text-emerald-300 font-black tabular-nums">Total: ${item.player.scores}</span>
-                        </div>`).join('')}
-                </div>
-            </div>`;
+            callerName:
+                caller.name,
 
-        // Close the round BEFORE any network operation. A duplicate SHOW
-        // arriving immediately after this point is therefore rejected.
-        roundActive = false;
-        turnPhase = 'drop';
+            callerSum:
+                callerSum,
 
-        const remainingPlayers = players.filter(isPlayerEligibleForRound);
-        const tournamentWinner =
-            remainingPlayers.length === 1 ? remainingPlayers[0].name : '';
-
-        const payload = {
-            type: 'ROUND_OVER',
-            roomCode,
-            resultsData: resultsText,
-            callerName: caller.name,
-            players,
-            gameHistory,
-            tournamentWinner
+            details:
+                []
         };
 
-        showRoundOverModal(resultsText, caller.name, tournamentWinner);
-        renderGameBoard();
+        let lowerPlayers =
+            summaries.filter(
+                item =>
+                    item.player.id !==
+                        caller.id &&
+                    item.sum <
+                        callerSum
+            );
 
-        if (isHost && !isSoloMode) {
-            sendRealtimeMessage(payload);
+        if (
+            lowerPlayers.length > 0
+        ) {
+
+            resultsText +=
+                `<span class="text-rose-400 font-bold">
+                    FAILED SHOW! Someone had a lower count.
+                </span><br>`;
+
+            caller.scores += 25;
+
+            roundRecord.outcome =
+                "Failed Show (+25 penalty)";
+
+            summaries.forEach(
+                item => {
+
+                    let ptsAdded =
+                        (
+                            item.player.id ===
+                            caller.id
+                        )
+                            ? 25
+                            : 0;
+
+                    roundRecord.details.push({
+                        name:
+                            item.player.name,
+
+                        sum:
+                            item.sum,
+
+                        pointsAdded:
+                            ptsAdded
+                    });
+                }
+            );
+
+        } else {
+
+            let equalPlayers =
+                summaries.filter(
+                    item =>
+                        item.player.id !==
+                            caller.id &&
+                        item.sum ===
+                            callerSum
+                );
+
+            if (
+                equalPlayers.length > 0
+            ) {
+
+                resultsText +=
+                    `<span class="text-amber-400 font-bold">
+                        MATCHED SHOW!
+                    </span><br>`;
+
+                let matchedIds =
+                    [
+                        caller.id,
+                        ...equalPlayers.map(
+                            m =>
+                                m.player.id
+                        )
+                    ];
+
+                roundRecord.outcome =
+                    "Matched Show";
+
+                summaries.forEach(
+                    item => {
+
+                        let ptsAdded = 0;
+
+                        if (
+                            !matchedIds.includes(
+                                item.player.id
+                            )
+                        ) {
+
+                            item.player.scores +=
+                                item.sum;
+
+                            ptsAdded =
+                                item.sum;
+                        }
+
+                        roundRecord.details.push({
+                            name:
+                                item.player.name,
+
+                            sum:
+                                item.sum,
+
+                            pointsAdded:
+                                ptsAdded
+                        });
+                    }
+                );
+
+            } else {
+
+                resultsText +=
+                    `<span class="text-emerald-400 font-bold">
+                        GOOD SHOW!
+                    </span><br>`;
+
+                roundRecord.outcome =
+                    "Good Show";
+
+                summaries.forEach(
+                    item => {
+
+                        let ptsAdded = 0;
+
+                        if (
+                            item.player.id !==
+                            caller.id
+                        ) {
+
+                            item.player.scores +=
+                                item.sum;
+
+                            ptsAdded =
+                                item.sum;
+                        }
+
+                        roundRecord.details.push({
+                            name:
+                                item.player.name,
+
+                            sum:
+                                item.sum,
+
+                            pointsAdded:
+                                ptsAdded
+                        });
+                    }
+                );
+            }
         }
 
-        saveLocalRoomSession();
-        if (isHost) persistRoomStateToSupabase();
-        syncGameHistoryToSupabase(tournamentWinner);
+        gameHistory.push(
+            roundRecord
+        );
+
+        resultsText +=
+            `<hr class="border-zinc-800 my-2">
+             <div class="text-xs space-y-1">`;
+
+        summaries.forEach(
+            item => {
+
+                resultsText +=
+                    `<div>
+                        ${item.player.name}:
+                        Sum = <strong>${item.sum}</strong>
+                        |
+                        Total = <strong>${item.player.scores}</strong>
+                    </div>`;
+            }
+        );
+
+        resultsText +=
+            `</div>`;
+
+        // Mark newly eliminated players and notify each affected client
+        // immediately. This happens before the final game result, so an
+        // eliminated player who exits right away still receives the -100
+        // settlement and the game is counted in their account history.
+        const newlyEliminatedPlayers = [];
+
+        players.forEach(p => {
+
+            const wasEliminated = p.eliminated === true;
+
+            if (
+                p.scores >=
+                targetEliminationPoints
+            )
+                p.eliminated =
+                    true;
+
+            if (!wasEliminated && p.eliminated === true) {
+                newlyEliminatedPlayers.push(p);
+            }
+        });
+
+        // If the host itself was eliminated in this round, settle its -100
+        // immediately. Other players settle on their own clients from the
+        // dedicated elimination event, the synchronized state, or their
+        // own Exit action (whichever happens first).
+        await settleWalletForEliminatedPlayer(
+            isSoloMode ? 'bot' : 'real'
+        );
+
+        if (!isSoloMode && newlyEliminatedPlayers.length) {
+            for (const eliminatedPlayer of newlyEliminatedPlayers) {
+                const targetToken = getPlayerToken(eliminatedPlayer);
+                if (!targetToken) continue;
+
+                await sendRealtimeMessage({
+                    type: 'PLAYER_ELIMINATED',
+                    targetToken,
+                    roomCode,
+                    walletGameId,
+                    gameOpponentCount,
+                    forceWalletType: 'real'
+                });
+            }
+        }
+
+        // Show every active player's exact cards at the moment SHOW was called.
+        // The same snapshot is broadcast to every room member in ROUND_OVER.
+        resultsText +=
+            `<div class="mt-3 pt-3 border-t border-zinc-800">
+                <div class="text-amber-300 font-black mb-1.5">Cards at SHOW</div>
+                <div class="grid grid-cols-2 gap-1.5">`;
+
+        summaries.forEach(item => {
+            resultsText += buildRoundCardPreviewHtml(
+                item.player,
+                item.player.id === caller.id
+            );
+        });
+
+        resultsText += `</div></div>`;
+
+        // Capture each player's running score as part of the round history snapshot.
+        if (gameHistory.length) {
+            const latestRound = gameHistory[gameHistory.length - 1];
+            latestRound.details.forEach(detail => {
+                const detailPlayer = players.find(p => p.name === detail.name);
+                if (detailPlayer) detail.totalAfterRound = detailPlayer.scores;
+            });
+        }
+
+        roundActive = false;
+
+        const remainingPlayers = players.filter(
+            p =>
+                !p.eliminated &&
+                p.connected !== false &&
+                p.viewOnly !== true
+        );
+
+        const roundWinner =
+            remainingPlayers.length === 1
+                ? remainingPlayers[0].name
+                : '';
+
+        // Settle the wallet immediately when the game has a final winner.
+        // This works for both solo/bot games and online multiplayer.
+        if (roundWinner) {
+            await settleWalletForCompletedGame(
+                roundWinner,
+                gameOpponentCount,
+                isSoloMode ? 'bot' : 'real'
+            );
+        }
+
+        // Persist the complete game history after every completed round.
+        // Only the host writes, and the same host + game code updates the existing row.
+        syncGameHistoryToSupabase(roundWinner);
+
+        let payload = {
+
+            type:
+                'ROUND_OVER',
+
+            roomCode:
+                roomCode,
+
+            resultsData:
+                resultsText,
+
+            callerName:
+                caller.name,
+
+            players:
+                players,
+
+            gameHistory:
+                gameHistory,
+
+            // If only one eligible player remains, this round also ended
+            // the tournament. Send the winner in the same reliable packet.
+            tournamentWinner:
+                roundWinner || '',
+
+            walletGameId:
+                walletGameId,
+
+            gameOpponentCount:
+                gameOpponentCount
+        };
+
+        showRoundOverModal(
+            resultsText,
+            caller.name,
+            roundWinner
+        );
+
+        renderGameBoard();
+
+        if (roundWinner) {
+            // Host/solo gets the popup immediately. Remote clients get it
+            // from the same ROUND_OVER broadcast below.
+            showTournamentWinnerPopup(
+                roundWinner,
+                roomCode,
+                players,
+                caller.name
+            );
+        }
+
+        if (
+            isHost &&
+            !isSoloMode
+        ) {
+
+            // Wait until Supabase accepts the broadcast before this flow can
+            // tear down the room channel.
+            await sendRealtimeMessage(
+                payload
+            );
+        }
     }
 
     function showRoundOverModal(
@@ -7439,120 +7859,236 @@ gameHistory:
     // ============================================================
     // NEXT ROUND
     // ============================================================
-    function startNextRound() {
-        if (!isHost && !isSoloMode) {
-            const me = players[myIndex];
-            if (!me || !isPlayerAllowedToPlay(me)) return;
+
+    async function startNextRound() {
+
+        if (
+            !isHost &&
+            !isSoloMode
+        ) {
+
+            /*
+             * View-only player cannot start a round.
+             */
+            let me =
+                players[myIndex];
+
+            if (
+                me &&
+                (
+                    me.viewOnly === true ||
+                    me.connected === false
+                )
+            )
+                return;
 
             sendRealtimeMessage({
-                type: 'START_NEXT_ROUND_REQUEST',
-                clientToken: myClientToken
+                type:
+                    'START_NEXT_ROUND_REQUEST',
+
+                clientToken:
+                    myClientToken
             });
 
-            const msg = document.getElementById('waiting-next-round-msg');
-            if (msg) {
-                msg.classList.remove('hidden');
-                msg.innerText = 'Requesting next round...';
-            }
+            document.getElementById(
+                'waiting-next-round-msg'
+            ).classList.remove(
+                'hidden'
+            );
+
+            document.getElementById(
+                'waiting-next-round-msg'
+            ).innerText =
+                "Requesting next round...";
+
             return;
         }
 
-        if (roundActive) return;
+        let activePlayers =
+            players.filter(
+                p =>
+                    !p.eliminated &&
+                    p.connected !== false &&
+                    p.viewOnly !== true
+            );
 
-        const activePlayers = players.filter(isPlayerEligibleForRound);
+        if (
+            activePlayers.length <= 1
+        ) {
 
-        if (activePlayers.length <= 1) {
-            const finalWinner = activePlayers[0]?.name || 'Nobody';
+            const finalWinner =
+                activePlayers[0] ? activePlayers[0].name : 'Nobody';
+
+            await settleWalletForCompletedGame(
+                finalWinner,
+                gameOpponentCount,
+                isSoloMode ? 'bot' : 'real'
+            );
+
+            // Final update writes the winner into the same database row.
+            await syncGameHistoryToSupabase(finalWinner);
+
+            // Fallback if the final ROUND_OVER winner was not displayed.
             showTournamentWinnerPopup(
                 finalWinner,
                 roomCode,
                 players,
-                gameHistory.at(-1)?.callerName || ''
+                gameHistory.length && gameHistory[gameHistory.length - 1]
+                    ? gameHistory[gameHistory.length - 1].callerName
+                    : ''
             );
-            syncGameHistoryToSupabase(finalWinner);
+
+            // Await the send so the room channel is not removed before
+            // Supabase accepts the final winner event.
+            await sendRealtimeMessage({
+                type:
+                    'TOURNAMENT_WINNER',
+
+                roomCode:
+                    roomCode,
+
+                winnerName:
+                    finalWinner,
+
+                players:
+                    players,
+
+                callerName:
+                    gameHistory.length && gameHistory[gameHistory.length - 1]
+                        ? gameHistory[gameHistory.length - 1].callerName
+                        : '',
+
+                walletGameId:
+                    walletGameId,
+
+                gameOpponentCount:
+                    gameOpponentCount
+            });
+
+            // Do not leave the room automatically. The tournament popup
+            // now gives every player an explicit choice: stay in the room
+            // or exit to the lobby.
             return;
         }
 
-        const totalCardsNeeded = activePlayers.length * cardsPerPlayer;
-        const availableCards = includeJoker ? 53 : 52;
-        if (totalCardsNeeded + 1 > availableCards) {
-            logTicker('Unable to start next round: not enough cards for all active players.');
-            return;
-        }
-
-        // IMPORTANT ROUND INVARIANT:
-        // roundCounter is the round being played, not "rounds completed".
-        // Increment exactly once here, after the previous round is over.
-        roundCounter = Math.max(1, Math.trunc(Number(roundCounter) || 0)) + 1;
-
-        const fullDeck = createDeck();
+        let fullDeck =
+            createDeck();
 
         players.forEach(p => {
-            if (isPlayerEligibleForRound(p)) {
-                p.hand = sortHandCards(fullDeck.splice(0, cardsPerPlayer));
-            } else {
-                p.hand = [];
+
+            if (
+                !p.eliminated &&
+                p.connected !== false &&
+                p.viewOnly !== true
+            ) {
+
+                p.hand =
+                    sortHandCards(
+                        fullDeck.splice(
+                            0,
+                            cardsPerPlayer
+                        )
+                    );
             }
         });
 
-        if (fullDeck.length === 0) {
-            logTicker('Unable to start round: deck is empty.');
-            return;
-        }
+        discardPile =
+            [fullDeck.pop()];
 
-        discardPile = [fullDeck.pop()];
-        deck = fullDeck;
-        turnPhase = 'drop';
+        deck =
+            fullDeck;
+
         roundActive = true;
-        showButtonLocked=false;
-        showResolutionInProgress=false;
+        turnPhase = 'drop';
 
-        // Deterministic round-robin starter. If that seat is eliminated or
-        // unavailable, walk forward until the next eligible seat.
-        const seatCount = Math.max(1, players.length);
-        const desiredSeat = (roundCounter - 1) % seatCount;
-        let starter = -1;
+        // Rotate the opening player each round (round-robin by seat order).
+        // roundCounter is incremented when the previous round is recorded,
+        // so round 2 starts from seat index 1, round 3 from index 2, etc.
+        const eligiblePlayers = players.map((player, index) => ({ player, index }))
+            .filter(({ player }) =>
+                !player.eliminated &&
+                player.connected !== false &&
+                player.viewOnly !== true
+            );
 
-        for (let offset = 0; offset < seatCount; offset++) {
-            const candidate = (desiredSeat + offset) % seatCount;
-            if (isPlayerEligibleForRound(players[candidate])) {
-                starter = candidate;
-                break;
+        if (eligiblePlayers.length) {
+            const firstSeat = isSoloMode
+                ? Math.max(0, roundCounter) % Math.max(1, players.length)
+                : Math.max(0, roundCounter - 1) % Math.max(1, players.length);
+
+            let starter = -1;
+            for (let offset = 0; offset < players.length; offset++) {
+                const candidateIndex = (firstSeat + offset) % players.length;
+                if (eligiblePlayers.some(({ index }) => index === candidateIndex)) {
+                    starter = candidateIndex;
+                    break;
+                }
             }
+            currentTurnIndex = starter >= 0 ? starter : eligiblePlayers[0].index;
+        } else {
+            currentTurnIndex = 0;
         }
 
-        currentTurnIndex = starter >= 0
-            ? starter
-            : players.findIndex(isPlayerEligibleForRound);
+        let startPayload = {
 
-        authoritativeStateVersion = Math.max(
-            Number(authoritativeStateVersion) || 0,
-            Number(lastAppliedStateVersion) || 0
-        ) + 1;
+            type:
+                'START_GAME',
 
-        document.getElementById('round-over-modal')?.classList.add('hidden');
+            roomOwnerToken:
+                roomOwnerToken,
 
-        const startPayload = {
-            type: 'START_GAME',
-            roomOwnerToken,
-            players,
-            deck,
-            discardPile,
-            currentTurnIndex,
-            turnPhase,
-            roundActive,
-            roundCounter,
-            targetPoints: targetEliminationPoints,
-            cardsPerPlayer,
-            includeJoker,
-            gameHistory
+            players:
+                players,
+
+            deck:
+                deck,
+
+            discardPile:
+                discardPile,
+
+            currentTurnIndex:
+                currentTurnIndex,
+
+            targetPoints:
+                targetEliminationPoints,
+
+            cardsPerPlayer:
+                cardsPerPlayer,
+
+            includeJoker:
+                includeJoker,
+
+            walletGameId:
+                walletGameId,
+
+            gameOpponentCount:
+                gameOpponentCount,
+
+            gameHistory:
+                gameHistory
         };
 
-        if (!isSoloMode) sendRealtimeMessage(startPayload);
+        document.getElementById(
+            'round-over-modal'
+        ).classList.add(
+            'hidden'
+        );
+
+        if (!isSoloMode) {
+
+            sendRealtimeMessage(
+                startPayload
+            );
+        }
 
         renderGameBoard();
-        saveLocalRoomSession();
-        if (isHost) persistRoomStateToSupabase();
+
+        if (isHost) {
+            persistRoomStateToSupabase();
+        } else {
+            saveLocalRoomSession();
+        }
+
         checkBotTurn();
     }
 
@@ -7561,21 +8097,14 @@ gameHistory:
     // ============================================================
 
     function updateGameOnlyFooterControls(show) {
-        const historyBtn=document.getElementById('history-footer-btn');
-        const scoresBtn=document.getElementById('scores-footer-btn');
-        const lobbyBtn=document.getElementById('lobby-history-footer-btn');
-        if(historyBtn)historyBtn.classList.toggle('hidden',!show);
-        if(scoresBtn)scoresBtn.classList.toggle('hidden',!show);
-        if(lobbyBtn)lobbyBtn.classList.toggle('hidden',!!show);
+        const historyBtn = document.getElementById('history-footer-btn');
+        const scoresBtn = document.getElementById('scores-footer-btn');
+
+        if (historyBtn) historyBtn.classList.toggle('hidden', !show);
+        if (scoresBtn) scoresBtn.classList.toggle('hidden', !show);
     }
 
     function renderGameBoard() {
-        players.forEach(p => {
-            if (!p) return;
-            const score = Number(p.scores);
-            p.scores = Number.isFinite(score) ? Math.max(0, Math.trunc(score)) : 0;
-        });
-
         updateGameOnlyFooterControls(true);
 
 
@@ -8134,7 +8663,7 @@ gameHistory:
                                 </span>
 
                                 <span class="font-mono text-amber-400">
-                                    +${Number(d.pointsAdded) || 0} · Total ${Number(d.totalAfterRound) || 0}
+                                    +${d.pointsAdded} pts
                                 </span>
                             </div>`;
                     }
@@ -8166,7 +8695,1070 @@ gameHistory:
 
 
     <!-- ========================================================= -->
+    <!-- PLAYER ACCOUNT / COIN STATISTICS MODALS                 -->
+    <!-- ========================================================= -->
 
+    <div id="my-game-history-modal"
+         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[210]">
+        <div class="bg-zinc-950 border border-emerald-500/25 w-full max-w-5xl h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
+                <div>
+                    <h2 class="text-lg font-black text-emerald-300">Your Game History</h2>
+                    <p class="text-[11px] text-zinc-500 mt-1">All your completed and in-progress games saved in the game-history database.</p>
+                </div>
+                <button onclick="toggleMyGameHistoryModal(false)"
+                        class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">
+                    Close
+                </button>
+            </div>
+
+            <div class="p-4 border-b border-zinc-800 shrink-0 space-y-3">
+                <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                    <label for="my-game-history-type" class="text-xs font-bold text-zinc-400">Game Type</label>
+                    <select id="my-game-history-type" onchange="loadMyGameHistory()"
+                            class="w-full sm:w-auto min-w-[180px] px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-emerald-500">
+                        <option value="all">All Games</option>
+                        <option value="bot">Bot Games</option>
+                        <option value="real">Real Multiplayer Games</option>
+                    </select>
+                    <button onclick="loadMyGameHistory()"
+                            class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-emerald-300 hover:bg-zinc-800">
+                        Refresh
+                    </button>
+                </div>
+                <div id="my-game-history-summary" class="text-xs text-zinc-400">Loading...</div>
+            </div>
+
+            <div id="my-game-history-list" class="p-4 space-y-3 overflow-y-auto flex-1"></div>
+        </div>
+    </div>
+
+    <div id="users-stats-modal"
+         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[210]">
+        <div class="bg-zinc-950 border border-amber-500/25 w-full max-w-6xl h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
+                <div>
+                    <h2 class="text-lg font-black text-amber-300">Total Game Users</h2>
+                    <p class="text-[11px] text-zinc-500 mt-1">Registered users, current coins, and completed game counts.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="loadUsersStats()" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-amber-300 hover:bg-zinc-800">Refresh</button>
+                    <button onclick="toggleUsersStatsModal(false)" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
+                </div>
+            </div>
+
+            <div id="users-stats-summary" class="p-4 border-b border-zinc-800 shrink-0 text-xs text-zinc-400">Loading...</div>
+            <div id="users-stats-list" class="p-4 overflow-y-auto flex-1"></div>
+        </div>
+    </div>
+
+    <div id="coin-instructions-modal"
+         class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-4 z-[210]">
+        <div class="bg-zinc-950 border border-indigo-500/30 w-full max-w-2xl max-h-[88vh] rounded-2xl p-5 shadow-2xl overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
+                <div>
+                    <h2 class="text-lg font-black text-indigo-300">Coins Instructions</h2>
+                    <p class="text-[11px] text-zinc-500 mt-1">How Bot Coins and Real Coins are calculated.</p>
+                </div>
+                <button onclick="toggleCoinInstructionsModal(false)" class="text-zinc-400 hover:text-white font-bold text-xl px-2">&times;</button>
+            </div>
+
+            <div class="space-y-4 text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                <section>
+                    <h3 class="font-black text-white mb-1">1. Two separate wallets</h3>
+                    <p><strong class="text-indigo-300">Bot Coins</strong> are used for games played against computer/bot players. <strong class="text-emerald-300">Real Coins</strong> are used for online multiplayer games with other registered players. The two balances are stored separately.</p>
+                </section>
+                <section>
+                    <h3 class="font-black text-white mb-1">2. Winning a game</h3>
+                    <p>A win gives <strong class="text-emerald-300">100 coins for each opponent</strong>.</p>
+                    <div class="bg-black border border-zinc-800 rounded-xl p-3 mt-2 font-mono text-[11px] text-zinc-200">Win reward = 100 × number of opponents</div>
+                    <p class="mt-2">Example: 3 total players means 2 opponents, so the winner receives <strong class="text-emerald-300">200 coins</strong>.</p>
+                </section>
+                <section>
+                    <h3 class="font-black text-white mb-1">3. Losing a game</h3>
+                    <p>A completed loss deducts <strong class="text-rose-300">100 coins</strong> from the wallet used for that game.</p>
+                </section>
+                <section>
+                    <h3 class="font-black text-white mb-1">4. Bots count as opponents</h3>
+                    <p>Every bot in a solo game counts as an opponent for the winner's reward. For example, you + 3 bots = 3 opponents = <strong class="text-emerald-300">300 Bot Coins</strong> for a win.</p>
+                </section>
+                <section>
+                    <h3 class="font-black text-white mb-1">5. No duplicate payout</h3>
+                    <p>Each completed game/wallet combination is settled only once in Supabase. Refreshing the page or receiving the game-over event again does not create another payout.</p>
+                </section>
+                <section>
+                    <h3 class="font-black text-white mb-1">6. When coins are added</h3>
+                    <p>Coins are added or deducted when the game reaches its completed winner/loss settlement. The server calculates the amount; the browser cannot choose an arbitrary coin amount.</p>
+                </section>
+                <section>
+                    <h3 class="font-black text-white mb-1">7. History</h3>
+                    <p>Your Game History shows every recorded win/loss settlement, the wallet used, game code, opponent count, coin change, and date/time.</p>
+                </section>
+                <section class="border-t border-zinc-800 pt-3">
+                    <h3 class="font-black text-white mb-1">8. Important</h3>
+                    <p>Coins are currently game-account balances only. They are not real money and cannot be withdrawn or converted to cash by this game logic.</p>
+                </section>
+            </div>
+
+            <div class="flex justify-end pt-4">
+                <button onclick="toggleCoinInstructionsModal(false)" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-bold">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- ALL-IN-ONE: DATABASE GAME HISTORY VIEW                   -->
+    <!-- ========================================================= -->
+    <div id="database-history-modal"
+         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[200]">
+        <div class="bg-zinc-950 border border-zinc-800 w-full max-w-5xl h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
+                <div>
+                    <h2 class="text-lg font-black text-amber-300">Game History DB</h2>
+                    <p class="text-[11px] text-zinc-500 mt-1">Select a date to view the game history saved in Supabase.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="loadDatabaseGameHistory()"
+                            class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-emerald-300 hover:bg-zinc-800">
+                        Refresh
+                    </button>
+                    <button onclick="toggleDatabaseHistory(false)"
+                            class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">
+                        Close
+                    </button>
+                </div>
+            </div>
+
+            <div class="px-4 pt-3 shrink-0">
+                <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                    <label for="database-history-date" class="text-xs font-bold text-zinc-400">
+                        Select Date
+                    </label>
+                    <select id="database-history-date"
+                            onchange="renderDatabaseGameHistoryForSelectedDate()"
+                            class="w-full sm:w-auto min-w-[220px] px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-emerald-500">
+                    </select>
+                </div>
+                <div id="database-history-status" class="pt-2 text-xs text-zinc-500">
+                    Ready
+                </div>
+            </div>
+
+            <div id="database-history-list" class="p-4 space-y-3 overflow-y-auto flex-1"></div>
+        </div>
+    </div>
+
+    <!-- DATABASE GAME HISTORY DETAIL -->
+    <div id="database-history-detail-modal"
+         class="fixed inset-0 bg-black/95 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5 z-[220]">
+        <div class="bg-zinc-950 border border-emerald-500/25 w-full max-w-4xl max-h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-3 sm:p-4 border-b border-zinc-800 shrink-0">
+                <div class="min-w-0">
+                    <h2 class="text-sm sm:text-base font-black text-emerald-300">Complete Game History</h2>
+                    <p id="database-history-detail-subtitle" class="text-[10px] sm:text-[11px] text-zinc-500 mt-1 truncate">Game</p>
+                </div>
+                <button type="button" onclick="toggleDatabaseHistoryDetail(false)"
+                        class="shrink-0 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">
+                    Close
+                </button>
+            </div>
+            <div id="database-history-detail-content" class="overflow-y-auto min-h-0 p-3 sm:p-4">
+            </div>
+        </div>
+    </div>
+
+
+    <style>
+        /* Database history: compact fixed-grid table, never horizontally scrolls. */
+        .database-history-table {
+            width:100%;
+            max-width:100%;
+            overflow:hidden;
+            border:1px solid rgb(39 39 42);
+            border-radius:.75rem;
+            background:#050505;
+        }
+        .database-history-grid {
+            display:grid;
+            grid-template-columns:minmax(0,.95fr) minmax(0,.75fr) minmax(0,1.35fr) minmax(0,1.35fr) minmax(0,.72fr) minmax(54px,.58fr);
+            width:100%;
+            min-width:0;
+        }
+        .database-history-grid > div {
+            min-width:0;
+            overflow-wrap:anywhere;
+            word-break:break-word;
+            border-right:1px solid rgb(39 39 42);
+            border-bottom:1px solid rgb(39 39 42);
+        }
+        .database-history-grid > div:last-child { border-right:0; }
+        .database-history-header {
+            background:rgb(24 24 27);
+            color:#a1a1aa;
+            font-size:9px;
+            line-height:1.1;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:.035em;
+            text-align:center;
+        }
+        .database-history-header > div {
+            padding:.48rem .3rem;
+        }
+        .database-history-row {
+            background:#050505;
+            color:#d4d4d8;
+            font-size:10px;
+            line-height:1.25;
+        }
+        .database-history-row:nth-child(odd) { background:#09090b; }
+        .database-history-cell {
+            display:flex;
+            align-items:center;
+            padding:.5rem .35rem;
+        }
+        .database-history-cell:not(.history-action-cell) {
+            justify-content:flex-start;
+        }
+        .game-cell { display:block; }
+        .database-history-game-code {
+            color:#f4f4f5;
+            font-weight:800;
+            overflow-wrap:anywhere;
+            word-break:break-word;
+        }
+        .database-history-date {
+            margin-top:.2rem;
+            color:#71717a;
+            font-size:8px;
+            line-height:1.15;
+        }
+        .players-cell, .points-cell { white-space:normal; }
+        .status-progress { color:#fcd34d; font-weight:800; }
+        .status-complete { color:#6ee7b7; font-weight:800; }
+        .history-action-cell {
+            justify-content:center !important;
+            text-align:center;
+        }
+        .database-history-view-btn {
+            width:100%;
+            max-width:58px;
+            padding:.35rem .25rem;
+            border-radius:.5rem;
+            border:1px solid rgba(16,185,129,.35);
+            background:rgba(16,185,129,.08);
+            color:#6ee7b7;
+            font-size:9px;
+            line-height:1.15;
+            font-weight:900;
+            cursor:pointer;
+        }
+        .database-history-view-btn:hover { background:rgba(16,185,129,.14); }
+        .database-history-view-btn:active { transform:scale(.98); }
+        .database-history-detail-stat {
+            min-width:0;
+            padding:.55rem .6rem;
+            border:1px solid rgb(39 39 42);
+            border-radius:.7rem;
+            background:rgb(24 24 27);
+        }
+        .database-history-detail-label {
+            color:#71717a;
+            font-size:8px;
+            text-transform:uppercase;
+            letter-spacing:.04em;
+            font-weight:800;
+        }
+        .database-history-detail-value {
+            margin-top:.2rem;
+            color:#f4f4f5;
+            font-size:10px;
+            line-height:1.3;
+            font-weight:800;
+            overflow-wrap:anywhere;
+        }
+        .database-history-detail-pre {
+            margin:0;
+            max-width:100%;
+            overflow-x:hidden;
+            overflow-y:auto;
+            white-space:pre-wrap;
+            overflow-wrap:anywhere;
+            word-break:break-word;
+            padding:.75rem;
+            color:#d4d4d8;
+            font-size:10px;
+            line-height:1.5;
+            font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+        }
+        .database-round-history-table {
+            width:100%;
+            max-width:100%;
+            border:1px solid rgb(39 39 42);
+            border-radius:.65rem;
+            overflow:hidden;
+            background:#050505;
+        }
+        .database-round-history-grid {
+            display:grid;
+            grid-template-columns:minmax(34px,.35fr) minmax(72px,.7fr) minmax(52px,.45fr) minmax(90px,.8fr) minmax(0,1.7fr);
+            width:100%;
+            min-width:0;
+        }
+        .database-round-history-grid > div {
+            min-width:0;
+            padding:.45rem .35rem;
+            border-right:1px solid rgb(39 39 42);
+            border-bottom:1px solid rgb(39 39 42);
+            overflow-wrap:anywhere;
+            word-break:break-word;
+            font-size:9px;
+            line-height:1.3;
+        }
+        .database-round-history-grid > div:last-child { border-right:0; }
+        .database-round-history-header {
+            background:rgb(24 24 27);
+            color:#a1a1aa;
+            text-transform:uppercase;
+            font-weight:900;
+            font-size:8px;
+            text-align:center;
+        }
+        .database-round-history-row { background:#050505; color:#d4d4d8; }
+        .database-round-history-row:nth-child(even) { background:#09090b; }
+        .round-number-cell { color:#6ee7b7; font-weight:900; text-align:center; }
+        .round-player-scores { min-width:0; }
+        .round-player-score-line {
+            display:flex;
+            justify-content:space-between;
+            gap:.5rem;
+            padding:.18rem 0;
+            border-bottom:1px dashed rgb(39 39 42);
+        }
+        .round-player-score-line:last-child { border-bottom:0; }
+        .round-player-score-line span:first-child { color:#f4f4f5; font-weight:800; }
+        .round-player-score-line span:last-child { color:#fbbf24; text-align:right; }
+        .database-history-no-rounds {
+            padding:1.25rem .75rem;
+            text-align:center;
+            color:#71717a;
+            font-size:10px;
+        }
+
+        @media (max-width:520px) {
+            .database-round-history-grid {
+                grid-template-columns:minmax(26px,.28fr) minmax(52px,.55fr) minmax(42px,.4fr) minmax(58px,.65fr) minmax(0,1.55fr);
+            }
+            .database-round-history-grid > div { padding:.35rem .2rem; font-size:7px; }
+            .database-round-history-header { font-size:6.5px; }
+            .round-player-score-line { flex-direction:column; gap:.05rem; }
+            .round-player-score-line span:last-child { text-align:left; }
+            .database-history-grid {
+                grid-template-columns:minmax(0,.9fr) minmax(0,.72fr) minmax(0,1.15fr) minmax(0,1.18fr) minmax(0,.68fr) minmax(48px,.52fr);
+            }
+            .database-history-header { font-size:7px; }
+            .database-history-header > div { padding:.42rem .18rem; }
+            .database-history-row { font-size:8px; }
+            .database-history-cell { padding:.42rem .2rem; }
+            .database-history-date { font-size:6.5px; }
+            .database-history-view-btn { font-size:7px; padding:.3rem .12rem; max-width:48px; }
+        }
+    </style>
+    <script>
+        // ============================================================
+        // ACCOUNT GAME HISTORY / USER STATISTICS
+        // ============================================================
+
+        function escapeAccountStatsHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function toggleMyGameHistoryModal(show) {
+            const modal = document.getElementById('my-game-history-modal');
+            if (!modal) return;
+            modal.classList.toggle('hidden', !show);
+            modal.classList.toggle('flex', show);
+            if (show) loadMyGameHistory();
+        }
+
+        function toggleUsersStatsModal(show) {
+            const modal = document.getElementById('users-stats-modal');
+            if (!modal) return;
+            modal.classList.toggle('hidden', !show);
+            modal.classList.toggle('flex', show);
+            if (show) loadUsersStats();
+        }
+
+        function toggleCoinInstructionsModal(show) {
+            const modal = document.getElementById('coin-instructions-modal');
+            if (!modal) return;
+            modal.classList.toggle('hidden', !show);
+            modal.classList.toggle('flex', show);
+        }
+
+        function formatAccountDate(value) {
+            if (!value) return '—';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+        }
+
+        let myGameHistoryRows = [];
+
+        function isMyGameHistoryRoomState(row) {
+            const code = String(row?.game_code || '').trim().toUpperCase();
+            const points = String(row?.game_points || '').trim().toUpperCase();
+            const history = String(row?.game_history || '').trim().toUpperCase();
+            return code.startsWith(GAME_ROOM_STATE_PREFIX.toUpperCase()) ||
+                   points === 'ROOM_STATE' ||
+                   history.startsWith(GAME_ROOM_STATE_PREFIX.toUpperCase());
+        }
+
+        function isMyGameHistoryBotGame(row) {
+            const playersText = String(row?.players_name || '');
+            return /\bBot(?:\s+\d+)?\b/i.test(playersText) || /\bBOT\b/i.test(playersText);
+        }
+
+        function isMyGameHistoryInProgress(row) {
+            const winner = String(row?.game_winner || '').trim();
+            const history = String(row?.game_history || '');
+            const finalResult = (history.match(/=== FINAL RESULT ===\s*\nWinner:\s*(.*)/i) || [,''])[1].trim();
+            return !winner || /^in\s*progress$/i.test(winner) || /^in\s*progress$/i.test(finalResult);
+        }
+
+        function playerNamesFromGameRow(row) {
+            return String(row?.players_name || '')
+                .split(',')
+                .map(v => v.trim())
+                .filter(Boolean);
+        }
+
+        function rowContainsCurrentPlayer(row) {
+            const me = String(currentProfile?.name || currentUser?.name || myName || '').trim();
+            if (!me) return false;
+            return playerNamesFromGameRow(row).some(name => name.toLowerCase() === me.toLowerCase()) ||
+                   String(row?.game_host || '').trim().toLowerCase() === me.toLowerCase();
+        }
+
+        function normalizeMyGameHistoryRows(rows) {
+            const byGameCode = new Map();
+            (Array.isArray(rows) ? rows : []).forEach(row => {
+                if (!row || isMyGameHistoryRoomState(row) || !rowContainsCurrentPlayer(row)) return;
+                const code = String(row.game_code || '').trim();
+                if (!code) return;
+                const key = code.toUpperCase();
+                const existing = byGameCode.get(key);
+                if (!existing) {
+                    byGameCode.set(key, row);
+                    return;
+                }
+                const oldTime = new Date(existing.created_at || 0).getTime();
+                const newTime = new Date(row.created_at || 0).getTime();
+                if (Number.isFinite(newTime) && (!Number.isFinite(oldTime) || newTime > oldTime)) {
+                    byGameCode.set(key, row);
+                }
+            });
+            return Array.from(byGameCode.values()).sort((a, b) => {
+                const da = new Date(a?.created_at || 0).getTime();
+                const db = new Date(b?.created_at || 0).getTime();
+                return (Number.isFinite(db) ? db : 0) - (Number.isFinite(da) ? da : 0);
+            });
+        }
+
+        function renderMyGameHistoryTable(rows) {
+            const typeSelect = document.getElementById('my-game-history-type');
+            const selectedType = typeSelect?.value || 'all';
+            const filtered = rows.filter(row => {
+                const isBot = isMyGameHistoryBotGame(row);
+                return selectedType === 'all' ||
+                    (selectedType === 'bot' && isBot) ||
+                    (selectedType === 'real' && !isBot);
+            });
+
+            const list = document.getElementById('my-game-history-list');
+            if (!list) return;
+
+            if (!filtered.length) {
+                list.innerHTML = '<div class="text-center text-xs text-zinc-600 py-12">No games found for the selected type.</div>';
+                return;
+            }
+
+            const table = document.createElement('div');
+            table.className = 'database-history-table';
+            table.innerHTML = `
+                <div class="database-history-grid database-history-header">
+                    <div>Game</div><div>Host</div><div>Players</div><div>Final / Current Points</div><div>Status</div><div>History</div>
+                </div>`;
+
+            filtered.forEach(row => {
+                const rowIndex = myGameHistoryRows.indexOf(row);
+                const inProgress = isMyGameHistoryInProgress(row);
+                const isBot = isMyGameHistoryBotGame(row);
+                const savedAt = row.created_at ? new Date(row.created_at).toLocaleString() : '—';
+                const gridRow = document.createElement('div');
+                gridRow.className = 'database-history-grid database-history-row';
+                gridRow.innerHTML = `
+                    <div class="database-history-cell game-cell">
+                        <div class="database-history-game-code">${escapeAccountStatsHtml(row.game_code || '—')}</div>
+                        <div class="database-history-date">${escapeAccountStatsHtml(savedAt)}</div>
+                        <div class="mt-1 text-[8px] ${isBot ? 'text-indigo-300' : 'text-emerald-300'}">${isBot ? 'BOT' : 'REAL'}</div>
+                    </div>
+                    <div class="database-history-cell">${escapeAccountStatsHtml(row.game_host || '—')}</div>
+                    <div class="database-history-cell players-cell">${escapeAccountStatsHtml(row.players_name || '—')}</div>
+                    <div class="database-history-cell points-cell">${escapeAccountStatsHtml(row.game_points || '—')}</div>
+                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeAccountStatsHtml(inProgress ? 'In Progress' : (row.game_winner || 'Completed'))}</div>
+                    <div class="database-history-cell history-action-cell">
+                        <button type="button" onclick="openMyGameHistoryDetail(${rowIndex})" class="database-history-view-btn">View<br class="sm:hidden"> History</button>
+                    </div>`;
+                table.appendChild(gridRow);
+            });
+            list.appendChild(table);
+        }
+
+        function updateMyGameHistorySummary(rows) {
+            const summary = document.getElementById('my-game-history-summary');
+            if (!summary) return;
+            const bot = rows.filter(isMyGameHistoryBotGame).length;
+            const real = rows.length - bot;
+            const inProgress = rows.filter(isMyGameHistoryInProgress).length;
+            const completed = rows.length - inProgress;
+            summary.innerHTML =
+                `<span class="text-white font-bold">${rows.length}</span> games shown` +
+                ` · Completed: <span class="text-emerald-300 font-bold">${completed}</span>` +
+                ` · In Progress: <span class="text-amber-300 font-bold">${inProgress}</span>` +
+                ` · Bot: <span class="text-indigo-300 font-bold">${bot}</span>` +
+                ` · Real: <span class="text-emerald-300 font-bold">${real}</span>`;
+        }
+
+        async function loadMyGameHistory() {
+            const summary = document.getElementById('my-game-history-summary');
+            const list = document.getElementById('my-game-history-list');
+            if (!summary || !list) return;
+
+            if (!currentUser || !authSessionToken) {
+                summary.innerText = 'Please log in to view your game history.';
+                list.innerHTML = '<div class="text-center text-xs text-zinc-600 py-12">Login required.</div>';
+                return;
+            }
+
+            summary.innerText = 'Loading your game history...';
+            list.innerHTML = '';
+
+            try {
+                // Your Game History and Admin Game History now use the same
+                // database table. This includes completed and in-progress games.
+                const response = await fetch(
+                    `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'apikey': SUPABASE_APIKEY,
+                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                if (!response.ok) throw new Error(`Game history request failed: ${response.status}`);
+
+                const rows = await response.json();
+                myGameHistoryRows = normalizeMyGameHistoryRows(rows);
+                updateMyGameHistorySummary(myGameHistoryRows);
+                renderMyGameHistoryTable(myGameHistoryRows);
+            } catch (error) {
+                console.error('Unable to load personal game history:', error);
+                myGameHistoryRows = [];
+                summary.innerText = 'Unable to load your game history.';
+                list.innerHTML = `<div class="text-center text-xs text-rose-400 py-12">Unable to load history. ${escapeAccountStatsHtml(error?.message || '')}</div>`;
+            }
+        }
+
+        function openMyGameHistoryDetail(index) {
+            const row = myGameHistoryRows[index];
+            if (!row) return;
+            openDatabaseHistoryDetail(row);
+        }
+
+        async function loadUsersStats() {
+            const summary = document.getElementById('users-stats-summary');
+            const list = document.getElementById('users-stats-list');
+            if (!summary || !list) return;
+
+            if (!currentUser || !authSessionToken) {
+                summary.innerText = 'Please log in to view user statistics.';
+                list.innerHTML = '<div class="text-center text-xs text-zinc-600 py-12">Login required.</div>';
+                return;
+            }
+
+            summary.innerText = 'Loading user statistics...';
+            list.innerHTML = '';
+
+            try {
+                const { data, error } = await supabaseClient.rpc(
+                    'get_least_count_user_statistics',
+                    { p_session_token: authSessionToken }
+                );
+                if (error) throw error;
+
+                const rows = Array.isArray(data) ? data : [];
+                const totalUsers = rows.length;
+                const totalBotGames = rows.reduce((sum, r) => sum + Number(r.bot_games_played || 0), 0);
+                const totalRealGames = rows.reduce((sum, r) => sum + Number(r.real_games_played || 0), 0);
+
+                summary.innerHTML =
+                    `<span class="text-white font-bold">${totalUsers}</span> registered users` +
+                    ` · Bot game records: <span class="text-indigo-300 font-bold">${totalBotGames}</span>` +
+                    ` · Real game records: <span class="text-emerald-300 font-bold">${totalRealGames}</span>`;
+
+                if (!rows.length) {
+                    list.innerHTML = '<div class="text-center text-xs text-zinc-600 py-12">No registered users found.</div>';
+                    return;
+                }
+
+                const table = document.createElement('div');
+                table.className = 'overflow-x-auto';
+                table.innerHTML = `
+                    <table class="w-full min-w-[760px] text-xs border-collapse">
+                        <thead>
+                            <tr class="border-b border-zinc-800 text-zinc-500 uppercase tracking-wider text-[9px]">
+                                <th class="text-left p-3">Player</th>
+                                <th class="text-right p-3">Bot Coins</th>
+                                <th class="text-right p-3">Real Coins</th>
+                                <th class="text-right p-3">Bot Games</th>
+                                <th class="text-right p-3">Real Games</th>
+                                <th class="text-right p-3">Total Games</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>`;
+                const tbody = table.querySelector('tbody');
+
+                rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/60';
+                    const botCoins = Number(row.bot_coins || 0);
+                    const realCoins = Number(row.real_coins || 0);
+                    const botCoinsClass = botCoins < 0 ? 'text-rose-400' : 'text-indigo-300';
+                    const realCoinsClass = realCoins < 0 ? 'text-rose-400' : 'text-emerald-300';
+                    const botGames = Number(row.bot_games_played || 0);
+                    const realGames = Number(row.real_games_played || 0);
+                    tr.innerHTML = `
+                        <td class="p-3 text-left"><div class="font-bold text-white">${escapeAccountStatsHtml(row.name)}</div></td>
+                        <td class="p-3 text-right font-black ${botCoinsClass}">${botCoins}</td>
+                        <td class="p-3 text-right font-black ${realCoinsClass}">${realCoins}</td>
+                        <td class="p-3 text-right text-zinc-300">${botGames}</td>
+                        <td class="p-3 text-right text-zinc-300">${realGames}</td>
+                        <td class="p-3 text-right font-bold text-white">${botGames + realGames}</td>`;
+                    tbody.appendChild(tr);
+                });
+
+                list.appendChild(table);
+            } catch (error) {
+                console.error('Unable to load user statistics:', error);
+                summary.innerText = 'Unable to load user statistics.';
+                list.innerHTML = `<div class="text-center text-xs text-rose-400 py-12">Unable to load user statistics. ${escapeAccountStatsHtml(error?.message || '')}</div>`;
+            }
+        }
+
+        // ============================================================
+        // ALL-IN-ONE DATABASE HISTORY PAGE
+        // Kept inside this same HTML file; no game-history.html needed.
+        // ============================================================
+
+        function escapeDatabaseHistoryHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function toggleDatabaseHistory(show) {
+            const modal = document.getElementById('database-history-modal');
+            if (!modal) return;
+
+            if (show) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                loadDatabaseGameHistory();
+            } else {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+
+        let databaseGameHistoryRows = [];
+
+        function getDatabaseHistoryLocalDate(value) {
+            if (!value) return '';
+
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '';
+
+            // Use the browser's local date so the filter matches the user's current date.
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+
+            return `${year}-${month}-${day}`;
+        }
+
+        function getDatabaseHistoryToday() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function formatDatabaseHistoryDate(dateKey) {
+            if (!dateKey) return 'Select Date';
+
+            const parts = dateKey.split('-').map(Number);
+            if (parts.length !== 3 || parts.some(Number.isNaN)) {
+                return dateKey;
+            }
+
+            const date = new Date(parts[0], parts[1] - 1, parts[2]);
+            return date.toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        function populateDatabaseHistoryDateDropdown(rows) {
+            const dateSelect = document.getElementById('database-history-date');
+            if (!dateSelect) return;
+
+            const today = getDatabaseHistoryToday();
+            const dateKeys = new Set([today]);
+
+            (Array.isArray(rows) ? rows : []).forEach(row => {
+                const dateKey = getDatabaseHistoryLocalDate(row.created_at);
+                if (dateKey) {
+                    dateKeys.add(dateKey);
+                }
+            });
+
+            const sortedDates = Array.from(dateKeys).sort((a, b) => b.localeCompare(a));
+
+            dateSelect.innerHTML = sortedDates.map(dateKey => `
+                <option value="${escapeDatabaseHistoryHtml(dateKey)}">
+                    ${escapeDatabaseHistoryHtml(formatDatabaseHistoryDate(dateKey))}
+                </option>
+            `).join('');
+
+            // Always open the history on today's date by default.
+            dateSelect.value = today;
+        }
+
+        function toggleDatabaseHistoryDetail(show) {
+            const modal = document.getElementById('database-history-detail-modal');
+            if (!modal) return;
+            modal.classList.toggle('hidden', !show);
+            modal.classList.toggle('flex', show);
+        }
+
+        function parseDatabaseHistoryRounds(historyText) {
+            const text = String(historyText || '').replace(/\r\n/g, '\n').trim();
+            if (!text) return [];
+
+            const rounds = [];
+            const marker = /\[ROUND\s+(\d+)\]/gi;
+            const matches = [...text.matchAll(marker)];
+
+            matches.forEach((match, index) => {
+                const start = match.index + match[0].length;
+                const end = index + 1 < matches.length ? matches[index + 1].index : text.length;
+                const block = text.slice(start, end).trim();
+                const caller = (block.match(/-\s*Caller:\s*(.*)/i) || [,''])[1].trim();
+                const callerSum = (block.match(/-\s*Caller Sum:\s*(.*)/i) || [,''])[1].trim();
+                const outcome = (block.match(/-\s*Outcome:\s*(.*)/i) || [,''])[1].trim();
+                const details = [];
+
+                block.split('\n').forEach(line => {
+                    const m = line.match(/^[-]\s*(.+?):\s*Hand Sum\s*=\s*([^,]+),\s*Points Added\s*=\s*([^,]+),\s*Total Score\s*=\s*(.*)$/i);
+                    if (m) {
+                        details.push({
+                            name: m[1].trim(),
+                            sum: m[2].trim(),
+                            pointsAdded: m[3].trim(),
+                            totalAfterRound: m[4].trim()
+                        });
+                    }
+                });
+
+                rounds.push({
+                    roundNumber: match[1],
+                    caller: caller || '—',
+                    callerSum: callerSum || '—',
+                    outcome: outcome || '—',
+                    details,
+                    raw: block
+                });
+            });
+
+            return rounds;
+        }
+
+        function renderDatabaseHistoryRoundsHtml(historyText) {
+            const rounds = parseDatabaseHistoryRounds(historyText);
+            if (!rounds.length) {
+                return `<div class="database-history-no-rounds">No completed rounds have been saved yet. The game may still be in its first round.</div>`;
+            }
+
+            return `
+                <div class="database-round-history-table">
+                    <div class="database-round-history-grid database-round-history-header">
+                        <div>Round</div><div>Caller</div><div>Caller Sum</div><div>Outcome</div><div>Player Scores</div>
+                    </div>
+                    ${rounds.map(round => `
+                        <div class="database-round-history-grid database-round-history-row">
+                            <div class="round-number-cell">${escapeDatabaseHistoryHtml(round.roundNumber)}</div>
+                            <div>${escapeDatabaseHistoryHtml(round.caller)}</div>
+                            <div>${escapeDatabaseHistoryHtml(round.callerSum)}</div>
+                            <div class="break-anywhere">${escapeDatabaseHistoryHtml(round.outcome)}</div>
+                            <div class="round-player-scores">
+                                ${round.details.length ? round.details.map(d => `
+                                    <div class="round-player-score-line">
+                                        <span>${escapeDatabaseHistoryHtml(d.name)}</span>
+                                        <span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)}</span>
+                                    </div>`).join('') : `<span class="text-zinc-600">No player details</span>`}
+                            </div>
+                        </div>`).join('')}
+                </div>
+            `;
+        }
+
+        function openDatabaseHistoryDetail(rowIndex) {
+            const row = (rowIndex && typeof rowIndex === 'object') ? rowIndex : databaseGameHistoryRows[rowIndex];
+            const modal = document.getElementById('database-history-detail-modal');
+            const subtitle = document.getElementById('database-history-detail-subtitle');
+            const content = document.getElementById('database-history-detail-content');
+            if (!row || !modal || !subtitle || !content) return;
+
+            const winner = String(row.game_winner || '').trim();
+            const historyText = String(row.game_history || '');
+            const finalResult = (historyText.match(/=== FINAL RESULT ===\s*\nWinner:\s*(.*)/i) || [,''])[1].trim();
+            const inProgress = !winner || /^in\s*progress$/i.test(winner) || /^in\s*progress$/i.test(finalResult);
+            const displayWinner = inProgress ? 'In Progress' : (winner || finalResult || '—');
+            const savedAt = row.created_at
+                ? new Date(row.created_at).toLocaleString()
+                : '—';
+
+            subtitle.textContent = `${row.game_code || 'Game'} · Host: ${row.game_host || '—'}`;
+            content.innerHTML = `
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                    <div class="database-history-detail-stat">
+                        <div class="database-history-detail-label">Host</div>
+                        <div class="database-history-detail-value">${escapeDatabaseHistoryHtml(row.game_host || '—')}</div>
+                    </div>
+                    <div class="database-history-detail-stat">
+                        <div class="database-history-detail-label">Players</div>
+                        <div class="database-history-detail-value break-words">${escapeDatabaseHistoryHtml(row.players_name || '—')}</div>
+                    </div>
+                    <div class="database-history-detail-stat">
+                        <div class="database-history-detail-label">Final / Current Points</div>
+                        <div class="database-history-detail-value break-words">${escapeDatabaseHistoryHtml(row.game_points || '—')}</div>
+                    </div>
+                    <div class="database-history-detail-stat">
+                        <div class="database-history-detail-label">Status</div>
+                        <div class="database-history-detail-value ${inProgress ? 'text-amber-300' : 'text-emerald-300'}">${escapeDatabaseHistoryHtml(displayWinner)}</div>
+                    </div>
+                </div>
+
+                <div class="border border-zinc-800 rounded-xl overflow-hidden bg-black">
+                    <div class="px-3 py-2 border-b border-zinc-800 bg-zinc-900 text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                        Round History ${inProgress ? '· Live / In Progress' : ''}
+                    </div>
+                    <div class="p-2 sm:p-3">
+                        ${renderDatabaseHistoryRoundsHtml(historyText)}
+                    </div>
+                </div>
+
+                <div class="text-[9px] sm:text-[10px] text-zinc-600 mt-3 flex flex-wrap gap-x-4 gap-y-1">
+                    <span>Game: ${escapeDatabaseHistoryHtml(row.game_code || '—')}</span>
+                    <span>Saved: ${escapeDatabaseHistoryHtml(savedAt)}</span>
+                    <span>Rounds saved: ${parseDatabaseHistoryRounds(historyText).length}</span>
+                </div>
+            `;
+
+            toggleDatabaseHistoryDetail(true);
+        }
+
+        // Normalize raw history rows so the Game History DB counts each real
+        // game exactly once. Room-state snapshots and duplicate writes are not
+        // separate games. The newest row for a game_code is retained, so an
+        // in-progress game remains visible with its latest points/history.
+        function normalizeDatabaseGameHistoryRows(rows) {
+            const byGameCode = new Map();
+
+            (Array.isArray(rows) ? rows : []).forEach(row => {
+                const code = String(row?.game_code || '').trim();
+                const points = String(row?.game_points || '').trim().toUpperCase();
+                const history = String(row?.game_history || '').trim();
+
+                const isRoomState =
+                    code.toUpperCase().startsWith(GAME_ROOM_STATE_PREFIX.toUpperCase()) ||
+                    points === 'ROOM_STATE' ||
+                    history.startsWith(GAME_ROOM_STATE_PREFIX);
+
+                if (isRoomState) return;
+                if (!code) return;
+
+                const key = code.toUpperCase();
+                const existing = byGameCode.get(key);
+
+                if (!existing) {
+                    byGameCode.set(key, row);
+                    return;
+                }
+
+                const oldTime = new Date(existing.created_at || 0).getTime();
+                const newTime = new Date(row.created_at || 0).getTime();
+
+                if (Number.isFinite(newTime) &&
+                    (!Number.isFinite(oldTime) || newTime > oldTime)) {
+                    byGameCode.set(key, row);
+                }
+            });
+
+            return Array.from(byGameCode.values()).sort((a, b) => {
+                const da = new Date(a?.created_at || 0).getTime();
+                const db = new Date(b?.created_at || 0).getTime();
+                if (Number.isFinite(db) && Number.isFinite(da)) return db - da;
+                return 0;
+            });
+        }
+
+        function renderDatabaseGameHistoryForSelectedDate() {
+            const status = document.getElementById('database-history-status');
+            const list = document.getElementById('database-history-list');
+            const dateSelect = document.getElementById('database-history-date');
+
+            if (!status || !list || !dateSelect) return;
+
+            const selectedDate = dateSelect.value || getDatabaseHistoryToday();
+            const rows = databaseGameHistoryRows.filter(row =>
+                getDatabaseHistoryLocalDate(row.created_at) === selectedDate
+            );
+
+            list.innerHTML = '';
+
+            if (rows.length === 0) {
+                status.innerText = `No games found for ${formatDatabaseHistoryDate(selectedDate)}.`;
+                list.innerHTML = `
+                    <div class="text-center text-xs text-zinc-600 py-12">
+                        No game history is available for the selected date.
+                    </div>`;
+                return;
+            }
+
+            status.innerText =
+                `${rows.length} game${rows.length === 1 ? '' : 's'} on ${formatDatabaseHistoryDate(selectedDate)}.`;
+
+            const table = document.createElement('div');
+            table.className = 'database-history-table';
+
+            const header = document.createElement('div');
+            header.className = 'database-history-grid database-history-header';
+            header.innerHTML = `
+                <div>Game</div>
+                <div>Host</div>
+                <div>Players</div>
+                <div>Final / Current Points</div>
+                <div>Status</div>
+                <div>History</div>
+            `;
+            table.appendChild(header);
+
+            rows.forEach(row => {
+                const rowIndex = databaseGameHistoryRows.indexOf(row);
+                const winner = String(row.game_winner || '').trim();
+                const inProgress = !winner || /^in\s*progress$/i.test(winner);
+                const savedAt = row.created_at
+                    ? new Date(row.created_at).toLocaleString()
+                    : '—';
+
+                const gridRow = document.createElement('div');
+                gridRow.className = 'database-history-grid database-history-row';
+                gridRow.innerHTML = `
+                    <div class="database-history-cell game-cell">
+                        <div class="database-history-game-code">${escapeDatabaseHistoryHtml(row.game_code || '—')}</div>
+                        <div class="database-history-date">${escapeDatabaseHistoryHtml(savedAt)}</div>
+                    </div>
+                    <div class="database-history-cell">${escapeDatabaseHistoryHtml(row.game_host || '—')}</div>
+                    <div class="database-history-cell players-cell">${escapeDatabaseHistoryHtml(row.players_name || '—')}</div>
+                    <div class="database-history-cell points-cell">${escapeDatabaseHistoryHtml(row.game_points || '—')}</div>
+                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeDatabaseHistoryHtml(inProgress ? 'In Progress' : winner)}</div>
+                    <div class="database-history-cell history-action-cell">
+                        <button type="button" onclick="openDatabaseHistoryDetail(${rowIndex})" class="database-history-view-btn">
+                            View<br class="sm:hidden"> History
+                        </button>
+                    </div>
+                `;
+                table.appendChild(gridRow);
+            });
+
+            list.appendChild(table);
+        }
+
+        async function loadDatabaseGameHistory() {
+            const status = document.getElementById('database-history-status');
+            const list = document.getElementById('database-history-list');
+            const dateSelect = document.getElementById('database-history-date');
+
+            if (!status || !list || !dateSelect) return;
+
+            status.innerText = 'Loading game history...';
+            list.innerHTML = '';
+
+            try {
+                const response = await fetch(
+                    `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'apikey': SUPABASE_APIKEY,
+                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(`Game history request failed: ${response.status}`);
+                }
+
+                const rows = await response.json();
+
+                // One real game can have multiple DB writes. Collapse them by
+                // game_code and remove all room-state snapshot records.
+                databaseGameHistoryRows = normalizeDatabaseGameHistoryRows(rows);
+
+                populateDatabaseHistoryDateDropdown(databaseGameHistoryRows);
+                renderDatabaseGameHistoryForSelectedDate();
+            } catch (error) {
+                console.error('Unable to load database game history:', error);
+                databaseGameHistoryRows = [];
+                status.innerText =
+                    'Unable to load game history from Supabase.';
+                list.innerHTML = `
+                    <div class="text-center text-xs text-red-400 py-12">
+                        Unable to load game history from Supabase.
+                    </div>`;
+            }
+        }
+    </script>
+
+
+    <!-- ========================================================= -->
     <!-- ADMIN PANEL - MOBILE-FIRST NAVIGATION ONLY                -->
     <!-- Existing game logic and data logic are untouched.        -->
     <!-- ========================================================= -->
@@ -8527,7 +10119,7 @@ gameHistory:
 
         function getAdminPlayerGames(player) {
             // This array is populated exclusively from public.least_count_game_history.
-
+            // Never supplement it with RPC statistics or wallet/session information.
             if (!Array.isArray(adminGameHistoryRows) || adminGameHistoryRows.length === 0) {
                 return [];
             }
@@ -8575,12 +10167,15 @@ gameHistory:
             // so one started game appears exactly once even if a state snapshot exists.
             const games = getAdminPlayerGames(player);
             const gameStats = getAdminPlayerGameStats(games);
+            const botCoins = Number(player.bot_coins || 0), realCoins = Number(player.real_coins || 0);
 
             detail.innerHTML = `
                 <div class="space-y-3">
                     <div class="grid grid-cols-2 gap-2">
                         <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Mobile</div><div class="text-xs font-bold text-white mt-1 break-all">${escapeAdminHtml(player.mobile || '—')}</div></div>
-                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Player ID</div><div class="text-[9px] font-mono text-zinc-300 mt-1 break-all">${escapeAdminHtml(player.player_id || '—')}</div></div></div></div>
+                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Player ID</div><div class="text-[9px] font-mono text-zinc-300 mt-1 break-all">${escapeAdminHtml(player.player_id || '—')}</div></div>
+                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Bot Coins</div><div class="text-sm font-black text-indigo-300 mt-1">${botCoins}</div></div>
+                        <div class="bg-black border border-zinc-800 rounded-xl p-2.5"><div class="text-[8px] text-zinc-500 uppercase">Real Coins</div><div class="text-sm font-black text-emerald-300 mt-1">${realCoins}</div></div>
                     </div>
 
                     <!-- Exactly six compact columns on one row, including in-progress games. -->
