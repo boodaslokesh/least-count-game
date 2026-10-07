@@ -15473,5 +15473,197 @@ console.log('Least Count first-card wallet/pot fix loaded');
 })();
 </script>
 
+
+<script>
+(function(){
+    // ---------------------------------------------------------------
+    // FINAL HISTORY PRESENTATION PATCH
+    // Presentation only. Game-play, scoring, wallet and persistence logic
+    // are intentionally untouched.
+    // ---------------------------------------------------------------
+    function __lcHistoryPointsHtml(row, escapeFn){
+        const raw=String(row?.game_points || '').trim();
+        if(!raw) return '—';
+        const parts=raw.split(/\s*,\s*/).map(v=>v.trim()).filter(Boolean);
+        return parts.length
+            ? parts.map(v=>`<div class="leading-tight whitespace-nowrap">${esc(v,escapeFn)}</div>`).join('')
+            : esc(raw,escapeFn);
+    }
+
+    function __lcHistoryStatusHtml(row, escapeFn){
+        const raw=String(row?.game_winner || '').trim();
+        const history=String(row?.game_history || '');
+        const lines=[];
+        const seen=new Set();
+
+        function addGameResult(gameNo,name){
+            name=String(name||'').trim();
+            if(!name || /^in\s*progress$/i.test(name) || /^completed$/i.test(name)) return;
+            const key=`${gameNo}:${name.toLowerCase()}`;
+            if(seen.has(key)) return;
+            seen.add(key);
+            lines.push(`<div class="leading-tight font-black text-emerald-300 whitespace-nowrap">Game ${gameNo}: ${esc(name,escapeFn)}</div>`);
+        }
+
+        // Read cumulative game results, but deliberately do not display the
+        // words "Final Winner" anywhere in the status column.
+        const combined=`${raw}\n${history}`;
+        const gameMatches=[...combined.matchAll(/Game\s*(\d+)\s*:\s*([^|\n]+)/ig)];
+        gameMatches.forEach(m=>{
+            let name=String(m[2]||'').trim();
+            name=name.replace(/^(?:Final\s+Winner|Winner)\s*:\s*/i,'').trim();
+            name=name.replace(/\s+\|.*$/,'').trim();
+            if(name) addGameResult(m[1],name);
+        });
+
+        // If the row only contains one completed winner value, show it as the
+        // single game result without adding a "Final Winner" label.
+        if(!lines.length && raw && !/^in\s*progress$/i.test(raw)){
+            let winner=raw.replace(/^Final\s+Winner\s*:\s*/i,'').trim();
+            winner=winner.split('|')[0].trim();
+            if(winner && !/^completed$/i.test(winner)) addGameResult(1,winner);
+        }
+
+        // Keep elimination information understandable, but never label a
+        // round winner as a final winner.
+        const eliminated=typeof getEliminatedNames==='function' ? getEliminatedNames(row) : [];
+        eliminated.forEach(name=>{
+            lines.push(`<div class="leading-tight font-bold text-red-300 whitespace-nowrap">Eliminated: ${esc(name,escapeFn)}</div>`);
+        });
+
+        return lines.length ? lines.join('') : '<div class="text-amber-300 font-black leading-tight">In Progress</div>';
+    }
+
+    function __lcHistoryPlayersHtml(row, escapeFn){
+        const host=cleanPlayerName(row?.game_host || '');
+        const names=String(row?.players_name || '')
+            .split(',')
+            .map(cleanPlayerName)
+            .filter(Boolean);
+        if(!names.length && host) names.push(host);
+        if(!names.length) return '—';
+        return names.map(name=>{
+            const isHost=host && name.toLowerCase()===host.toLowerCase();
+            return isHost
+                ? `<strong class="text-white font-black whitespace-nowrap">${esc(name,escapeFn)} <span class="text-amber-300 font-black">(H)</span></strong>`
+                : `<span class="whitespace-nowrap">${esc(name,escapeFn)}</span>`;
+        }).join(', ');
+    }
+
+    function __lcHistoryButtonsHtml(rowIndex, isBet, openHistoryFn, openBetFn){
+        return isBet
+            ? `<div class="flex flex-row flex-nowrap gap-1.5 items-center justify-center">
+                    <button type="button" onclick="${openHistoryFn}(${rowIndex})" class="database-history-view-btn">View<br>History</button>
+                    <button type="button" onclick="${openBetFn}(${rowIndex})" class="database-history-view-btn database-history-bet-btn">Bet<br>History</button>
+               </div>`
+            : `<button type="button" onclick="${openHistoryFn}(${rowIndex})" class="database-history-view-btn">View<br>History</button>`;
+    }
+
+    // GAME HISTORY DB
+    if(typeof renderDatabaseGameHistoryForSelectedDate==='function'){
+        renderDatabaseGameHistoryForSelectedDate=function(){
+            const status=document.getElementById('database-history-status');
+            const list=document.getElementById('database-history-list');
+            const dateSelect=document.getElementById('database-history-date');
+            if(!status||!list||!dateSelect) return;
+            const selectedDate=dateSelect.value||getDatabaseHistoryToday();
+            const rows=databaseGameHistoryRows.filter(row=>getDatabaseHistoryLocalDate(row.created_at)===selectedDate);
+            list.innerHTML='';
+            if(!rows.length){
+                status.innerText=`No games found for ${formatDatabaseHistoryDate(selectedDate)}.`;
+                list.innerHTML='<div class="text-center text-xs text-zinc-600 py-12">No game history is available for the selected date.</div>';
+                return;
+            }
+            status.innerText=`${rows.length} game${rows.length===1?'':'s'} on ${formatDatabaseHistoryDate(selectedDate)}.`;
+            const table=document.createElement('div');
+            table.className='database-history-table lc-history-five-col';
+            table.innerHTML='<div class="database-history-grid database-history-header"><div>Game</div><div>Players</div><div>Final / Current Points</div><div>Status</div><div>History</div></div>';
+            rows.forEach(row=>{
+                const idx=databaseGameHistoryRows.indexOf(row);
+                const tr=document.createElement('div');
+                tr.className='database-history-grid database-history-row';
+                tr.innerHTML=`
+                    <div class="database-history-cell game-cell">${historyGameHtml(row,escapeDatabaseHistoryHtml)}</div>
+                    <div class="database-history-cell players-cell">${__lcHistoryPlayersHtml(row,escapeDatabaseHistoryHtml)}</div>
+                    <div class="database-history-cell points-cell">${__lcHistoryPointsHtml(row,escapeDatabaseHistoryHtml)}</div>
+                    <div class="database-history-cell">${__lcHistoryStatusHtml(row,escapeDatabaseHistoryHtml)}</div>
+                    <div class="database-history-cell history-action-cell">${__lcHistoryButtonsHtml(idx,isDatabaseBetGame(row),'openDatabaseHistoryDetail','openDatabaseBetHistoryDetail')}</div>`;
+                table.appendChild(tr);
+            });
+            list.appendChild(table);
+        };
+    }
+
+    // YOUR GAME HISTORY
+    if(typeof renderMyGameHistoryTable==='function'){
+        renderMyGameHistoryTable=function(rows){
+            const typeSelect=document.getElementById('my-game-history-type');
+            const selectedType=typeSelect?.value||'all';
+            const filtered=(rows||[]).filter(row=>{
+                const isBot=isMyGameHistoryBotGame(row);
+                return selectedType==='all'||(selectedType==='bot'&&isBot)||(selectedType==='real'&&!isBot);
+            });
+            const list=document.getElementById('my-game-history-list');
+            if(!list) return;
+            if(!filtered.length){
+                list.innerHTML='<div class="text-center text-xs text-zinc-600 py-12">No games found for the selected type.</div>';
+                return;
+            }
+            const table=document.createElement('div');
+            table.className='database-history-table lc-history-five-col';
+            table.innerHTML='<div class="database-history-grid database-history-header"><div>Game</div><div>Players</div><div>Final / Current Points</div><div>Status</div><div>History</div></div>';
+            filtered.forEach(row=>{
+                const idx=myGameHistoryRows.indexOf(row);
+                const tr=document.createElement('div');
+                tr.className='database-history-grid database-history-row';
+                tr.innerHTML=`
+                    <div class="database-history-cell game-cell">${historyGameHtml(row,escapeAccountStatsHtml,formatGameHistoryIndianTime)}</div>
+                    <div class="database-history-cell players-cell">${__lcHistoryPlayersHtml(row,escapeAccountStatsHtml)}</div>
+                    <div class="database-history-cell points-cell">${__lcHistoryPointsHtml(row,escapeAccountStatsHtml)}</div>
+                    <div class="database-history-cell">${__lcHistoryStatusHtml(row,escapeAccountStatsHtml)}</div>
+                    <div class="database-history-cell history-action-cell">${__lcHistoryButtonsHtml(idx,isDatabaseBetGame(row),'openMyGameHistoryDetail','openDatabaseBetHistoryDetail')}</div>`;
+                table.appendChild(tr);
+            });
+            list.appendChild(table);
+        };
+    }
+
+    // ADMIN PLAYER HISTORY TABLE
+    if(typeof renderAdminPlayerDetail==='function'){
+        const baseAdmin=renderAdminPlayerDetail;
+        renderAdminPlayerDetail=function(playerId){
+            baseAdmin(playerId);
+            const detail=document.getElementById('admin-player-detail');
+            const rows=window.adminSelectedGames;
+            if(!detail||!Array.isArray(rows)) return;
+            const table=detail.querySelector('.admin-player-table');
+            if(!table) return;
+            const head=table.querySelector('thead tr');
+            if(head) head.innerHTML='<th>Date / Time</th><th>Game</th><th>Players</th><th>Status</th><th>Points</th><th>History</th>';
+            const body=table.querySelector('tbody');
+            if(!body) return;
+            body.innerHTML=rows.length?rows.map((row,i)=>`<tr>
+                <td class="whitespace-nowrap">${esc(formatAdminDate(row.created_at),escapeAdminHtml)}</td>
+                <td class="font-bold text-white">${historyGameHtml(row,escapeAdminHtml)}</td>
+                <td class="leading-5">${__lcHistoryPlayersHtml(row,escapeAdminHtml)}</td>
+                <td>${__lcHistoryStatusHtml(row,escapeAdminHtml)}</td>
+                <td class="leading-5">${__lcHistoryPointsHtml(row,escapeAdminHtml)}</td>
+                <td>${__lcHistoryButtonsHtml(i,isAdminBetGame(row),'openAdminHistory','openAdminBetHistory')}</td>
+            </tr>`).join(''):'<tr><td colspan="6" class="text-center py-8 text-zinc-600">No game-history records currently contain this player.</td></tr>';
+        };
+    }
+
+    const st=document.createElement('style');
+    st.textContent=`
+        .lc-history-five-col.database-history-grid{grid-template-columns:minmax(90px,1.05fr) minmax(150px,1.35fr) minmax(130px,1.15fr) minmax(150px,1.3fr) minmax(118px,.9fr)!important}
+        .lc-history-five-col .points-cell>div,.lc-history-five-col .players-cell>div{margin-bottom:2px}
+        .lc-history-five-col .history-action-cell{white-space:nowrap;overflow:visible}
+        .lc-history-five-col .database-history-view-btn{width:54px;max-width:54px;min-width:54px;white-space:normal}
+        @media(max-width:700px){.lc-history-five-col.database-history-grid{grid-template-columns:86px 1.2fr 1fr 1.25fr 116px!important}}
+    `;
+    document.head.appendChild(st);
+})();
+</script>
+
 </body>
 </html>
