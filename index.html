@@ -976,7 +976,8 @@
 
                 if (Array.isArray(round.details)) {
                     round.details.forEach(detail => {
-                        text += `- ${detail.name}: Hand Sum = ${detail.sum}, Points Added = ${detail.pointsAdded}, Total Score = ${detail.totalAfterRound ?? 'N/A'}, Elimination Points = ${detail.eliminationPoints ?? round.eliminationTargetPoints ?? 'N/A'}, Eliminated At Points = ${detail.eliminatedAtPoints ?? 'N/A'}, Eliminated = ${detail.eliminated ? 'Yes' : 'No'}\n`;
+                        text += `- ${detail.name}: Hand Sum = ${detail.sum}, Points Added = ${detail.pointsAdded}, Total Score = ${detail.totalAfterRound ?? 'N/A'}, Elimination Points = ${detail.eliminationPoints ?? round.eliminationTargetPoints ?? 'N/A'}, Eliminated At Points = ${detail.eliminated ? (detail.eliminatedAtPoints ?? detail.totalAfterRound ?? 'N/A') : 'N/A'}, Eliminated = ${detail.eliminated ? 'Yes' : 'No'}\n`;
+                        text += `- Cards: ${detail.name} = ${Array.isArray(detail.cards) && detail.cards.length ? detail.cards.join(', ') : 'No cards'}\n`;
                     });
                 }
 
@@ -1588,7 +1589,7 @@
                 const detailRows = details.map(detail => `
                     <div class="grid grid-cols-[minmax(0,1fr)_42px_48px_50px] gap-1 items-center py-0.5 border-b border-zinc-900 last:border-b-0">
                         <div class="truncate text-[8px] sm:text-[9px] font-semibold text-zinc-200">
-                            ${escapeRoundResultHtml(detail?.name || 'Player')}
+                            ${escapeRoundResultHtml(detail?.name || 'Player')} <span class="text-zinc-500 font-normal">(sum ${escapeRoundResultHtml(detail?.sum ?? '—')})</span>
                         </div>
                         <div class="text-right text-[8px] sm:text-[9px] text-zinc-400">
                             ${escapeRoundResultHtml(detail?.sum ?? '—')}
@@ -5454,6 +5455,23 @@
             }
 
             // ----------------------------------------------------
+            // SHOW CALLED — immediate visual feedback only.
+            // ----------------------------------------------------
+
+            else if (data.type === 'SHOW_CALLED') {
+                const callerName = String(data.callerName || 'Player');
+                try {
+                    logTicker(`${callerName} called SHOW. Calculating round...`);
+                    const btn = document.getElementById('call-show-btn');
+                    if (btn && String(data.peerId || '') === String(myId || myClientToken || '')) {
+                        btn.disabled = true;
+                        btn.classList.add('opacity-60', 'cursor-not-allowed');
+                    }
+                } catch (e) {}
+                return;
+            }
+
+            // ----------------------------------------------------
             // CALL SHOW
             // ----------------------------------------------------
 
@@ -7885,14 +7903,23 @@
             );
 
         } else {
+            // Render the caller feedback immediately. Do not wait for the host
+            // round-trip before showing that SHOW was called.
+            try {
+                logTicker(`${me.name} called SHOW. Calculating round...`);
+                const btn = document.getElementById('call-show-btn');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.classList.add('opacity-60', 'cursor-not-allowed');
+                }
+            } catch (e) {}
 
             sendRealtimeMessage({
-
-                type:
-                    'CALL_SHOW',
-
-                peerId:
-                    myId
+                type: 'CALL_SHOW',
+                peerId: myId,
+                callerName: me.name,
+                roomCode,
+                showEventId: createGameActionId('SHOW')
             });
         }
     }
@@ -7921,6 +7948,16 @@
             caller.connected === false
         )
             return;
+
+        // Notify every browser immediately that SHOW has been called. The
+        // actual score/result remains authoritative in executeShowRound().
+        sendRealtimeMessage({
+            type: 'SHOW_CALLED',
+            roomCode,
+            peerId: callerPeerId,
+            callerName: caller.name,
+            showEventId: createGameActionId('SHOW_HOST')
+        });
 
         executeShowRound(
             callerPeerId
@@ -7963,6 +8000,13 @@
     // SHOW ROUND
     // ============================================================
 
+    // Production history helper: always preserve the exact cards shown at the
+    // moment a round is resolved. This is stored with the round, not inferred later.
+    function getHistoryCardValues(player) {
+        if (!player || !Array.isArray(player.hand)) return [];
+        return player.hand.map(card => String(card?.val ?? card?.value ?? '').trim().toUpperCase()).filter(Boolean);
+    }
+
     async function executeShowRound(
         callerPeerId
     ) {
@@ -7996,8 +8040,12 @@
 
             if (
                 !p.eliminated &&
-                p.connected !== false &&
-                p.viewOnly !== true
+                p.viewOnly !== true &&
+                (
+                    p.connected !== false ||
+                    p.id === caller.id ||
+                    (Array.isArray(p.hand) && p.hand.length > 0)
+                )
             ) {
 
                 summaries.push({
@@ -8076,7 +8124,10 @@
                             item.sum,
 
                         pointsAdded:
-                            ptsAdded
+                            ptsAdded,
+
+                        cards:
+                            getHistoryCardValues(item.player)
                     });
                 }
             );
@@ -8280,16 +8331,19 @@
         // immediately. Other players settle on their own clients from the
         // dedicated elimination event, the synchronized state, or their
         // own Exit action (whichever happens first).
-        await settleWalletForEliminatedPlayer(
+        // Wallet settlement must never block SHOW result delivery.
+        // It runs in the background after the authoritative round result is
+        // already applied/broadcast.
+        Promise.resolve(settleWalletForEliminatedPlayer(
             isSoloMode ? 'bot' : 'real'
-        );
+        )).catch(error => console.error('Eliminated wallet settlement failed:', error));
 
         if (!isSoloMode && newlyEliminatedPlayers.length) {
             for (const eliminatedPlayer of newlyEliminatedPlayers) {
                 const targetToken = getPlayerToken(eliminatedPlayer);
                 if (!targetToken) continue;
 
-                await sendRealtimeMessage({
+                sendRealtimeMessage({
                     type: 'PLAYER_ELIMINATED',
                     targetToken,
                     roomCode,
@@ -8352,28 +8406,20 @@
                 ? remainingPlayers[0].name
                 : '';
 
-        // A final wallet RPC must NEVER prevent the round result from being
-        // broadcast. Do it safely in the background after the game result is
-        // constructed.
+        // A final wallet RPC must NEVER prevent the SHOW result from being
+        // constructed or broadcast. Run it completely in the background.
         if (roundWinner) {
-            try {
-                await settleWalletForCompletedGame(
-                    roundWinner,
-                    gameOpponentCount,
-                    isSoloMode ? 'bot' : 'real'
-                );
-            } catch (error) {
-                console.error('Final round wallet settlement failed:', error);
-            }
+            Promise.resolve(settleWalletForCompletedGame(
+                roundWinner,
+                gameOpponentCount,
+                isSoloMode ? 'bot' : 'real'
+            )).catch(error => console.error('Final round wallet settlement failed:', error));
         }
 
-        // Persist the complete game history after every completed round.
-        // Never allow a database-history failure to stop realtime result delivery.
-        try {
-            await syncGameHistoryToSupabase(roundWinner);
-        } catch (error) {
-            console.error('Round game-history save failed:', error);
-        }
+        // Persist history in the background. SHOW/result delivery must not
+        // wait for Supabase network latency. Final records are still saved.
+        Promise.resolve(syncGameHistoryToSupabase(roundWinner))
+            .catch(error => console.error('Round game-history save failed:', error));
 
         let payload = {
 
@@ -8423,7 +8469,8 @@
         // the popup callback. Therefore SHOW -> final winner always updates
         // bet history even if the popup is delayed/duplicated.
         if (roundWinner && isHost) {
-            await finalizeCompletedRoomGameOnce(roundWinner);
+            Promise.resolve(finalizeCompletedRoomGameOnce(roundWinner))
+                .catch(error => console.error('Final game archive failed:', error));
         }
 
         if (!isSoloMode) {
@@ -8432,7 +8479,10 @@
             //
             // If SHOW was called by a guest, the guest sent CALL_SHOW to the
             // host and the host arrives here after calculating the round.
-            await sendRealtimeMessage(payload);
+            // Do not await the transport acknowledgement. The packet is
+            // sent immediately so every client can render the result without
+            // waiting on a network round-trip.
+            sendRealtimeMessage(payload);
 
             // Safety-net winner event:
             // If this round eliminated the host or any other player and only
@@ -8440,7 +8490,7 @@
             // as well. showTournamentWinnerPopup is idempotent per room, so a
             // client that already displayed it will not show a duplicate.
             if (roundWinner) {
-                await sendRealtimeMessage({
+                sendRealtimeMessage({
                     type: 'TOURNAMENT_WINNER',
                     roomCode,
                     winnerName: roundWinner,
@@ -9328,12 +9378,11 @@
                         detailsHtml +=
                             `<div class="flex justify-between text-zinc-300">
                                 <span>
-                                    ${d.name}
-                                    (Sum: ${d.sum})
+                                    ${d.name} <span class="text-zinc-400 font-normal">(sum ${d.sum ?? '—'})</span>
                                 </span>
 
                                 <span class="font-mono text-amber-400">
-                                    +${d.pointsAdded} pts · Elim Limit ${d.eliminationPoints || round.eliminationTargetPoints || '—'} · ${d.eliminated ? `Eliminated at ${d.eliminatedAtPoints || d.totalAfterRound || '—'}` : 'Not Eliminated'}
+                                    +${d.pointsAdded ?? 0} pts · Total ${d.totalAfterRound ?? 0}
                                 </span>
                             </div>`;
                     }
@@ -9882,7 +9931,7 @@
                     <div class="database-history-cell">${escapeAccountStatsHtml(row.game_host || '—')}</div>
                     <div class="database-history-cell players-cell">${escapeAccountStatsHtml(row.players_name || '—')}</div>
                     <div class="database-history-cell points-cell">${escapeAccountStatsHtml(row.game_points || '—')}</div>
-                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeAccountStatsHtml(inProgress ? 'In Progress' : (row.game_winner || 'Completed'))}</div>
+                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${inProgress ? '<div>In Progress</div>' : window.__lcWinnerStatusHtml(row.game_winner || 'Completed', escapeAccountStatsHtml, 'Completed')}</div>
                     <div class="database-history-cell history-action-cell">
                         <button type="button" onclick="openMyGameHistoryDetail(${rowIndex})" class="database-history-view-btn">View<br class="sm:hidden"> History</button>
                     </div>`;
@@ -10211,7 +10260,7 @@
                                 ${round.details.length ? round.details.map(d => `
                                     <div class="round-player-score-line">
                                         <span>${escapeDatabaseHistoryHtml(d.name)}</span>
-                                        <span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)} · Elim Limit ${escapeDatabaseHistoryHtml(d.eliminationPoints || '—')} · ${d.eliminated ? `Eliminated at ${escapeDatabaseHistoryHtml(d.eliminatedAtPoints || d.totalAfterRound || '—')}` : 'Not Eliminated'}</span>
+                                        <span>Cards ${escapeDatabaseHistoryHtml(d.cards || '—')} · Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)} · Elim Limit ${escapeDatabaseHistoryHtml(d.eliminationPoints || '—')} · ${d.eliminated ? `Eliminated at ${escapeDatabaseHistoryHtml(d.eliminatedAtPoints || d.totalAfterRound || '—')}` : 'Not Eliminated'}</span>
                                     </div>`).join('') : `<span class="text-zinc-600">No player details</span>`}
                             </div>
                         </div>`).join('')}
@@ -10308,6 +10357,7 @@
             const lines = text.split('\n');
             const rows = [];
             let currentGame = '—';
+            let currentGameWinner = '';
             let currentRound = null;
             let roundLines = [];
 
@@ -10319,8 +10369,18 @@
                 const outcomeMatch = block.match(/^\s*-?\s*Outcome\s*:\s*(.*?)\s*$/im);
 
                 const details = [];
+                const savedCardsByPlayer = new Map();
                 const detailLines = block.split('\n');
                 detailLines.forEach(line => {
+                    const cardMatch = String(line || '').trim().match(/^[-•]\s*Cards\s*:\s*(.+?)\s*=\s*(.*)$/i);
+                    if (cardMatch) {
+                        const cardPlayerName = cardMatch[1].trim();
+                        const cardText = String(cardMatch[2] || '').trim();
+                        savedCardsByPlayer.set(cardPlayerName, cardText);
+                        const existingDetail = details.find(d => String(d?.name || '').trim() === cardPlayerName);
+                        if (existingDetail) existingDetail.cards = cardText;
+                        return;
+                    }
                     const clean = String(line || '').trim();
                     if (!clean || /^-?\s*(Caller|Caller Sum|Outcome)\s*:/i.test(clean)) return;
 
@@ -10337,13 +10397,15 @@
                             totalAfterRound: m[4].trim(),
                             eliminationPoints: m[5] ? m[5].trim() : '',
                             eliminatedAtPoints: m[6] ? m[6].trim() : '',
-                            eliminated: m[7] ? String(m[7]).trim().toLowerCase() === 'yes' : false
+                            eliminated: m[7] ? String(m[7]).trim().toLowerCase() === 'yes' : false,
+                            cards: savedCardsByPlayer.get(m[1].trim()) || ''
                         });
                     }
                 });
 
                 rows.push({
                     gameNumber: currentGame,
+                    winner: currentGameWinner,
                     roundNumber: String(currentRound),
                     caller: callerMatch ? callerMatch[1].trim() : '—',
                     callerSum: callerSumMatch ? callerSumMatch[1].trim() : '—',
@@ -10365,7 +10427,20 @@
                 if (gameMatch) {
                     flushRound();
                     currentGame = gameMatch[1];
+                    currentGameWinner = '';
                     continue;
+                }
+
+                const winnerMatch = line.match(/^Winner\s*:\s*(.+)$/i);
+                if (winnerMatch && !/^In Progress$/i.test(winnerMatch[1].trim())) {
+                    const parsedWinner = winnerMatch[1].trim();
+                    if (parsedWinner && !/^No completed game/i.test(parsedWinner) && !/^Room /i.test(parsedWinner)) {
+                        // A final-result Winner line is the game winner. Ignore
+                        // room-level aggregate labels such as "Game 1: X | Game 2: Y".
+                        if (!parsedWinner.includes(' | ') && !/^Game\s+\d+\s*:/i.test(parsedWinner)) {
+                            currentGameWinner = parsedWinner;
+                        }
+                    }
                 }
 
                 const roundMatch = line.match(/^\[ROUND\s+(\d+)\]\s*$/i);
@@ -10425,7 +10500,7 @@
                                             ${round.details.length ? round.details.map(d => `
                                                 <div class="round-player-score-line">
                                                     <span>${escapeDatabaseHistoryHtml(d.name)}</span>
-                                                    <span>Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)} · Elim Limit ${escapeDatabaseHistoryHtml(d.eliminationPoints || '—')} · ${d.eliminated ? `Eliminated at ${escapeDatabaseHistoryHtml(d.eliminatedAtPoints || d.totalAfterRound || '—')}` : 'Not Eliminated'}</span>
+                                                    <span>Cards ${escapeDatabaseHistoryHtml(d.cards || '—')} · Hand ${escapeDatabaseHistoryHtml(d.sum)} · +${escapeDatabaseHistoryHtml(d.pointsAdded)} · Total ${escapeDatabaseHistoryHtml(d.totalAfterRound)} · Elim Limit ${escapeDatabaseHistoryHtml(d.eliminationPoints || '—')} · ${d.eliminated ? `Eliminated at ${escapeDatabaseHistoryHtml(d.eliminatedAtPoints || d.totalAfterRound || '—')}` : 'Not Eliminated'}</span>
                                                 </div>`).join('') : `<span class="text-zinc-600">No player details</span>`}
                                         </div>
                                     </div>`).join('')}
@@ -10693,7 +10768,7 @@
                     </div>
                     <div class="database-history-detail-stat">
                         <div class="database-history-detail-label">Status</div>
-                        <div class="database-history-detail-value ${inProgress ? 'text-amber-300' : 'text-emerald-300'}">${escapeDatabaseHistoryHtml(displayWinner)}</div>
+                        <div class="database-history-detail-value ${inProgress ? 'text-amber-300' : ''}">${inProgress ? '<div>In Progress</div>' : window.__lcWinnerStatusHtml(winner || displayWinner, escapeDatabaseHistoryHtml, 'Completed')}</div>
                     </div>
                 </div>
 
@@ -10825,7 +10900,7 @@
                     <div class="database-history-cell">${escapeDatabaseHistoryHtml(row.game_host || '—')}</div>
                     <div class="database-history-cell players-cell">${escapeDatabaseHistoryHtml(row.players_name || '—')}</div>
                     <div class="database-history-cell points-cell">${escapeDatabaseHistoryHtml(row.game_points || '—')}</div>
-                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeDatabaseHistoryHtml(inProgress ? 'In Progress' : winner)}</div>
+                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${inProgress ? '<div>In Progress</div>' : window.__lcWinnerStatusHtml(winner, escapeDatabaseHistoryHtml, 'Completed')}</div>
                     <div class="database-history-cell history-action-cell">
                         ${isDatabaseBetGame(row) ? `
                             <div class="flex flex-col sm:flex-row gap-1.5 items-stretch justify-center">
@@ -11401,7 +11476,7 @@
                                     <td class="font-bold text-white">${escapeAdminHtml(row.game_code || '—')}</td>
                                     <td>${escapeAdminHtml(row.game_host || '—')}</td>
                                     <td class="min-w-[180px]">${escapeAdminHtml(row.players_name || '—')}</td>
-                                    <td class="${isAdminInProgressGame(row) ? 'text-amber-300' : 'text-emerald-300'} font-bold">${escapeAdminHtml(row.game_winner || 'In Progress')}</td>
+                                    <td class="${isAdminInProgressGame(row) ? 'text-amber-300' : ''} font-bold">${isAdminInProgressGame(row) ? '<div>In Progress</div>' : window.__lcWinnerStatusHtml(row.game_winner || 'In Progress', escapeAdminHtml, 'In Progress')}</td>
                                     <td class="min-w-[100px]">${escapeAdminHtml(row.game_points || '—')}</td>
                                     <td>
                                         ${isAdminBetGame(row)
@@ -11439,7 +11514,7 @@
             const rawHistory = escapeDatabaseHistoryHtml(row.game_history || 'No detailed history saved.');
             content.innerHTML = `<div class="grid grid-cols-2 gap-2 mb-3">
                 <div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">DATE</div><div class="text-[10px] text-white mt-1">${escapeAdminHtml(formatAdminDate(row.created_at))}</div></div>
-                <div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">WINNER</div><div class="text-[10px] text-emerald-300 mt-1">${escapeAdminHtml(row.game_winner || 'In Progress')}</div></div>
+                <div class="bg-black border border-zinc-800 rounded-lg p-2"><div class="text-[8px] text-zinc-500">WINNER</div><div class="text-[10px] mt-1">${window.__lcWinnerStatusHtml(row.game_winner || 'In Progress', escapeAdminHtml, 'In Progress')}</div></div>
             </div><div class="admin-player-table-wrap"><table class="admin-player-table"><tbody>
                 <tr><th>Game Code</th><td>${escapeAdminHtml(row.game_code || '—')}</td></tr>
                 <tr><th>Host</th><td>${escapeAdminHtml(row.game_host || '—')}</td></tr>
@@ -12104,6 +12179,7 @@
                     if (Array.isArray(round.details) && round.details.length) {
                         round.details.forEach(detail => {
                             text += `- ${detail.name || 'N/A'}: Hand Sum = ${detail.sum ?? 'N/A'}, Points Added = ${detail.pointsAdded ?? 'N/A'}, Total Score = ${detail.totalAfterRound ?? 'N/A'}, Elimination Points = ${detail.eliminationPoints ?? round.eliminationTargetPoints ?? 'N/A'}, Eliminated At Points = ${detail.eliminatedAtPoints ?? 'N/A'}, Eliminated = ${detail.eliminated ? 'Yes' : 'No'}\n`;
+                        text += `- Cards: ${detail.name || 'N/A'} = ${Array.isArray(detail.cards) && detail.cards.length ? detail.cards.join(', ') : 'No cards'}\n`;
                         });
                     } else {
                         text += `- Player Details: N/A\n`;
@@ -13960,6 +14036,16 @@ async function __lcRecordCompletedRoomGame(finalWinner){
             completedAt:new Date().toISOString(),
             eliminationPoints:Number(targetEliminationPoints)||0,
             players:__lcClone(participants,[]),
+            // Immutable final scoreboard/card state for this completed game.
+            // Never derive a completed game's final points from a later game reset.
+            finalPlayers:__lcClone(players.map(p => ({
+                id:String(p?.id || ''),
+                clientToken:String(p?.clientToken || ''),
+                name:String(p?.name || 'Player'),
+                scores:Number(p?.scores || 0),
+                eliminated:p?.eliminated === true,
+                hand:Array.isArray(p?.hand) ? p.hand : []
+            })),[]),
             betMode,
             betAmount:Number(betAmount||0),
             betSettlements:settlement?[settlement]:[],
@@ -14065,7 +14151,7 @@ async function __lcApplyFinalRound(data){
         try{await settleWalletForCompletedGame(data.tournamentWinner,gameOpponentCount,isSoloMode?'bot':'real');}catch(e){console.error('Game wallet settlement failed',e);}
 
         // Winner's 95% DEMO prize.
-        await __lcSettleDemoWinner(data);
+        Promise.resolve(__lcSettleDemoWinner(data)).catch(e=>console.error('Demo winner settlement failed:',e));
 
         // ONLY HOST writes room bet history.
         if(isHost){
@@ -14535,6 +14621,480 @@ window.getLeastCountDemoPaidPot=function(){
 };
 
 console.log('Least Count first-card wallet/pot fix loaded');
+})();
+</script>
+<script>
+/* ================================================================
+   LEAST COUNT — PRODUCTION HISTORY + PERFORMANCE PATCH
+   - Round records include every player who actually had a hand in the round,
+     even if they disconnected before SHOW was processed.
+   - Cards/current hand, points added and total-after-round are immutable
+     round data.
+   - Completed games keep an immutable final scoreboard.
+   - Gameplay never waits for a Supabase read/write on every card action.
+================================================================ */
+(function () {
+    'use strict';
+
+    const __lcCloneSafe = (value, fallback) => {
+        try { return JSON.parse(JSON.stringify(value)); } catch (_) { return fallback; }
+    };
+
+    // Keep the round result payload complete on BOTH the host and guests.
+    // This runs before the original final-result renderer sees the packet.
+    function __lcEnrichRoundHistory(data) {
+        if (!data || !Array.isArray(data.players)) return data;
+        const history = Array.isArray(data.gameHistory) ? __lcCloneSafe(data.gameHistory, []) : [];
+        const last = history.length ? history[history.length - 1] : null;
+        if (!last) return data;
+
+        const existing = new Map((Array.isArray(last.details) ? last.details : [])
+            .map(d => [String(d?.name || '').trim().toLowerCase(), d]));
+
+        // Players that have a current hand and were not already eliminated are
+        // round participants. A disconnected player is deliberately included.
+        data.players.forEach(p => {
+            if (!p || p.viewOnly === true || p.eliminated === true) return;
+            const hand = Array.isArray(p.hand) ? p.hand : [];
+            const key = String(p.name || '').trim().toLowerCase();
+            if (!key) return;
+            if (!existing.has(key) && !hand.length) return;
+            const detail = existing.get(key) || {
+                name: String(p.name || 'Player'),
+                sum: typeof calculateHandSum === 'function' ? calculateHandSum(hand) : 0,
+                pointsAdded: 0
+            };
+            detail.cards = hand.map(c => String(c?.val ?? c?.value ?? '').trim().toUpperCase()).filter(Boolean);
+            detail.totalAfterRound = Number(p.scores || 0);
+            detail.eliminationPoints = Number(targetEliminationPoints || last.eliminationTargetPoints || 0);
+            detail.eliminated = p.eliminated === true;
+            detail.eliminatedAtPoints = detail.eliminated ? Number(p.scores || 0) : null;
+            if (!existing.has(key)) {
+                last.details.push(detail);
+                existing.set(key, detail);
+            }
+        });
+
+        last.details = (last.details || []).map(d => {
+            const p = data.players.find(x => x && String(x.name || '').trim().toLowerCase() === String(d?.name || '').trim().toLowerCase());
+            if (p) {
+                d.cards = Array.isArray(p.hand) ? p.hand.map(c => String(c?.val ?? c?.value ?? '').trim().toUpperCase()).filter(Boolean) : (d.cards || []);
+                d.totalAfterRound = Number(p.scores || 0);
+                d.eliminated = p.eliminated === true;
+                d.eliminatedAtPoints = d.eliminated ? Number(p.scores || 0) : null;
+            }
+            return d;
+        });
+
+        return { ...data, gameHistory: history, finalRoundHistory: last };
+    }
+
+    if (typeof applyRoundResultForEveryone === 'function') {
+        const __lcOriginalApplyRoundResult = applyRoundResultForEveryone;
+        applyRoundResultForEveryone = async function (data) {
+            return __lcOriginalApplyRoundResult(__lcEnrichRoundHistory(data));
+        };
+    }
+
+    // Also enrich outbound result packets. This guarantees guests receive the
+    // same complete player list even if the original round builder omitted an
+    // offline player.
+    if (typeof sendRealtimeMessage === 'function') {
+        const __lcOriginalSendRealtime = sendRealtimeMessage;
+        sendRealtimeMessage = function (message) {
+            if (message && (message.type === 'ROUND_RESULT_ALL' || message.type === 'ROUND_OVER' || message.type === 'TOURNAMENT_WINNER')) {
+                message = __lcEnrichRoundHistory(message);
+                if (message.players) message.players = __lcCloneSafe(message.players, message.players);
+            }
+            return __lcOriginalSendRealtime(message);
+        };
+    }
+
+    // Enrich incoming result packets too, before any UI/history consumer reads them.
+    if (typeof handleIncomingNetworkData === 'function') {
+        const __lcOriginalIncoming = handleIncomingNetworkData;
+        handleIncomingNetworkData = async function (data) {
+            if (data && (data.type === 'ROUND_RESULT_ALL' || data.type === 'ROUND_OVER' || data.type === 'TOURNAMENT_WINNER')) {
+                data = __lcEnrichRoundHistory(data);
+            }
+            return __lcOriginalIncoming(data);
+        };
+    }
+
+    // Completed-game snapshots must contain the final scoreboard BEFORE a new
+    // game resets player scores to zero.
+    if (typeof finalizeCompletedRoomGameOnce === 'function') {
+        const __lcOriginalFinalize = finalizeCompletedRoomGameOnce;
+        finalizeCompletedRoomGameOnce = async function (winner) {
+            const result = await __lcOriginalFinalize(winner);
+            try {
+                const latest = Array.isArray(roomCompletedGames) && roomCompletedGames.length
+                    ? roomCompletedGames[roomCompletedGames.length - 1]
+                    : null;
+                if (latest && !latest.finalPlayers) {
+                    latest.finalPlayers = __lcCloneSafe(players.map(p => ({
+                        id: String(p?.id || ''),
+                        clientToken: String(p?.clientToken || ''),
+                        name: String(p?.name || 'Player'),
+                        scores: Number(p?.scores || 0),
+                        eliminated: p?.eliminated === true,
+                        hand: Array.isArray(p?.hand) ? p.hand : []
+                    })), []);
+                    saveLocalRoomSession();
+                }
+            } catch (e) { console.warn('Final scoreboard snapshot patch failed', e); }
+            return result;
+        };
+    }
+
+    // Database Final/Current Points: show ONLY the current game's points, or,
+    // when no current game is active, the final points of the latest completed game.
+    if (typeof buildGameHistoryPayload === 'function') {
+        const __lcOriginalBuildPayload = buildGameHistoryPayload;
+        buildGameHistoryPayload = function (finalWinner = '') {
+            const payload = __lcOriginalBuildPayload(finalWinner) || {};
+            let pointPlayers = Array.isArray(players) ? players : [];
+            if ((!Array.isArray(gameHistory) || !gameHistory.length) && Array.isArray(roomCompletedGames) && roomCompletedGames.length) {
+                const latest = roomCompletedGames.slice().sort((a,b) => Number(b?.gameNumber || 0) - Number(a?.gameNumber || 0))[0];
+                if (Array.isArray(latest?.finalPlayers) && latest.finalPlayers.length) pointPlayers = latest.finalPlayers;
+            }
+            payload.game_points = pointPlayers
+                .filter(p => p && p.name)
+                .map(p => `${p.name}: ${Number(p.scores || 0)} pts`)
+                .join(', ');
+            payload.players_name = pointPlayers
+                .filter(p => p && p.name)
+                .map(p => p.name)
+                .filter((name, i, arr) => arr.indexOf(name) === i)
+                .join(', ');
+            return payload;
+        };
+    }
+
+    // The live room snapshot is still saved frequently, but writes are coalesced.
+    // Realtime remains the fast transport; Supabase is recovery/history storage.
+    if (typeof persistRoomStateToSupabase === 'function') {
+        const __lcOriginalPersistRoomState = persistRoomStateToSupabase;
+        let __lcPersistTimer = null;
+        let __lcPersistWaiters = [];
+        let __lcPersistRunning = false;
+
+        persistRoomStateToSupabase = function () {
+            const immediate = !roundActive || !!roomSessionEnded;
+            try { saveLocalRoomSession(); } catch (_) {}
+
+            if (!isHost || !currentUser || !roomCode) return Promise.resolve(true);
+
+            if (immediate) {
+                return __lcOriginalPersistRoomState();
+            }
+
+            return new Promise(resolve => {
+                __lcPersistWaiters.push(resolve);
+                clearTimeout(__lcPersistTimer);
+                __lcPersistTimer = setTimeout(async () => {
+                    if (__lcPersistRunning) return;
+                    __lcPersistRunning = true;
+                    let result = false;
+                    try { result = await __lcOriginalPersistRoomState(); }
+                    catch (e) { console.warn('Background room-state save failed', e); }
+                    finally {
+                        __lcPersistRunning = false;
+                        const waiters = __lcPersistWaiters.splice(0);
+                        waiters.forEach(fn => fn(result));
+                    }
+                }, 450);
+            });
+        };
+    }
+
+    // History is also coalesced during normal rounds. A final winner/room close
+    // still writes immediately. This removes the database round-trip from the
+    // critical SHOW/card-action path.
+    if (typeof syncGameHistoryToSupabase === 'function') {
+        const __lcOriginalSyncHistory = syncGameHistoryToSupabase;
+        let __lcHistoryTimer = null;
+        let __lcHistoryWaiters = [];
+        let __lcHistoryRunning = false;
+
+        syncGameHistoryToSupabase = function (finalWinner = '') {
+            const immediate = !!String(finalWinner || '').trim() || !!roomSessionEnded;
+            if (immediate) return __lcOriginalSyncHistory(finalWinner);
+            if (!isHost || !roomCode) return Promise.resolve(true);
+
+            return new Promise(resolve => {
+                __lcHistoryWaiters.push(resolve);
+                clearTimeout(__lcHistoryTimer);
+                __lcHistoryTimer = setTimeout(async () => {
+                    if (__lcHistoryRunning) return;
+                    __lcHistoryRunning = true;
+                    let result = false;
+                    try { result = await __lcOriginalSyncHistory(''); }
+                    catch (e) { console.warn('Background history save failed', e); }
+                    finally {
+                        __lcHistoryRunning = false;
+                        const waiters = __lcHistoryWaiters.splice(0);
+                        waiters.forEach(fn => fn(result));
+                    }
+                }, 700);
+            });
+        };
+    }
+
+    // One extra safety rule: a guest's round-result UI must not be blocked by
+    // database work. The result handlers above only operate on local payloads.
+    console.log('Least Count production history/performance patch loaded');
+})();
+</script>
+
+<script>
+/* ================================================================
+   LEAST COUNT — HISTORY STATUS / WINNER DISPLAY PATCH
+================================================================ */
+(function(){
+    'use strict';
+    window.__lcWinnerStatusHtml = function(rawValue, escapeFn, fallback = 'Completed') {
+        const raw = String(rawValue || '').trim();
+        const esc = typeof escapeFn === 'function' ? escapeFn : (v => String(v ?? ''));
+        if (!raw) return `<span>${esc(fallback)}</span>`;
+        const parts = raw.split(/\s*\|\s*/).map(v => v.trim()).filter(Boolean);
+        if (!parts.length) return `<span>${esc(fallback)}</span>`;
+        return parts.map((part, index) => {
+            const isFinalWinner = /final\s+winner\s*:/i.test(part);
+            const cls = isFinalWinner ? 'text-emerald-300 font-black' : 'text-zinc-200';
+            return `<div class="leading-tight ${cls}">${esc(part)}</div>`;
+        }).join('');
+    };
+})();
+</script>
+
+<script>
+/* ================================================================
+   LEAST COUNT — ROUND HISTORY + FAST CARD ACTION PATCH
+   - Round history shows ONLY: player, current-round points, total points,
+     and "Eliminated" when that player was eliminated in that round.
+   - Guests update drop/draw locally immediately, then send the authoritative
+     action to the host. The host remains the single source of truth.
+   - Older/stale GAME_STATE_UPDATE packets are already protected by stateVersion.
+================================================================ */
+(function () {
+    'use strict';
+
+    // ---------------------------------------------------------------
+    // ROUND HISTORY: keep the visible history intentionally minimal.
+    // ---------------------------------------------------------------
+    if (typeof renderSavedHistoryRoundTable === 'function') {
+        const __lcHistoryRendererBase = renderSavedHistoryRoundTable;
+        renderSavedHistoryRoundTable = function (rows, title = 'All Games · Round History') {
+            if (!Array.isArray(rows) || !rows.length) {
+                return `<div class="database-history-no-rounds">No completed round records were found in the saved game history.</div>`;
+            }
+
+            const grouped = [];
+            const groupMap = new Map();
+            rows.forEach(row => {
+                const key = String(row?.gameNumber || '—');
+                if (!groupMap.has(key)) {
+                    const group = { gameNumber: key, rows: [] };
+                    groupMap.set(key, group);
+                    grouped.push(group);
+                }
+                groupMap.get(key).rows.push(row);
+            });
+
+            const esc = value => escapeDatabaseHistoryHtml(String(value ?? ''));
+
+            return `
+                <div class="mb-4 border border-zinc-700 rounded-xl overflow-hidden bg-black">
+                    <div class="px-3 py-2 bg-zinc-900 border-b border-zinc-700 flex flex-wrap items-center justify-between gap-2">
+                        <div class="font-black text-emerald-300">${esc(title)}</div>
+                        <div class="text-[9px] text-zinc-500">${rows.length} round(s)</div>
+                    </div>
+                    ${grouped.map(group => `
+                        <div class="border-b border-zinc-800 last:border-b-0">
+                            ${grouped.length > 1 ? `<div class="px-3 py-2 text-[10px] font-black text-amber-300 bg-zinc-950">Game ${esc(group.gameNumber)}</div>` : ''}
+                            <div class="database-round-history-table">
+                                <div class="database-round-history-grid database-round-history-header">
+                                    <div>Round</div><div>Player</div><div>Current Points</div><div>Total Points</div><div>Status</div>
+                                </div>
+                                ${group.rows.map(round => `
+                                    ${Array.isArray(round.details) && round.details.length
+                                        ? round.details.map((d, detailIndex) => `
+                                            <div class="database-round-history-grid database-round-history-row">
+                                                <div class="round-number-cell">${detailIndex === 0 ? esc(round.roundNumber) : ''}</div>
+                                                <div class="font-black">${esc(d.name)} <span class="text-zinc-500 font-normal">(sum ${esc(d.sum || '—')})</span></div>
+                                                <div>+${esc(d.pointsAdded || '0')}</div>
+                                                <div>${esc(d.totalAfterRound || '0')}</div>
+                                                <div>${(() => {
+                                                    const winnerName = String(round.winner || '').trim();
+                                                    const playerName = String(d.name || '').trim();
+                                                    if (winnerName && winnerName.toLowerCase() === playerName.toLowerCase()) {
+                                                        return '<span class="text-emerald-400 font-black">Winner</span>';
+                                                    }
+                                                    return d.eliminated ? '<span class="text-red-400 font-black">Eliminated</span>' : '';
+                                                })()}</div>
+                                            </div>`).join('')
+                                        : `<div class="database-round-history-grid database-round-history-row"><div>${esc(round.roundNumber)}</div><div class="text-zinc-600">No player details</div><div></div><div></div><div></div></div>`}
+                                `).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        };
+
+        // Keep a reference so future code that calls the function continues to
+        // resolve the patched renderer rather than the old card-heavy renderer.
+        window.__lcOriginalRoundHistoryRenderer = __lcHistoryRendererBase;
+    }
+
+    if (typeof renderDatabaseHistoryRoundsHtml === 'function') {
+        const __lcDatabaseHistoryRendererBase = renderDatabaseHistoryRoundsHtml;
+        renderDatabaseHistoryRoundsHtml = function (historyText) {
+            const rounds = typeof parseDatabaseHistoryRounds === 'function'
+                ? parseDatabaseHistoryRounds(historyText)
+                : [];
+
+            if (!rounds.length) {
+                return `<div class="database-history-no-rounds">No completed rounds have been saved yet.</div>`;
+            }
+
+            const esc = value => escapeDatabaseHistoryHtml(String(value ?? ''));
+
+            return `
+                <div class="database-round-history-table">
+                    <div class="database-round-history-grid database-round-history-header">
+                        <div>Round</div><div>Player</div><div>Current Points</div><div>Total Points</div><div>Status</div>
+                    </div>
+                    ${rounds.map(round => `
+                        ${Array.isArray(round.details) && round.details.length
+                            ? round.details.map((d, detailIndex) => `
+                                <div class="database-round-history-grid database-round-history-row">
+                                    <div class="round-number-cell">${detailIndex === 0 ? esc(round.roundNumber) : ''}</div>
+                                    <div class="font-black">${esc(d.name)}</div>
+                                    <div>+${esc(d.pointsAdded || '0')}</div>
+                                    <div>${esc(d.totalAfterRound || '0')}</div>
+                                    <div>${(() => {
+                                                    const winnerName = String(round.winner || '').trim();
+                                                    const playerName = String(d.name || '').trim();
+                                                    if (winnerName && winnerName.toLowerCase() === playerName.toLowerCase()) {
+                                                        return '<span class="text-emerald-400 font-black">Winner</span>';
+                                                    }
+                                                    return d.eliminated ? '<span class="text-red-400 font-black">Eliminated</span>' : '';
+                                                })()}</div>
+                                </div>`).join('')
+                            : `<div class="database-round-history-grid database-round-history-row"><div>${esc(round.roundNumber)}</div><div class="text-zinc-600">No player details</div><div></div><div></div><div></div></div>`}
+                    `).join('')}
+                </div>
+            `;
+        };
+        window.__lcOriginalDatabaseHistoryRenderer = __lcDatabaseHistoryRendererBase;
+    }
+
+    // ---------------------------------------------------------------
+    // FAST GUEST DROP/DRAW
+    // ---------------------------------------------------------------
+    // A guest no longer waits for the host's GAME_STATE_UPDATE before seeing
+    // the action. The host still validates and broadcasts the authoritative
+    // state, so a rejected/stale action is corrected by the next state packet.
+    // ---------------------------------------------------------------
+    function __lcIsMyTurnActionAllowed(phase) {
+        if (!roundActive || currentTurnIndex !== myIndex) return false;
+        const me = players[myIndex];
+        return !!me && isPlayerAllowedToPlay(me) && turnPhase === phase;
+    }
+
+    if (typeof handleCardClick === 'function') {
+        const __lcCardClickCurrent = handleCardClick;
+        handleCardClick = async function (cardUid) {
+            // Solo/host keeps the existing authoritative local path.
+            if (isHost || isSoloMode) {
+                return __lcCardClickCurrent(cardUid);
+            }
+
+            if (!__lcIsMyTurnActionAllowed('drop')) return;
+
+            const me = players[myIndex];
+            const cardExists = Array.isArray(me.hand) && me.hand.some(c => c && c.uid === cardUid);
+            if (!cardExists) return;
+
+            // Preserve the existing first-card wallet validation for bet games.
+            // This is only needed for the first paid card; normal/free games
+            // proceed immediately with no async work before the UI update.
+            if (typeof betMode !== 'undefined' && betMode === 'bet' && Number(betAmount || 0) > 0) {
+                const token = typeof __lcDemoToken === 'function' ? __lcDemoToken(me) : String(me.clientToken || '');
+                if (window.__lcDemoPaidParticipantTokens && !window.__lcDemoPaidParticipantTokens.has(token)) {
+                    const ok = await __lcChargeFirstCardForCurrentPlayer();
+                    if (!ok) return;
+                }
+            }
+
+            const actionId = createGameActionId('DROP');
+
+            // Apply locally FIRST so the card disappears immediately and the
+            // stock-draw button/turn phase changes without waiting on realtime.
+            const changed = applyDropActionForPlayer(myIndex, cardUid);
+            if (!changed) return;
+
+            renderGameBoard();
+            logTicker(
+                turnPhase === 'draw'
+                    ? 'Card dropped. Click stock deck to draw.'
+                    : 'Card dropped.'
+            );
+            saveLocalRoomSession();
+
+            // Send only the intent. Host applies the same operation against
+            // its authoritative state and broadcasts the resulting snapshot.
+            sendGameActionWithRetry({
+                type: 'PLAYER_ACTION',
+                action: 'DROP',
+                actionId,
+                clientToken: myClientToken,
+                senderId: myClientToken,
+                cardUid
+            });
+        };
+        window.handleCardClick = handleCardClick;
+    }
+
+    if (typeof drawFromDeck === 'function') {
+        const __lcDrawCurrent = drawFromDeck;
+        drawFromDeck = function () {
+            // Solo/host keeps the existing authoritative local path.
+            if (isHost || isSoloMode) {
+                return __lcDrawCurrent();
+            }
+
+            if (!__lcIsMyTurnActionAllowed('draw')) return;
+
+            const me = players[myIndex];
+            const actionId = createGameActionId('DRAW');
+
+            // Apply locally FIRST so the new card and next phase are visible
+            // immediately. The host remains authoritative.
+            const changed = applyDrawActionForPlayer(myIndex);
+            if (!changed) {
+                logTicker('No card could be drawn right now.');
+                return;
+            }
+
+            renderGameBoard();
+            logTicker(`${me.name} drew a card.`);
+            saveLocalRoomSession();
+
+            sendGameActionWithRetry({
+                type: 'PLAYER_ACTION',
+                action: 'DRAW',
+                actionId,
+                clientToken: myClientToken,
+                senderId: myClientToken
+            });
+        };
+        window.drawFromDeck = drawFromDeck;
+    }
+
+    console.log('Least Count fast card action + minimal round history patch loaded');
 })();
 </script>
 </body>
