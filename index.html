@@ -1977,6 +1977,9 @@
     }
 
     async function settleWalletForCompletedGame(winnerName, opponentCount, forceType = '') {
+        // Wallet coin settlement is ONLY for an active BET game.
+        // Free games and BOT/Solo games must never add or deduct wallet coins.
+        if (betMode !== 'bet' || Number(betAmount || 0) <= 0) return true;
         if (!currentUser || !authSessionToken) return false;
         if (!walletGameId && roomCode) walletGameId = roomCode;
         if (!walletGameId) return false;
@@ -2085,6 +2088,10 @@
     // This is intentionally independent of the final tournament result so
     // an eliminated player can leave immediately and still receive -100.
     async function settleWalletForEliminatedPlayer(forceType = '') {
+        // Elimination settlement is also BET-only. A free/BOT game must never
+        // deduct the 100-coin wallet penalty.
+        if (betMode !== 'bet' || Number(betAmount || 0) <= 0) return true;
+
         const me = players.find(
             p =>
                 p &&
@@ -13587,55 +13594,24 @@
                 : betAmount || 0
         );
 
-        if (mode !== 'bet' || amount <= 0) return;
-
-        // The host already charged itself before broadcasting START_GAME.
-        if (isHost) return;
-
-        // Store the authoritative game identity before charging.
+        // IMPORTANT: START_GAME never charges a player's wallet.
+        // For a BET game, the player is charged exactly once when that player
+        // successfully drops their FIRST card. The host has already verified
+        // everyone has enough balance before starting the game.
         if (data.walletGameId) walletGameId = data.walletGameId;
         if (data.roomGameSequence !== undefined) {
             roomGameSequence = Number(data.roomGameSequence || roomGameSequence || 1);
         }
 
-        const gameKey = getDemoGameKey();
-
-        if (!(await chargeLocalDemoBet(gameKey, amount))) {
-            const me = Array.isArray(players)
-                ? players.find(p =>
-                    String(p?.clientToken || p?.id || '') === String(myClientToken || '')
-                )
-                : null;
-
-            if (me) {
-                me.viewOnly = true;
-                me.rejoinPending = false;
-                me.connected = true;
-            }
-
-            if (typeof renderGameBoard === 'function') {
-                renderGameBoard();
-            }
-
-            // Tell the host that the final server-side charge failed.
-            try {
-                sendRealtimeMessage({
-                    type: 'DEMO_START_REJECTED',
-                    roomCode: String(roomCode || ''),
-                    clientToken: String(myClientToken || ''),
-                    playerName: String(myName || 'Player'),
-                    balance: Number(demoWalletBalance || 0),
-                    required: amount
-                });
-            } catch (e) {}
-
-            alert(
-                `You do not have enough DEMO balance to play this game.\n\n` +
-                `Available: ₹${Number(demoWalletBalance || 0).toFixed(2).replace(/\\.00$/, '')}\n` +
-                `Required: ₹${Number(amount || 0).toFixed(2).replace(/\\.00$/, '')}`
-            );
-            return;
+        if (mode !== 'bet' || amount <= 0) {
+            betMode = 'free';
+            betAmount = 0;
+        } else {
+            betMode = 'bet';
+            betAmount = amount;
         }
+
+        return true;
     }
 
     function handleDemoIncoming(data) {
@@ -14621,6 +14597,37 @@ window.getLeastCountDemoPaidPot=function(){
 };
 
 console.log('Least Count first-card wallet/pot fix loaded');
+})();
+</script>
+<script>
+/* ================================================================
+   BET-ONLY WALLET SAFETY PATCH
+   Free/BOT games never touch wallet coin settlement. BET games keep
+   the existing first-card deduction + final settlement flow.
+================================================================ */
+(function(){
+    'use strict';
+
+    if (typeof settleWalletForCompletedGame === 'function') {
+        const __lcBetOnlyCompletedSettlement = settleWalletForCompletedGame;
+        settleWalletForCompletedGame = async function(winnerName, opponentCount, forceType = '') {
+            if (betMode !== 'bet' || Number(betAmount || 0) <= 0) return true;
+            return __lcBetOnlyCompletedSettlement(winnerName, opponentCount, forceType);
+        };
+    }
+
+    if (typeof settleWalletForEliminatedPlayer === 'function') {
+        const __lcBetOnlyEliminationSettlement = settleWalletForEliminatedPlayer;
+        settleWalletForEliminatedPlayer = async function(forceType = '') {
+            if (betMode !== 'bet' || Number(betAmount || 0) <= 0) return true;
+            return __lcBetOnlyEliminationSettlement(forceType);
+        };
+    }
+
+    // Re-assert the intended first-card rule: START_GAME only validates;
+    // chargeLocalDemoBet is called by __lcChargeFirstCardForCurrentPlayer().
+    // Therefore every funded player contributes exactly one bet to the pot.
+    console.log('Least Count BET-only wallet safety patch loaded');
 })();
 </script>
 <script>
