@@ -558,18 +558,11 @@
     <footer class="p-2 sm:p-3 bg-black border-t border-zinc-800 flex justify-between items-center text-[11px] px-4 shrink-0">
         <div class="text-zinc-400 truncate max-w-[50vw]" id="activity-log-ticker">Ready</div>
         <div class="flex items-center gap-3">
-            <a id="history-footer-btn" href="#"
-               onclick="event.preventDefault(); toggleHistoryModal(true)"
-               class="game-only-footer-control hidden text-emerald-400 hover:text-emerald-300 underline underline-offset-2 font-medium transition text-[10px]">
-                History
-            </a>
-            <button id="scores-footer-btn" onclick="toggleScoreboardModal(true)"
-                    class="game-only-footer-control hidden bg-transparent hover:text-white text-zinc-300 underline underline-offset-2 px-0 py-0 font-medium transition text-[10px]">
-                Scores
-            </button>
+            <a id="lobby-history-footer-btn" href="#" onclick="event.preventDefault(); openGameHistoryDb()" class="lobby-only-footer-control text-indigo-300 hover:text-indigo-200 underline underline-offset-2 font-medium transition text-[10px]">Game History</a>
+            <a id="history-footer-btn" href="#" onclick="event.preventDefault(); toggleHistoryModal(true)" class="game-only-footer-control hidden text-emerald-400 hover:text-emerald-300 underline underline-offset-2 font-medium transition text-[10px]">History</a>
+            <button id="scores-footer-btn" onclick="toggleScoreboardModal(true)" class="game-only-footer-control hidden bg-transparent hover:text-white text-zinc-300 underline underline-offset-2 px-0 py-0 font-medium transition text-[10px]">Scores</button>
         </div>
     </footer>
-
     <!-- ========================================================= -->
     <!-- NEW: REJOIN PERMISSION MODAL                              -->
     <!-- ========================================================= -->
@@ -810,48 +803,20 @@
     }
 
     async function openGameHistoryDb() {
-        const modal = document.getElementById('game-history-db-modal');
-        const wrap = document.getElementById('game-history-db-table-wrap');
-        if (!modal || !wrap) return;
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-        wrap.innerHTML = '<div class="p-5 text-center text-xs text-zinc-500">Loading game history...</div>';
-        try {
-            const response = await fetch(`${GAME_HISTORY_URL}?select=id,game_code,players_name,game_host,game_points,game_winner,game_history,created_at&game_points=neq.ROOM_STATE&order=created_at.desc&limit=200`, {
-                headers: { 'apikey': SUPABASE_APIKEY, 'Authorization': `Bearer ${SUPABASE_APIKEY}` }
-            });
-            if (!response.ok) throw new Error('History request failed');
-            gameHistoryDbRows = await response.json();
-            if (!Array.isArray(gameHistoryDbRows) || !gameHistoryDbRows.length) {
-                wrap.innerHTML = '<div class="p-8 text-center text-xs text-zinc-500">No game history available.</div>';
-                return;
-            }
-            wrap.innerHTML = `
-                <table class="w-full text-left text-[10px] sm:text-xs border-collapse">
-                    <thead class="sticky top-0 bg-zinc-950 z-10">
-                        <tr class="border-b border-zinc-700 text-zinc-400 uppercase tracking-wider">
-                            <th class="px-2 py-2 whitespace-nowrap">Game ID</th>
-                            <th class="px-2 py-2">Players</th>
-                            <th class="px-2 py-2 whitespace-nowrap">Host</th>
-                            <th class="px-2 py-2 whitespace-nowrap">Current / Final Points</th>
-                            <th class="px-2 py-2 whitespace-nowrap">Winner</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-zinc-900">
-                        ${gameHistoryDbRows.map((row,i) => `
-                            <tr class="hover:bg-zinc-950/80 transition">
-                                <td class="px-2 py-2 font-mono font-bold text-indigo-300">${escapeDbHtml(row.id || '—')}</td>
-                                <td class="px-2 py-2 text-zinc-300">${escapeDbHtml(row.players_name || '—')}</td>
-                                <td class="px-2 py-2"><button onclick="openGameHistoryHost(${i})" class="text-emerald-300 hover:text-white underline underline-offset-2 font-bold">${escapeDbHtml(row.game_host || '—')}</button></td>
-                                <td class="px-2 py-2 text-amber-300 font-bold">${escapeDbHtml(row.game_points || '—')}</td>
-                                <td class="px-2 py-2 text-emerald-300 font-bold">${escapeDbHtml(row.game_winner || 'In Progress')}</td>
-                            </tr>`).join('')}
-                    </tbody>
-                </table>`;
-        } catch (e) {
-            console.error('Game history DB load failed:', e);
-            wrap.innerHTML = '<div class="p-8 text-center text-xs text-rose-300">Unable to load game history right now. Please try again.</div>';
-        }
+        const modal=document.getElementById('game-history-db-modal'); const wrap=document.getElementById('game-history-db-table-wrap');
+        if(!modal||!wrap)return; modal.classList.remove('hidden'); modal.classList.add('flex');
+        wrap.innerHTML='<div class="p-5 text-center text-xs text-zinc-500">Loading game history...</div>';
+        const ist=v=>{const d=new Date(v||0);return Number.isNaN(d.getTime())?'—':d.toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})+' IST'};
+        const split=v=>String(v||'').split(',').map(x=>x.trim()).filter(Boolean);
+        try{
+            const response=await fetch(`${GAME_HISTORY_URL}?select=id,game_code,players_name,game_host,game_points,game_winner,game_history,created_at&game_points=neq.ROOM_STATE&order=created_at.desc&limit=300`,{headers:{apikey:SUPABASE_APIKEY,Authorization:`Bearer ${SUPABASE_APIKEY}`}});
+            if(!response.ok)throw new Error('history '+response.status);
+            const raw=await response.json(), byRoom=new Map();
+            (Array.isArray(raw)?raw:[]).forEach(r=>{const k=String(r?.game_code||'').trim().toUpperCase();if(!k)return;const old=byRoom.get(k);if(!old||new Date(r.created_at||0)>new Date(old.created_at||0))byRoom.set(k,r)});
+            gameHistoryDbRows=Array.from(byRoom.values()).sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0));
+            if(!gameHistoryDbRows.length){wrap.innerHTML='<div class="p-8 text-center text-xs text-zinc-500">No game history available.</div>';return;}
+            wrap.innerHTML=`<table class="w-full min-w-[720px] text-left text-[10px] sm:text-xs border-collapse"><thead class="sticky top-0 bg-zinc-950 z-10"><tr class="border-b border-zinc-700 text-zinc-400 uppercase"><th class="px-2 py-2">RoomId</th><th class="px-2 py-2">Players</th><th class="px-2 py-2">Final Points</th><th class="px-2 py-2">Winner</th></tr></thead><tbody class="divide-y divide-zinc-900">${gameHistoryDbRows.map((r,i)=>{const host=String(r.game_host||'').trim().toLowerCase();const ph=split(r.players_name).map(n=>`<div class="${n.toLowerCase()===host?'font-black text-white':'text-zinc-300'}">${escapeDbHtml(n)}${n.toLowerCase()===host?' <span class="text-amber-300">(H)</span>':''}</div>`).join('')||'—';const pts=split(r.game_points).map(x=>`<div>${escapeDbHtml(x)}</div>`).join('')||'—';const code=r.game_code||r.id||'—';return `<tr class="align-top hover:bg-zinc-950/80"><td class="px-2 py-2"><button type="button" onclick="openGameHistoryHost(${i})" class="text-indigo-300 hover:text-white underline underline-offset-2 font-black">${escapeDbHtml(code)}</button><div class="text-[8px] text-zinc-500 mt-1 whitespace-nowrap">${escapeDbHtml(ist(r.created_at))}</div></td><td class="px-2 py-2 leading-4">${ph}</td><td class="px-2 py-2 text-amber-300 font-bold leading-4">${pts}</td><td class="px-2 py-2 text-emerald-300 font-black">${escapeDbHtml(r.game_winner||'In progress')}</td></tr>`}).join('')}</tbody></table>`;
+        }catch(e){console.error(e);wrap.innerHTML='<div class="p-8 text-center text-xs text-rose-300">Unable to load game history right now. Please try again.</div>'}
     }
 
     function closeGameHistoryDb() {
@@ -868,8 +833,9 @@
         const title = document.getElementById('game-history-host-title');
         const content = document.getElementById('game-history-host-content');
         if (!modal || !title || !content) return;
-        title.textContent = `${row.game_host || 'Host'} — Room ${row.game_code || 'Game'}`;
-        content.innerHTML = `<pre class="whitespace-pre-wrap break-words text-[10px] sm:text-xs leading-5 text-zinc-300">${escapeDbHtml(row.game_history || 'No room history saved.')}</pre>`;
+        title.textContent = `Room ${row.game_code || 'Game'} — Rounds History`;
+        const rounds=parseDatabaseHistoryRounds(row.game_history||'');
+        content.innerHTML=rounds.length?`<div class="overflow-auto"><table class="w-full min-w-[620px] text-left text-[10px] sm:text-xs border-collapse"><thead class="sticky top-0 bg-zinc-950"><tr class="border-b border-zinc-700 text-zinc-400 uppercase"><th class="px-2 py-2">Round</th><th class="px-2 py-2">Caller</th><th class="px-2 py-2">Caller Sum</th><th class="px-2 py-2">Outcome</th><th class="px-2 py-2">Player Scores</th></tr></thead><tbody class="divide-y divide-zinc-900">${rounds.map(r=>`<tr class="align-top"><td class="px-2 py-2 font-black text-indigo-300">${escapeDbHtml(r.roundNumber)}</td><td class="px-2 py-2 font-bold">${escapeDbHtml(r.caller)}</td><td class="px-2 py-2">${escapeDbHtml(r.callerSum)}</td><td class="px-2 py-2 text-amber-300">${escapeDbHtml(r.outcome)}</td><td class="px-2 py-2 leading-4">${r.details.map(d=>`<div>${escapeDbHtml(d.name)}: +${escapeDbHtml(d.pointsAdded)} → <b class="text-emerald-300">${escapeDbHtml(d.totalAfterRound)}</b></div>`).join('')||'—'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="p-6 text-center text-xs text-zinc-500">No completed rounds have been saved yet.</div>';
         modal.classList.remove('hidden');
         modal.classList.add('flex');
     }
@@ -2105,7 +2071,10 @@ const loggedName = document.getElementById('logged-in-name');
     const HOST_ABSENCE_GRACE_MS = 12000;
     const REALTIME_RECONNECT_MAX_MS = 10000;
     const processedGameActionIds = new Set();
+    const processedShowActionIds = new Set();
     const pendingGameActionRetries = new Map();
+    let showButtonLocked = false;
+    let showResolutionInProgress = false;
 
     // Database persistence is deliberately decoupled from live gameplay.
     // A card action must never wait for REST/database I/O. Multiple fast
@@ -4913,7 +4882,8 @@ const loggedName = document.getElementById('logged-in-name');
             ) {
 
                 handleHostShowCall(
-                    data.peerId
+                    data.peerId,
+                    data.actionId || ''
                 );
             }
 
@@ -7190,67 +7160,25 @@ gameHistory:
     // ============================================================
 
     function callShow() {
-
-        let me =
-            players[myIndex];
-
-        if (!me)
-            return;
-
-        /*
-         * NEW:
-         * View-only players cannot call Show.
-         */
-        if (
-            me.viewOnly === true ||
-            me.connected === false
-        )
-            return;
-
-        if (
-            currentTurnIndex !==
-            myIndex ||
-            turnPhase !== 'drop'
-        )
-            return;
-
-        let sum =
-            calculateHandSum(
-                me.hand
-            );
-
-        if (sum > 5) {
-
-            alert(
-                "Sum must be 5 or less!"
-            );
-
-            return;
-        }
-
-        if (
-            isHost ||
-            isSoloMode
-        ) {
-
-            executeShowRound(
-                myId
-            );
-
-        } else {
-
-            sendRealtimeMessage({
-
-                type:
-                    'CALL_SHOW',
-
-                peerId:
-                    myId
-            });
-        }
+        const me=players[myIndex];
+        if(!me||me.viewOnly===true||me.connected===false)return;
+        if(currentTurnIndex!==myIndex||turnPhase!=='drop')return;
+        if(showButtonLocked||showResolutionInProgress)return;
+        const sum=calculateHandSum(me.hand);
+        if(sum>5){alert('Sum must be 5 or less!');return;}
+        showButtonLocked=true;
+        const actionId=createGameActionId('SHOW');
+        const btn=document.getElementById('call-show-btn');
+        if(btn){btn.disabled=true;btn.dataset.showLocked='1';}
+        if(isHost||isSoloMode) executeShowRound(myId,actionId);
+        else sendGameActionWithRetry({type:'CALL_SHOW',peerId:myId,actionId,clientToken:myClientToken,senderId:myClientToken});
     }
-    function handleHostShowCall(callerPeerId) {
+
+    function handleHostShowCall(callerPeerId, actionId = '') {
         if (!isHost || isSoloMode || !roundActive || turnPhase !== 'drop') return;
+        const aid=String(actionId||'');
+        if(aid&&processedShowActionIds.has(aid))return;
+        if(aid)processedShowActionIds.add(aid);
 
         const callerIndex = players.findIndex(
             p => p && (p.id === callerPeerId || p.clientToken === callerPeerId)
@@ -7261,7 +7189,7 @@ gameHistory:
         const caller = players[callerIndex];
         if (!isPlayerAllowedToPlay(caller)) return;
 
-        executeShowRound(callerPeerId);
+        executeShowRound(callerPeerId, aid);
     }
 
     function escapeRoundResultHtml(value) {
@@ -7288,10 +7216,10 @@ gameHistory:
     // ============================================================
     // SHOW ROUND
     // ============================================================
-    function executeShowRound(callerPeerId) {
+    function executeShowRound(callerPeerId, actionId = '') {
         // The host is the only authority that can resolve a round.
         // Reject stale/duplicate SHOW packets before changing any score.
-        if (!roundActive || turnPhase !== 'drop') return;
+        if (showResolutionInProgress || !roundActive || turnPhase !== 'drop') return;
 
         const callerIndex = players.findIndex(p =>
             p &&
@@ -7302,6 +7230,9 @@ gameHistory:
 
         const caller = players[callerIndex];
         if (!isPlayerAllowedToPlay(caller)) return;
+        showResolutionInProgress=true;
+        showButtonLocked=true;
+        if(actionId)processedShowActionIds.add(String(actionId));
 
         // Normalize scores once so arithmetic can never concatenate strings.
         players.forEach(p => {
@@ -7573,6 +7504,8 @@ gameHistory:
         deck = fullDeck;
         turnPhase = 'drop';
         roundActive = true;
+        showButtonLocked=false;
+        showResolutionInProgress=false;
 
         // Deterministic round-robin starter. If that seat is eliminated or
         // unavailable, walk forward until the next eligible seat.
@@ -7628,11 +7561,12 @@ gameHistory:
     // ============================================================
 
     function updateGameOnlyFooterControls(show) {
-        const historyBtn = document.getElementById('history-footer-btn');
-        const scoresBtn = document.getElementById('scores-footer-btn');
-
-        if (historyBtn) historyBtn.classList.toggle('hidden', !show);
-        if (scoresBtn) scoresBtn.classList.toggle('hidden', !show);
+        const historyBtn=document.getElementById('history-footer-btn');
+        const scoresBtn=document.getElementById('scores-footer-btn');
+        const lobbyBtn=document.getElementById('lobby-history-footer-btn');
+        if(historyBtn)historyBtn.classList.toggle('hidden',!show);
+        if(scoresBtn)scoresBtn.classList.toggle('hidden',!show);
+        if(lobbyBtn)lobbyBtn.classList.toggle('hidden',!!show);
     }
 
     function renderGameBoard() {
