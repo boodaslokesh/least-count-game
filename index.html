@@ -224,6 +224,11 @@
                 Multiplayer & Solo Lobby
             </h2>
 
+            <button id="lobby-game-history-db-btn" type="button" onclick="openGameHistoryDb()"
+                    class="w-full py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-200 text-xs font-black transition">
+                Game History DB
+            </button>
+
             <div class="space-y-2.5 text-left">
                 <div>
                     <label class="block text-[11px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">
@@ -254,6 +259,7 @@
                             <option value="4" selected>4 Players</option>
                             <option value="5">5 Players</option>
                             <option value="6">6 Players</option>
+                            <option value="7">7 Players</option>
                         </select>
                     </div>
 
@@ -361,7 +367,23 @@
                class="text-rose-400 text-xs font-medium hidden"></p>
         </div>
 
-        <!-- WAITING ROOM SCREEN -->
+        <!-- LOBBY-ONLY GAME HISTORY DB -->
+    <div id="game-history-db-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-3 z-[80]">
+        <div class="bg-black border border-indigo-500/30 w-full max-w-5xl rounded-2xl p-4 shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div class="flex items-center justify-between border-b border-zinc-800 pb-2 mb-3">
+                <div>
+                    <h3 class="text-base font-black text-indigo-300">Game History DB</h3>
+                    <p class="text-[9px] text-zinc-500">Completed and in-progress room records</p>
+                </div>
+                <button onclick="closeGameHistoryDb()" class="text-zinc-400 hover:text-white text-xl font-bold px-2">&times;</button>
+            </div>
+            <div id="game-history-db-table-wrap" class="overflow-auto flex-1 rounded-xl border border-zinc-800">
+                <div class="p-5 text-center text-xs text-zinc-500">Loading game history...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WAITING ROOM SCREEN -->
         <div id="waiting-screen"
              class="hidden bg-black p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-zinc-800 text-center space-y-4">
 
@@ -762,6 +784,16 @@
         </div>
     </div>
 
+    <div id="game-history-host-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-3 z-[90]">
+        <div class="bg-black border border-emerald-500/30 w-full max-w-3xl rounded-2xl p-4 shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div class="flex items-center justify-between border-b border-zinc-800 pb-2 mb-3">
+                <h3 id="game-history-host-title" class="text-sm font-black text-emerald-300">Room History</h3>
+                <button onclick="closeGameHistoryHost()" class="text-zinc-400 hover:text-white text-xl font-bold px-2">&times;</button>
+            </div>
+            <div id="game-history-host-content" class="overflow-auto flex-1 bg-zinc-950 rounded-xl border border-zinc-900 p-3"></div>
+        </div>
+    </div>
+
 <script>
     // ============================================================
     // SUPABASE CLIENT & REALTIME CHANNEL INITIALIZATION
@@ -770,6 +802,84 @@
     const SUPABASE_BASE_URL = 'https://hmfeeaejffcbqyihshre.supabase.co';
     const SUPABASE_URL = `${SUPABASE_BASE_URL}/rest/v1/least-count`;
     const SUPABASE_APIKEY = 'sb_publishable_8FANdKPFeAUoNKll-Gcldg_xtMTO5ND';
+
+    let gameHistoryDbRows = [];
+
+    function escapeDbHtml(value) {
+        return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+    }
+
+    async function openGameHistoryDb() {
+        const modal = document.getElementById('game-history-db-modal');
+        const wrap = document.getElementById('game-history-db-table-wrap');
+        if (!modal || !wrap) return;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        wrap.innerHTML = '<div class="p-5 text-center text-xs text-zinc-500">Loading game history...</div>';
+        try {
+            const response = await fetch(`${GAME_HISTORY_URL}?select=id,game_code,players_name,game_host,game_points,game_winner,game_history,created_at&game_points=neq.ROOM_STATE&order=created_at.desc&limit=200`, {
+                headers: { 'apikey': SUPABASE_APIKEY, 'Authorization': `Bearer ${SUPABASE_APIKEY}` }
+            });
+            if (!response.ok) throw new Error('History request failed');
+            gameHistoryDbRows = await response.json();
+            if (!Array.isArray(gameHistoryDbRows) || !gameHistoryDbRows.length) {
+                wrap.innerHTML = '<div class="p-8 text-center text-xs text-zinc-500">No game history available.</div>';
+                return;
+            }
+            wrap.innerHTML = `
+                <table class="w-full text-left text-[10px] sm:text-xs border-collapse">
+                    <thead class="sticky top-0 bg-zinc-950 z-10">
+                        <tr class="border-b border-zinc-700 text-zinc-400 uppercase tracking-wider">
+                            <th class="px-2 py-2 whitespace-nowrap">Game ID</th>
+                            <th class="px-2 py-2">Players</th>
+                            <th class="px-2 py-2 whitespace-nowrap">Host</th>
+                            <th class="px-2 py-2 whitespace-nowrap">Current / Final Points</th>
+                            <th class="px-2 py-2 whitespace-nowrap">Winner</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-zinc-900">
+                        ${gameHistoryDbRows.map((row,i) => `
+                            <tr class="hover:bg-zinc-950/80 transition">
+                                <td class="px-2 py-2 font-mono font-bold text-indigo-300">${escapeDbHtml(row.id || '—')}</td>
+                                <td class="px-2 py-2 text-zinc-300">${escapeDbHtml(row.players_name || '—')}</td>
+                                <td class="px-2 py-2"><button onclick="openGameHistoryHost(${i})" class="text-emerald-300 hover:text-white underline underline-offset-2 font-bold">${escapeDbHtml(row.game_host || '—')}</button></td>
+                                <td class="px-2 py-2 text-amber-300 font-bold">${escapeDbHtml(row.game_points || '—')}</td>
+                                <td class="px-2 py-2 text-emerald-300 font-bold">${escapeDbHtml(row.game_winner || 'In Progress')}</td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        } catch (e) {
+            console.error('Game history DB load failed:', e);
+            wrap.innerHTML = '<div class="p-8 text-center text-xs text-rose-300">Unable to load game history right now. Please try again.</div>';
+        }
+    }
+
+    function closeGameHistoryDb() {
+        const modal = document.getElementById('game-history-db-modal');
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    function openGameHistoryHost(index) {
+        const row = gameHistoryDbRows[index];
+        if (!row) return;
+        const modal = document.getElementById('game-history-host-modal');
+        const title = document.getElementById('game-history-host-title');
+        const content = document.getElementById('game-history-host-content');
+        if (!modal || !title || !content) return;
+        title.textContent = `${row.game_host || 'Host'} — Room ${row.game_code || 'Game'}`;
+        content.innerHTML = `<pre class="whitespace-pre-wrap break-words text-[10px] sm:text-xs leading-5 text-zinc-300">${escapeDbHtml(row.game_history || 'No room history saved.')}</pre>`;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function closeGameHistoryHost() {
+        const modal = document.getElementById('game-history-host-modal');
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
 
     // ============================================================
     // GAME HISTORY DATABASE
@@ -958,7 +1068,7 @@
         return true;
     }
 
-    async function persistRoomStateToSupabase() {
+    async function persistRoomStateToSupabaseNow() {
         if (!roomCode) return false;
 
         // Do not create/update game-history room-state records while the
@@ -1038,6 +1148,63 @@
             console.error('Persistent room state sync failed:', error);
             return false;
         }
+    }
+
+    function persistRoomStateToSupabase(options = {}) {
+        const immediate = options === true || options?.immediate === true;
+
+        if (!roomCode) return Promise.resolve(false);
+        if (Number(roundCounter) <= 0 && !roundActive) return Promise.resolve(false);
+
+        // Non-host clients only keep their own local recovery snapshot.
+        if (!isHost || !currentUser) {
+            saveLocalRoomSession();
+            return Promise.resolve(true);
+        }
+
+        roomStatePersistRequested = true;
+
+        if (immediate) {
+            if (roomStatePersistTimer) {
+                clearTimeout(roomStatePersistTimer);
+                roomStatePersistTimer = null;
+            }
+            return runRoomStatePersistence();
+        }
+
+        if (roomStatePersistTimer) return roomStatePersistInFlight || Promise.resolve(true);
+
+        roomStatePersistTimer = setTimeout(() => {
+            roomStatePersistTimer = null;
+            runRoomStatePersistence();
+        }, ROOM_STATE_PERSIST_DELAY_MS);
+
+        return roomStatePersistInFlight || Promise.resolve(true);
+    }
+
+    async function runRoomStatePersistence() {
+        if (roomStatePersistInFlight) return roomStatePersistInFlight;
+        if (!roomStatePersistRequested) return true;
+
+        roomStatePersistRequested = false;
+
+        // Capture the newest snapshot only when the actual write begins.
+        // This prevents an older slow request from overwriting a newer turn.
+        roomStatePersistInFlight = (async () => {
+            try {
+                return await persistRoomStateToSupabaseNow();
+            } finally {
+                roomStatePersistInFlight = null;
+                if (roomStatePersistRequested && !roomStatePersistTimer) {
+                    roomStatePersistTimer = setTimeout(() => {
+                        roomStatePersistTimer = null;
+                        runRoomStatePersistence();
+                    }, ROOM_STATE_PERSIST_DELAY_MS);
+                }
+            }
+        })();
+
+        return roomStatePersistInFlight;
     }
 
     async function loadPersistentRoomState(roomKey) {
@@ -1163,9 +1330,10 @@
                 await persistRoomStateToSupabase();
                 await syncGameHistoryToSupabase('');
             }
-            logTicker(`Reconnected to room ${roomCode}.`);
+            logTicker('');
         } else {
-            logTicker(`Reconnecting to room ${roomCode}...`);
+            // Keep gameplay UI unchanged while transport reconnects.
+            logTicker('');
         }
 
         return true;
@@ -1241,9 +1409,9 @@
             console.error('Game history sync failed:', error);
         }
 
-        // Keep a separate hidden state row so the visible game-history
-        // record remains human-readable while the live room is recoverable.
-        await persistRoomStateToSupabase();
+        // Live room-state persistence is scheduled independently from the
+        // human-readable history row. Never block a game action on it.
+        persistRoomStateToSupabase();
     }
 
     const nicknameInput = document.getElementById('nickname-input');
@@ -1925,8 +2093,27 @@ const loggedName = document.getElementById('logged-in-name');
     let realtimeOutboundQueue = [];
     let authoritativeStateVersion = 0;
     let lastAppliedStateVersion = 0;
+
+    // Connection stability guards. A transient Presence/Realtime hiccup must
+    // NEVER mark a player disconnected or trigger a host takeover immediately.
+    let roomChannelGeneration = 0;
+    let realtimeReconnectTimer = null;
+    let realtimeReconnectAttempt = 0;
+    let hostMissingSince = 0;
+    let lastPresenceSyncAt = 0;
+    let roomConnectionState = 'idle';
+    const HOST_ABSENCE_GRACE_MS = 12000;
+    const REALTIME_RECONNECT_MAX_MS = 10000;
     const processedGameActionIds = new Set();
     const pendingGameActionRetries = new Map();
+
+    // Database persistence is deliberately decoupled from live gameplay.
+    // A card action must never wait for REST/database I/O. Multiple fast
+    // actions are coalesced into one latest-state save.
+    let roomStatePersistTimer = null;
+    let roomStatePersistInFlight = null;
+    let roomStatePersistRequested = false;
+    const ROOM_STATE_PERSIST_DELAY_MS = 1800;
 
     function createGameActionId(actionType) {
         return [
@@ -1935,6 +2122,15 @@ const loggedName = document.getElementById('logged-in-name');
             Date.now().toString(36),
             Math.random().toString(36).slice(2, 10)
         ].join('-');
+    }
+
+    async function waitForRoomChannelReady(timeoutMs = 5000) {
+        const started = Date.now();
+        while (Date.now() - started < timeoutMs) {
+            if (roomChannelReady && roomChannel && roomCode) return true;
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return roomChannelReady && !!roomChannel && !!roomCode;
     }
 
     function sendGameActionWithRetry(payload, maxAttempts = 3) {
@@ -1952,6 +2148,10 @@ const loggedName = document.getElementById('logged-in-name');
             try {
                 for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 
+                    // If a player clicks during a short transport flap, keep
+                    // the intent alive briefly instead of silently dropping it.
+                    // The host still performs the final turn/phase validation.
+                    await waitForRoomChannelReady(5000);
                     const result = await sendRealtimeMessage(payload);
 
                     /*
@@ -1980,44 +2180,60 @@ const loggedName = document.getElementById('logged-in-name');
     }
 
     function sendRealtimeMessage(payload) {
+        if (!payload) return Promise.resolve(false);
+
         if (!roomChannel) {
             return Promise.resolve(false);
         }
 
         if (!roomChannelReady) {
-            return new Promise(resolve => {
-                realtimeOutboundQueue.push({
-                    payload,
-                    resolve
-                });
-            });
+            // Never queue arbitrary room packets across a transport outage.
+            // Old state packets/actions can become invalid after reconnect and
+            // replaying them is a common cause of wrong turns and scores.
+            return Promise.resolve(false);
         }
-
-        return roomChannel.send({
-            type: 'broadcast',
-            event: 'game_event',
-            payload
-        });
+        try {
+            return roomChannel.send({
+                type: 'broadcast',
+                event: 'game_event',
+                payload
+            }).then(result => {
+                // Supabase returns an error-like status for some transport
+                // failures without throwing. Do not mark the room disconnected;
+                // the channel status callback owns connection state.
+                return result || 'ok';
+            }).catch(error => {
+                console.warn('Realtime send temporarily failed:', error);
+                return false;
+            });
+        } catch (error) {
+            console.warn('Realtime send failed:', error);
+            return Promise.resolve(false);
+        }
     }
 
     async function flushRealtimeOutboundQueue() {
-        if (!roomChannel || !roomChannelReady || !realtimeOutboundQueue.length) {
-            return;
-        }
+        if (!roomChannel || !roomChannelReady || !realtimeOutboundQueue.length) return;
 
         const queue = realtimeOutboundQueue.splice(0);
-
         for (const item of queue) {
+            // Drop packets that have been waiting through a dead connection.
+            // Game actions are independently idempotent and will be regenerated
+            // by the caller when needed; stale UI packets should not flood a room.
+            if (Date.now() - Number(item.queuedAt || Date.now()) > 15000) {
+                try { item.resolve(false); } catch (e) {}
+                continue;
+            }
             try {
                 const result = await roomChannel.send({
                     type: 'broadcast',
                     event: 'game_event',
                     payload: item.payload
                 });
-                item.resolve(result);
+                try { item.resolve(result || 'ok'); } catch (e) {}
             } catch (error) {
-                item.resolve(false);
-                console.error('Realtime queued message failed:', error);
+                try { item.resolve(false); } catch (e) {}
+                console.warn('Realtime queued message failed:', error);
             }
         }
     }
@@ -2078,10 +2294,30 @@ const loggedName = document.getElementById('logged-in-name');
 
         if (!currentHostToken) return;
 
-        const presentTokens = getPresentRoomClientTokens();
+        // The browser that currently owns host authority must never elect
+        // another host because its own Presence snapshot briefly lagged.
+        if (currentHostToken === myClientToken && isHost) {
+            hostMissingSince = 0;
+            return;
+        }
 
-        // The current host is still present; nothing to do.
-        if (presentTokens.has(currentHostToken)) return;
+        const presentTokens = getPresentRoomClientTokens();
+        lastPresenceSyncAt = Date.now();
+
+        // Presence is eventually consistent. A missing host in ONE sync is not
+        // a disconnect. Wait through the full grace window before changing any
+        // player's connected flag or transferring authority.
+        if (presentTokens.has(currentHostToken)) {
+            hostMissingSince = 0;
+            return;
+        }
+
+        if (!hostMissingSince) {
+            hostMissingSince = Date.now();
+            return;
+        }
+
+        if (Date.now() - hostMissingSince < HOST_ABSENCE_GRACE_MS) return;
 
         const candidate = chooseDeterministicHostCandidate(presentTokens);
         if (!candidate) return;
@@ -2092,6 +2328,7 @@ const loggedName = document.getElementById('logged-in-name');
 
         hostTransferInProgress = true;
         lastHostTransferAt = Date.now();
+        hostMissingSince = 0;
 
         const oldHost = players.find(p => getPlayerRoomToken(p) === currentHostToken);
         if (oldHost) {
@@ -2163,114 +2400,163 @@ const loggedName = document.getElementById('logged-in-name');
         setTimeout(() => { hostTransferInProgress = false; }, 1500);
     }
 
-    function initRealtimeChannel(code) {
-        resetTournamentWinnerState(code);
+    function scheduleRealtimeReconnect(code, generation, reason = '') {
+        if (isSoloMode || !roomCode || String(roomCode) !== String(code)) return;
+        if (generation !== roomChannelGeneration) return;
+        if (realtimeReconnectTimer) return;
 
-        // A new room gets a completely fresh chat context.
-        // If this is only a reconnect to the same room, keep its current chat.
+        const delay = Math.min(
+            REALTIME_RECONNECT_MAX_MS,
+            750 * Math.pow(2, Math.min(realtimeReconnectAttempt, 4))
+        );
+        realtimeReconnectAttempt++;
+
+        realtimeReconnectTimer = setTimeout(async () => {
+            realtimeReconnectTimer = null;
+            if (generation !== roomChannelGeneration) return;
+            if (!roomCode || String(roomCode) !== String(code)) return;
+
+            try {
+                initRealtimeChannel(code, { reconnect: true });
+            } catch (e) {
+                console.warn('Realtime reconnect attempt failed:', e);
+                scheduleRealtimeReconnect(code, generation, 'retry-failed');
+            }
+        }, delay);
+
+        if (reason) console.warn(`Realtime transport ${reason}; retrying in ${delay}ms.`);
+    }
+
+    function initRealtimeChannel(code, options = {}) {
+        resetTournamentWinnerState(code);
         resetRoomChatState(code);
 
+        roomChannelGeneration++;
+        const generation = roomChannelGeneration;
+        const isReconnect = options.reconnect === true;
+
         roomChannelReady = false;
-        realtimeOutboundQueue = [];
-        authoritativeStateVersion = 0;
-        lastAppliedStateVersion = 0;
-        processedGameActionIds.clear();
-        if (!roomHostToken) {
-            const saved = readLocalRoomSession();
-            roomHostToken = String(saved?.roomHostToken || '').trim();
+        roomConnectionState = 'connecting';
+        if (!isReconnect) {
+            // A brand-new room must never inherit state/version/action ids
+            // from the previous room. Reconnects to the SAME room preserve
+            // them so a temporary network flap cannot rewind the game.
+            realtimeReconnectAttempt = 0;
+            hostMissingSince = 0;
+            lastPresenceSyncAt = 0;
+            authoritativeStateVersion = 0;
+            lastAppliedStateVersion = 0;
+            processedGameActionIds.clear();
+            realtimeOutboundQueue.forEach(item => { try { item.resolve(false); } catch (e) {} });
+            realtimeOutboundQueue = [];
+        } else {
+            authoritativeStateVersion = Number(authoritativeStateVersion) || 0;
+            lastAppliedStateVersion = Number(lastAppliedStateVersion) || 0;
         }
-        // Preserve roomOwnerToken across reconnects to the same room.
-        // It is loaded by createRoom/joinRoom and must not be reset here.
         hostTransferInProgress = false;
         lastHostTransferAt = 0;
 
-        if (roomChannel) {
-            try {
-                supabaseClient.removeChannel(roomChannel);
-            } catch (e) {}
+        if (realtimeReconnectTimer && !isReconnect) {
+            clearTimeout(realtimeReconnectTimer);
+            realtimeReconnectTimer = null;
         }
 
-        const channel = supabaseClient.channel(`room_${code}`, {
+        const previousChannel = roomChannel;
+        roomChannel = null;
+
+        // Do not wait for removal of a possibly broken channel. Creating the
+        // replacement immediately is safer; callbacks are generation-guarded.
+        if (previousChannel) {
+            try { supabaseClient.removeChannel(previousChannel); } catch (e) {}
+        }
+
+        const channel = supabaseClient.channel(`room_${String(code).toUpperCase()}`, {
             config: {
-                broadcast: {
-                    self: true
-                }
+                broadcast: { self: false },
+                presence: { key: myClientToken }
             }
         });
 
         roomChannel = channel;
 
-        // Supabase Presence is used only for host-failure detection.
-        // It does not carry game state; the game state remains the
-        // authoritative snapshot already synchronized to every client.
-        channel.on(
-            'presence',
-            { event: 'sync' },
-            () => {
-                if (roomChannel !== channel || isSoloMode) return;
-                maybeElectNewHost('presence-sync');
+        channel.on('presence', { event: 'sync' }, () => {
+            if (roomChannel !== channel || generation !== roomChannelGeneration || isSoloMode) return;
+            // Presence is transport telemetry only. It must NEVER change game
+            // state, player.connected, turn order, or host ownership.
+            lastPresenceSyncAt = Date.now();
+        });
+
+        channel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
+            if (roomChannel !== channel || generation !== roomChannelGeneration || isSoloMode) return;
+            // A returning host/player is evidence that the connection is alive.
+            if (key === myClientToken) hostMissingSince = 0;
+        });
+
+        channel.on('presence', { event: 'leave' }, ({ key }) => {
+            if (roomChannel !== channel || generation !== roomChannelGeneration || isSoloMode) return;
+            // Do NOT mark anyone disconnected here. Presence leave events can be
+            // transient during reconnect. The grace-period sync check decides.
+            if (key && key === myClientToken) {
+                // Our own transient leave is handled by the channel reconnect.
+                // Never mark the player disconnected from a Presence event.
+                hostMissingSince = 0;
             }
-        );
+        });
 
-        channel
-            .on(
-                'broadcast',
-                { event: 'game_event' },
-                ({ payload }) => {
-                    handleIncomingNetworkData(payload);
+        channel.on('broadcast', { event: 'game_event' }, ({ payload }) => {
+            if (roomChannel !== channel || generation !== roomChannelGeneration) return;
+            try { handleIncomingNetworkData(payload); } catch (error) {
+                console.error('Network event handling failed:', error);
+            }
+        });
+
+        channel.subscribe((status) => {
+            if (roomChannel !== channel || generation !== roomChannelGeneration) return;
+
+            if (status === 'SUBSCRIBED') {
+                roomChannelReady = true;
+                roomConnectionState = 'connected';
+                realtimeReconnectAttempt = 0;
+                hostMissingSince = 0;
+
+                try {
+                    channel.track({
+                        clientToken: myClientToken,
+                        playerId: myId || myClientToken,
+                        roomCode: String(code).toUpperCase(),
+                        isHost: isHost === true,
+                        connectedAt: Date.now()
+                    });
+                } catch (e) {
+                    console.warn('Presence tracking failed:', e);
                 }
-            )
-            .subscribe((status) => {
 
-                // Ignore callbacks from an old channel after a room/session
-                // has already created a replacement channel.
-                if (roomChannel !== channel) {
-                    return;
+                flushRealtimeOutboundQueue();
+
+                // Only request room admission/recovery after the channel is
+                // genuinely subscribed. This prevents a race where a JOIN_REQUEST
+                // is sent into a channel that has not finished connecting.
+                if (!isHost && !isSoloMode) {
+                    sendRealtimeMessage({
+                        type: 'JOIN_REQUEST',
+                        name: myName,
+                        clientToken: myClientToken,
+                        senderId: myClientToken,
+                        roomCode: String(code).toUpperCase(),
+                        rejoinRequest: true,
+                        autoRejoin: true
+                    });
                 }
-
-                if (status === 'SUBSCRIBED') {
-                    roomChannelReady = true;
-
-                    // Presence lets every client detect a host browser that
-                    // closes/crashes without pressing Exit.
-                    try {
-                        channel.track({
-                            clientToken: myClientToken,
-                            playerId: myId || myClientToken,
-                            roomCode: code,
-                            isHost: isHost === true
-                        });
-                    } catch (e) {
-                        console.warn('Could not track room presence:', e);
-                    }
-
-                    flushRealtimeOutboundQueue();
-
-                    if (!isHost && !isSoloMode) {
-                        /*
-                         * Existing player:
-                         * DO NOT automatically reconnect.
-                         *
-                         * The host must approve the rejoin.
-                         */
-                        sendRealtimeMessage({
-                            type: 'JOIN_REQUEST',
-                            name: myName,
-                            clientToken: myClientToken,
-                            senderId: myClientToken,
-                            roomCode: code,
-                            rejoinRequest: true,
-                            autoRejoin: true
-                        });
-                    }
-                } else if (
-                    status === 'CHANNEL_ERROR' ||
-                    status === 'TIMED_OUT' ||
-                    status === 'CLOSED'
-                ) {
-                    roomChannelReady = false;
-                }
-            });
+            } else if (
+                status === 'CHANNEL_ERROR' ||
+                status === 'TIMED_OUT' ||
+                status === 'CLOSED'
+            ) {
+                roomChannelReady = false;
+                roomConnectionState = String(status).toLowerCase();
+                scheduleRealtimeReconnect(code, generation, status);
+            }
+        });
     }
 
 
@@ -2801,6 +3087,11 @@ const loggedName = document.getElementById('logged-in-name');
 
         roomChannel = null;
         roomChannelReady = false;
+        roomConnectionState = 'idle';
+        if (realtimeReconnectTimer) { clearTimeout(realtimeReconnectTimer); realtimeReconnectTimer = null; }
+        realtimeReconnectAttempt = 0;
+        hostMissingSince = 0;
+        realtimeOutboundQueue.forEach(item => { try { item.resolve(false); } catch (e) {} });
         realtimeOutboundQueue = [];
         authoritativeStateVersion = 0;
         lastAppliedStateVersion = 0;
@@ -2912,8 +3203,10 @@ const loggedName = document.getElementById('logged-in-name');
         const roomId = document.getElementById('current-room-id');
         const eliminationControl = document.getElementById('game-eliminate-control');
         const eliminationSelect = document.getElementById('game-target-points-select');
+        const lobbyHistoryDbBtn = document.getElementById('lobby-game-history-db-btn');
 
         if (isLobby) {
+            if (lobbyHistoryDbBtn) lobbyHistoryDbBtn.classList.remove('hidden');
             if (title) title.classList.remove('hidden');
 
             if (loggedName) {
@@ -2953,6 +3246,7 @@ const loggedName = document.getElementById('logged-in-name');
                 'bg-emerald-600/85 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border border-emerald-700/50';
             btn.title = 'Refresh the app / website';
         } else {
+            if (lobbyHistoryDbBtn) lobbyHistoryDbBtn.classList.add('hidden');
             // GAME ROOM HEADER: only the Exit action remains.
             if (title) title.classList.add('hidden');
             if (loggedName) {
@@ -4374,10 +4668,12 @@ const loggedName = document.getElementById('logged-in-name');
                             turnPhase,
                             stateVersion: authoritativeStateVersion,
                             roundActive,
+                            roundCounter,
                             gameHistory,
                             gameHistoryHostName,
                             roomOwnerToken,
                             roomHostToken,
+                            roomCode,
                             message: `${existingPlayer.name} rejoined and recovered the existing player record.`
                         });
 
@@ -5601,11 +5897,9 @@ const loggedName = document.getElementById('logged-in-name');
                     'hidden'
                 );
 
-                document.getElementById(
-                    'round-over-modal'
-                ).classList.add(
-                    'hidden'
-                );
+                if (roundActive) {
+                    document.getElementById('round-over-modal')?.classList.add('hidden');
+                }
 
                 document.getElementById(
                     'game-board-screen'
@@ -5720,11 +6014,9 @@ const loggedName = document.getElementById('logged-in-name');
                     'hidden'
                 );
 
-                document.getElementById(
-                    'round-over-modal'
-                ).classList.add(
-                    'hidden'
-                );
+                if (roundActive) {
+                    document.getElementById('round-over-modal')?.classList.add('hidden');
+                }
 
                 document.getElementById(
                     'room-badge'
@@ -6083,6 +6375,13 @@ const loggedName = document.getElementById('logged-in-name');
             return;
         }
 
+        const totalCardsNeeded = players.filter(p => p && p.connected !== false && !p.eliminated && p.viewOnly !== true).length * cardsPerPlayer;
+        const availableCards = includeJoker ? 53 : 52;
+        if (totalCardsNeeded + 1 > availableCards) {
+            alert(`Too many cards for ${players.length} players with ${cardsPerPlayer} cards each. Choose fewer cards per player.`);
+            return;
+        }
+
         roundCounter = 1;
         gameHistory = [];
 
@@ -6189,6 +6488,10 @@ gameHistory:
             startPayload
         );
 
+        // One initial recovery snapshot is useful; subsequent gameplay saves
+        // are background/coalesced and never sit on the critical play path.
+        persistRoomStateToSupabase({ immediate: true });
+
         document.getElementById(
             'waiting-screen'
         ).classList.add(
@@ -6285,8 +6588,8 @@ gameHistory:
             payload
         );
 
-        // Realtime carries the update to connected clients; Supabase keeps
-        // the same authoritative snapshot for browser-refresh recovery.
+        // Realtime is the live gameplay path. Database persistence is only a
+        // background recovery path and is deliberately coalesced.
         if (isHost) {
             persistRoomStateToSupabase();
         } else {
@@ -6971,25 +7274,14 @@ gameHistory:
     }
 
     function buildRoundCardPreviewHtml(player, isCaller = false, isTournamentWinner = false) {
-        const hand = Array.isArray(player?.hand) ? player.hand : [];
-
-        const cardsHtml = hand.length
-            ? hand.map(card => {
-                const red = ['♥', '♦'].includes(card.suit);
-                return `<span class="inline-flex items-center justify-center min-w-[24px] h-[30px] px-1 rounded-md bg-white border border-slate-300 text-[12px] font-black leading-none ${red ? 'text-rose-600' : 'text-slate-900'} shadow-sm">${escapeRoundResultHtml(card.val)}${escapeRoundResultHtml(card.suit)}</span>`;
-            }).join('')
-            : '<span class="text-zinc-500 italic text-[9px]">No cards</span>';
-
+        const handCount = Array.isArray(player?.hand) ? player.hand.length : 0;
         return `
-            <div class="min-w-0 rounded-lg border ${isCaller ? 'border-amber-400/70 bg-amber-500/10' : 'border-zinc-800 bg-black/80'} px-1.5 py-1.5">
-                <div class="flex items-center justify-between gap-1 mb-1">
-                    <div class="min-w-0 font-black text-white text-[10px] truncate">${escapeRoundResultHtml(player?.name || 'Player')}
-                        ${isCaller ? '<span class="text-amber-400 text-[8px] ml-0.5">SHOW</span>' : ''}
-                        ${isTournamentWinner ? '<span class="text-emerald-400 text-[8px] ml-0.5">WIN</span>' : ''}
-                    </div>
-                    <div class="text-[8px] text-zinc-500 shrink-0">${hand.length}</div>
-                </div>
-                <div class="flex flex-nowrap items-center gap-0.5 overflow-hidden">${cardsHtml}</div>
+            <div class="flex items-center justify-between gap-2 rounded-md border ${isCaller ? 'border-amber-400/60 bg-amber-500/10' : 'border-zinc-800 bg-black/70'} px-2 py-1.5 min-w-0">
+                <span class="font-bold text-white text-[10px] truncate">${escapeRoundResultHtml(player?.name || 'Player')}
+                    ${isCaller ? '<span class="text-amber-400 text-[8px] ml-1">SHOW</span>' : ''}
+                    ${isTournamentWinner ? '<span class="text-emerald-400 text-[8px] ml-1">WIN</span>' : ''}
+                </span>
+                <span class="text-[10px] text-zinc-300 font-black tabular-nums shrink-0">Cards: ${handCount}</span>
             </div>`;
     }
 
@@ -7128,12 +7420,15 @@ gameHistory:
 
         resultsText += `
             <div class="mt-3 pt-3 border-t border-zinc-800">
-                <div class="text-amber-300 font-black mb-1.5">Cards at SHOW</div>
-                <div class="grid grid-cols-2 gap-1.5">
-                    ${summaries.map(item => buildRoundCardPreviewHtml(
-                        item.player,
-                        item.index === callerIndex
-                    )).join('')}
+                <div class="text-amber-300 font-black mb-1.5">Round Cards</div>
+                <div class="flex flex-col gap-1">
+                    ${summaries.map(item => `
+                        <div class="flex items-center justify-between gap-2 rounded-md border border-zinc-800 bg-black/70 px-2 py-1 text-[10px]">
+                            <span class="font-bold text-white truncate">${escapeRoundResultHtml(item.player.name)}</span>
+                            <span class="text-zinc-300 font-black tabular-nums">Cards: ${Array.isArray(item.player.hand) ? item.player.hand.length : 0}</span>
+                            <span class="text-zinc-400 font-black tabular-nums">Sum: ${item.sum}</span>
+                            <span class="text-emerald-300 font-black tabular-nums">Total: ${item.player.scores}</span>
+                        </div>`).join('')}
                 </div>
             </div>`;
 
@@ -7244,6 +7539,13 @@ gameHistory:
                 gameHistory.at(-1)?.callerName || ''
             );
             syncGameHistoryToSupabase(finalWinner);
+            return;
+        }
+
+        const totalCardsNeeded = activePlayers.length * cardsPerPlayer;
+        const availableCards = includeJoker ? 53 : 52;
+        if (totalCardsNeeded + 1 > availableCards) {
+            logTicker('Unable to start next round: not enough cards for all active players.');
             return;
         }
 
