@@ -844,6 +844,116 @@
         return gameHistoryHostName;
     }
 
+    // ============================================================
+    // LIFECYCLE / TERMINAL-OUTCOME HELPERS (v2 fixes)
+    // ============================================================
+    const RECONNECT_GRACE_MS = 120000; // documented grace period before a stalled game is ABANDONED
+    let gameTerminalRecord = null;     // { status: 'COMPLETED'|'ABANDONED', reason }
+    let reconnectGraceTimer = null;
+
+    // Players still in the tournament. Network state (connected=false) does NOT
+    // remove a player: only elimination, an explicit leave, or a host denial does.
+    function getTournamentSurvivors() {
+        return (Array.isArray(players) ? players : []).filter(p =>
+            p && !p.eliminated && p.left !== true &&
+            (p.viewOnly !== true || (Array.isArray(p.hand) && p.hand.length > 0))
+        );
+    }
+
+    function isEligibleTurnPlayer(p) {
+        return !!p && !p.eliminated && p.left !== true && p.connected !== false &&
+            p.viewOnly !== true && p.rejoinPending !== true;
+    }
+
+    // Single source of truth for "is the tournament over, and why?"
+    function resolveTerminalOutcome() {
+        const all = (Array.isArray(players) ? players : []).filter(Boolean);
+        const survivors = getTournamentSurvivors();
+        const anyEliminated = all.some(p => p.eliminated === true);
+        const anyLeft = all.some(p => p.left === true);
+        if (survivors.length > 1) return { done: false };
+        if (survivors.length === 1) {
+            if (anyEliminated) return { done: true, status: 'COMPLETED', winner: survivors[0].name, reason: 'ELIMINATION' };
+            if (anyLeft) return { done: true, status: 'COMPLETED', winner: survivors[0].name, reason: 'PLAYER_LEFT' };
+            return { done: false };
+        }
+        if (all.length > 1 && (anyEliminated || anyLeft)) {
+            return { done: true, status: 'COMPLETED', winner: 'Nobody', reason: anyEliminated ? 'ELIMINATION' : 'PLAYER_LEFT' };
+        }
+        return { done: false };
+    }
+
+    // Keep currentTurnIndex pointing at an eligible player (never an invalid index).
+    function ensureValidCurrentTurn() {
+        if (!Array.isArray(players) || !players.length) { currentTurnIndex = 0; return false; }
+        if (!(currentTurnIndex >= 0 && currentTurnIndex < players.length)) currentTurnIndex = 0;
+        if (isEligibleTurnPlayer(players[currentTurnIndex])) return true;
+        for (let i = 1; i <= players.length; i++) {
+            const idx = (currentTurnIndex + i) % players.length;
+            if (isEligibleTurnPlayer(players[idx])) { currentTurnIndex = idx; return true; }
+        }
+        return false;
+    }
+
+    function showGameNotice(text) {
+        try {
+            const el = document.createElement('div');
+            el.textContent = String(text);
+            el.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:99999;background:#18181b;color:#fde68a;border:1px solid #f59e0b;border-radius:12px;padding:12px 16px;font:700 13px system-ui;max-width:90vw;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.6)';
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 7000);
+        } catch (e) {}
+    }
+
+    // Host-only: if too few players are connected to continue, wait for the
+    // grace period; if still stalled afterwards, end the game as ABANDONED.
+    function scheduleReconnectGraceCheck() {
+        if (isSoloMode || !isHost || !roomCode || reconnectGraceTimer) return;
+        if (Number(roundCounter) <= 0 || gameTerminalRecord) return;
+        reconnectGraceTimer = setTimeout(async () => {
+            reconnectGraceTimer = null;
+            try {
+                if (!isHost || gameTerminalRecord || resolveTerminalOutcome().done) return;
+                const connected = getTournamentSurvivors().filter(p => p.connected !== false && p.viewOnly !== true);
+                if (connected.length >= 2) return; // players came back
+                await abandonGame('PLAYER_DISCONNECTED');
+            } catch (e) { console.error('Grace check failed:', e); }
+        }, RECONNECT_GRACE_MS);
+    }
+
+    async function abandonGame(reason) {
+        if (gameTerminalRecord) return false;
+        gameTerminalRecord = { status: 'ABANDONED', reason: reason || 'ADMINISTRATIVE_TERMINATION' };
+        roundActive = false;
+        await syncGameHistoryToSupabase('');
+        await sendRealtimeMessage({ type: 'GAME_ABANDONED', roomCode, reason: gameTerminalRecord.reason });
+        showGameNotice('Game abandoned: ' + gameTerminalRecord.reason.replace(/_/g, ' ').toLowerCase());
+        renderGameBoard();
+        saveLocalRoomSession();
+        return true;
+    }
+
+    // Authoritative status of a saved history row (backward compatible with old rows).
+    function parseGameHistoryStatus(row) {
+        const winner = String(row?.game_winner || '').trim();
+        const text = String(row?.game_history || '');
+        const sm = text.match(/^Status:\s*(.+)$/im);
+        const rm = text.match(/^End Reason:\s*(.+)$/im);
+        const finalResult = (text.match(/=== FINAL RESULT ===\s*\nWinner:\s*(.*)/i) || [, ''])[1].trim();
+        const notWinner = !winner || /^(in\s*progress|abandoned|waiting)$/i.test(winner);
+        let status = sm ? sm[1].trim().toUpperCase().replace(/\s+/g, '_') : '';
+        const reason = rm ? rm[1].trim() : '';
+        if (!['WAITING', 'IN_PROGRESS', 'COMPLETED', 'ABANDONED'].includes(status)) {
+            status = (notWinner || /^in\s*progress$/i.test(finalResult)) ? 'IN_PROGRESS' : 'COMPLETED';
+        }
+        if (status === 'COMPLETED' && notWinner) status = 'IN_PROGRESS';
+        const label = status === 'COMPLETED' ? winner
+            : status === 'ABANDONED' ? 'Abandoned' + (reason ? ' (' + reason.replace(/_/g, ' ').toLowerCase() + ')' : '')
+            : status === 'WAITING' ? 'Waiting' : 'In Progress';
+        return { status, winner: status === 'COMPLETED' ? winner : '', reason, label,
+                 inProgress: status === 'IN_PROGRESS' || status === 'WAITING' };
+    }
+
     function buildGameHistoryText(finalWinner = '') {
         const hostName = getGameHistoryHostName();
         const safePlayers = Array.isArray(players) ? players : [];
@@ -873,12 +983,18 @@
             });
         }
 
-        if (finalWinner) {
-            text += `=== FINAL RESULT ===\n`;
+        text += `=== FINAL RESULT ===\n`;
+        if (gameTerminalRecord && gameTerminalRecord.status === 'ABANDONED') {
+            text += `Winner: Abandoned\n`;
+            text += `Status: ABANDONED\n`;
+            text += `End Reason: ${gameTerminalRecord.reason}\n`;
+        } else if (finalWinner) {
             text += `Winner: ${finalWinner}\n`;
+            text += `Status: COMPLETED\n`;
+            text += `End Reason: ${(gameTerminalRecord && gameTerminalRecord.reason) || 'ELIMINATION'}\n`;
         } else {
-            text += `=== FINAL RESULT ===\n`;
             text += `Winner: In Progress\n`;
+            text += `Status: IN_PROGRESS\n`;
         }
 
         return text.trim();
@@ -890,7 +1006,7 @@
         return {
             game_host: getGameHistoryHostName(),
             game_code: roomCode,
-            game_winner: finalWinner || '',
+            game_winner: (gameTerminalRecord && gameTerminalRecord.status === 'ABANDONED') ? '' : (finalWinner || ''),
             players_name: safePlayers.map(p => p.name).join(', '),
             game_points: safePlayers
                 .map(p => `${p.name}: ${p.scores || 0} pts`)
@@ -926,8 +1042,6 @@
             roundActive: !!roundActive,
             gameHistory: Array.isArray(gameHistory) ? gameHistory : [],
             roundCounter: Number(roundCounter) || 0,
-            walletGameId: String(walletGameId || ''),
-            gameOpponentCount: Number(gameOpponentCount) || 1,
             gameHistoryHostName: String(getGameHistoryHostName() || ''),
             authoritativeStateVersion: Number(authoritativeStateVersion) || 0
         };
@@ -986,8 +1100,6 @@
         roundActive = snapshot.roundActive === true;
         gameHistory = Array.isArray(snapshot.gameHistory) ? snapshot.gameHistory : [];
         roundCounter = Number(snapshot.roundCounter) || 0;
-        walletGameId = String(snapshot.walletGameId || '');
-        gameOpponentCount = Number(snapshot.gameOpponentCount) || 1;
         gameHistoryHostName = String(snapshot.gameHistoryHostName || '');
         authoritativeStateVersion = Number(snapshot.authoritativeStateVersion) || 0;
         lastAppliedStateVersion = authoritativeStateVersion;
@@ -999,7 +1111,7 @@
         const me = myIndex >= 0 ? players[myIndex] : null;
         if (me) {
             me.clientToken = me.clientToken || myClientToken;
-            me.connected = true;
+            me.connected = true; me.left = false;
             me.viewOnly = false;
             me.rejoinPending = false;
             myId = String(me.id || myId || myClientToken);
@@ -1037,9 +1149,21 @@
             if (!queuedSnapshot) return false;
             const queuedVersion = Number(authoritativeStateVersion) || 0;
             roomStateWriteQueuedVersion = Math.max(roomStateWriteQueuedVersion, queuedVersion);
-            roomStateWriteChain = roomStateWriteChain
-                .catch(() => {})
-                .then(() => persistRoomStateToSupabase(queuedSnapshot, queuedVersion));
+            // Coalesce: only the newest snapshot is written; older pending ones are dropped.
+            roomStateLatestJob = { snapshot: queuedSnapshot, version: queuedVersion };
+            if (!roomStateWriterRunning) {
+                roomStateWriterRunning = true;
+                roomStateWriteChain = (async () => {
+                    try {
+                        while (roomStateLatestJob) {
+                            const job = roomStateLatestJob;
+                            roomStateLatestJob = null;
+                            try { await persistRoomStateToSupabase(job.snapshot, job.version); }
+                            catch (e) { console.warn('Room state write failed:', e); }
+                        }
+                    } finally { roomStateWriterRunning = false; }
+                })();
+            }
             return roomStateWriteChain;
         }
 
@@ -1229,7 +1353,13 @@
             myIndex = 0;
         }
 
-        initRealtimeChannel(roomCode);
+        // A restored host may have lost the last unsaved updates; jump the version ahead so
+        // guests that already saw newer versions never ignore the restored host.
+        if (isHost && !isSoloMode) {
+            authoritativeStateVersion = (Number(authoritativeStateVersion) || 0) + 100;
+            lastAppliedStateVersion = authoritativeStateVersion;
+        }
+        initRealtimeChannel(roomCode, true);
         showRoomAfterRestore();
 
         if (isHost) {
@@ -1331,8 +1461,7 @@
     );
 
     // Custom game account session. No email address is created and no
-    // Supabase Auth signup/login/email service is used. Coin balances live
-    // only in Supabase; the browser stores only this login session token.
+    // Supabase Auth signup/login/email service is used. The browser stores only this login session token.
     const GAME_AUTH_TOKEN_KEY = 'leastCountGameAuthTokenV1';
     let authSessionToken = '';
     let currentUser = null;
@@ -1458,7 +1587,6 @@
         gameHistory = [];
         roundCounter = 0;
         roundActive = false;
-        walletGameId = '';
         authoritativeStateVersion = 0;
         lastAppliedStateVersion = 0;
         processedGameActionIds.clear();
@@ -1577,19 +1705,8 @@
     let roundCounter = 0;
 
     // ============================================================
-    // SUPABASE USER WALLETS
-    // BOT = games against computer players
-    // REAL = online multiplayer games
-    // Balances and settlement records are stored in Supabase.
+    // CONCURRENCY GUARDS
     // ============================================================
-    const WIN_REWARD_PER_OPPONENT = 100;
-    const LOSS_PENALTY = 100;
-
-    let botWallet = 0;
-    let realWallet = 0;
-    let walletGameId = '';
-    let gameOpponentCount = 1;
-
     // Production concurrency guards. These prevent rapid double-clicks and
     // duplicate realtime requests from starting the same game action twice.
     let startGameInFlight = false;
@@ -1602,196 +1719,8 @@
     // after a newer snapshot and overwrite the authoritative state.
     let roomStateWriteChain = Promise.resolve();
     let roomStateWriteQueuedVersion = 0;
-
-
-    // Per-browser settlement guards. The database also has a unique
-    // (player_id, game_id, wallet_type) constraint, so retries are safe.
-    const walletSettlementInFlight = new Map();
-    const walletSettlementCompleted = new Set();
-
-    function renderWallets() {
-        const botEl = document.getElementById('bot-wallet-balance');
-        const realEl = document.getElementById('real-wallet-balance');
-
-        if (botEl)
-            botEl.innerText = String(Math.trunc(Number(botWallet) || 0));
-
-        if (realEl)
-            realEl.innerText = String(Math.trunc(Number(realWallet) || 0));
-
-        if (botEl)
-            botEl.className =
-                `text-[10px] font-black tabular-nums ${
-                    botWallet < 0 ? 'text-rose-300' : 'text-indigo-200'
-                }`;
-
-        if (realEl)
-            realEl.className =
-                `text-[10px] font-black tabular-nums ${
-                    realWallet < 0 ? 'text-rose-300' : 'text-emerald-200'
-                }`;
-    }
-
-    async function loadWallets() {
-        if (!currentUser || !authSessionToken) {
-            botWallet = 0;
-            realWallet = 0;
-            renderWallets();
-            return;
-        }
-
-        try {
-            const { data, error } = await supabaseClient.rpc(
-                'get_least_count_wallet',
-                { p_session_token: authSessionToken }
-            );
-
-            if (error) throw error;
-
-            const result = Array.isArray(data) ? data[0] : data;
-            botWallet = Number(result?.bot_coins || 0);
-            realWallet = Number(result?.real_coins || 0);
-            renderWallets();
-        } catch (error) {
-            console.error('Wallet load failed:', error);
-            logTicker('Unable to load wallet balances.');
-        }
-    }
-
-    function setWalletGameId() {
-        walletGameId =
-            String(roomCode || '') + '-' +
-            Date.now().toString(36) + '-' +
-            Math.random().toString(36).slice(2, 8);
-    }
-
-    async function settleWalletForCompletedGame(winnerName, opponentCount, forceType = '') {
-        if (!currentUser || !authSessionToken) return false;
-        if (!walletGameId && roomCode) walletGameId = roomCode;
-        if (!walletGameId) return false;
-
-        const me = String(myName || '').trim();
-        const winner = String(winnerName || '').trim();
-
-        if (!me || !winner || winner === 'Nobody') return false;
-
-        const opponents = Math.max(1, Math.trunc(Number(opponentCount) || 1));
-
-        const useBotWallet =
-            forceType === 'bot' ||
-            (forceType !== 'real' && isSoloMode);
-
-        const won = me === winner;
-        const delta = won
-            ? WIN_REWARD_PER_OPPONENT * opponents
-            : -LOSS_PENALTY;
-
-        const walletType = useBotWallet ? 'bot' : 'real';
-        const settlementKey = `${String(walletGameId)}::${walletType}`;
-
-        if (walletSettlementCompleted.has(settlementKey)) {
-            return true;
-        }
-
-        if (walletSettlementInFlight.has(settlementKey)) {
-            return walletSettlementInFlight.get(settlementKey);
-        }
-
-        const settlementPromise = (async () => {
-            let lastError = null;
-
-            // Realtime room messages can arrive while the browser/network
-            // is still busy. Retry the same idempotent RPC a few times.
-            for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                    const { data, error } = await supabaseClient.rpc(
-                        'settle_least_count_game_wallet',
-                        {
-                            p_session_token: authSessionToken,
-                            p_game_id: String(walletGameId),
-                            p_wallet_type: walletType,
-                            p_opponent_count: opponents,
-                            p_game_code: String(roomCode || ''),
-                            p_result: won ? 'win' : 'loss'
-                        }
-                    );
-
-                    if (error) throw error;
-
-                    const result = Array.isArray(data) ? data[0] : data;
-
-                    if (result) {
-                        botWallet = Number(result.bot_coins ?? botWallet);
-                        realWallet = Number(result.real_coins ?? realWallet);
-                    } else {
-                        await loadWallets();
-                    }
-
-                    renderWallets();
-                    walletSettlementCompleted.add(settlementKey);
-
-                    const walletName = useBotWallet ? 'BOT wallet' : 'REAL wallet';
-                    const amountText = delta >= 0 ? `+${delta}` : `${delta}`;
-
-                    logTicker(
-                        `${won ? 'WIN' : 'LOSS'}: ${amountText} coins → ${walletName}`
-                    );
-
-                    return true;
-                } catch (error) {
-                    lastError = error;
-                    console.error(
-                        `Wallet settlement attempt ${attempt} failed:`,
-                        error
-                    );
-
-                    if (attempt < 3) {
-                        await new Promise(resolve =>
-                            setTimeout(resolve, attempt * 300)
-                        );
-                    }
-                }
-            }
-
-            throw lastError || new Error('Wallet settlement failed');
-        })();
-
-        walletSettlementInFlight.set(settlementKey, settlementPromise);
-
-        try {
-            await settlementPromise;
-            return true;
-        } catch (error) {
-            console.error('Wallet settlement failed after retries:', error);
-            logTicker('Coin settlement failed. Please refresh your wallet.');
-            return false;
-        } finally {
-            walletSettlementInFlight.delete(settlementKey);
-        }
-    }
-
-    // Settle the player's loss as soon as the local player is eliminated.
-    // This is intentionally independent of the final tournament result so
-    // an eliminated player can leave immediately and still receive -100.
-    async function settleWalletForEliminatedPlayer(forceType = '') {
-        const me = players.find(
-            p =>
-                p &&
-                (
-                    p.id === myId ||
-                    p.clientToken === myClientToken
-                )
-        );
-
-        if (!me || me.eliminated !== true)
-            return false;
-
-        return await settleWalletForCompletedGame(
-            '__ELIMINATION__',
-            gameOpponentCount,
-            forceType
-        );
-    }
+    let roomStateLatestJob = null;
+    let roomStateWriterRunning = false;
 
 
     // ============================================================
@@ -2009,13 +1938,6 @@
         // A fresh login always lands in the lobby, never in a previous room header state.
         setHeaderAction(true);
 
-        if (account.bot_coins !== undefined) {
-            botWallet = Number(account.bot_coins || 0);
-            realWallet = Number(account.real_coins || 0);
-            renderWallets();
-        } else {
-            await loadWallets();
-        }
 
         refreshPublicRoomsList();
         logTicker(`Welcome, ${currentProfile.name}!`);
@@ -2027,7 +1949,6 @@
             currentUser = null;
             currentProfile = null;
             showAuthScreen(true);
-            renderWallets();
             return;
         }
 
@@ -2054,7 +1975,6 @@
             currentUser = null;
             currentProfile = null;
             showAuthScreen(true);
-            renderWallets();
         }
     }
 
@@ -2078,8 +1998,6 @@
         currentUser = null;
         currentProfile = null;
         myName = '';
-        botWallet = 0;
-        realWallet = 0;
         roomCode = '';
         clearLocalRoomSession();
         players = [];
@@ -2089,7 +2007,6 @@
         if (document.getElementById('game-status-banner')) {
             document.getElementById('game-status-banner').style.display = 'none';
         }
-        renderWallets();
 
         const loggedName = document.getElementById('logged-in-name');
         const nameStrip = document.getElementById('lobby-user-name-strip');
@@ -2227,9 +2144,10 @@
                     }
 
                     if (attempt < maxAttempts) {
-                        await new Promise(resolve => setTimeout(resolve, 350));
+                        await new Promise(resolve => setTimeout(resolve, 350 * attempt));
                     }
                 }
+                logTicker('Network problem: your move may not have reached the host. Please try again.');
             } finally {
                 pendingGameActionRetries.delete(actionId);
             }
@@ -2246,18 +2164,28 @@
 
         if (!roomChannelReady) {
             return new Promise(resolve => {
-                realtimeOutboundQueue.push({
-                    payload,
-                    resolve
-                });
+                // Bounded queue: a long outage must not grow memory without limit.
+                if (realtimeOutboundQueue.length >= 200) {
+                    const dropped = realtimeOutboundQueue.shift();
+                    try { dropped.resolve(false); } catch (e) {}
+                }
+                realtimeOutboundQueue.push({ payload, resolve });
             });
         }
 
-        return roomChannel.send({
-            type: 'broadcast',
-            event: 'game_event',
-            payload
-        });
+        try {
+            return Promise.resolve(roomChannel.send({
+                type: 'broadcast',
+                event: 'game_event',
+                payload
+            })).catch(error => {
+                console.warn('Realtime send failed:', error);
+                return false;
+            });
+        } catch (error) {
+            console.warn('Realtime send threw:', error);
+            return Promise.resolve(false);
+        }
     }
 
     async function flushRealtimeOutboundQueue() {
@@ -2325,6 +2253,95 @@
         return candidates[0] || null;
     }
 
+    // ============================================================
+    // GUEST PRESENCE WATCHER (host only) + STATE RESYNC (guests)
+    // ============================================================
+    const PRESENCE_GRACE_MS = 6000;
+    const presenceAbsentTimers = new Map();
+    let lastSyncReplyAt = 0;
+
+    // Detects guests whose browser closed / lost network without pressing Exit.
+    // Their turn is skipped (no frozen game); they are restored automatically
+    // if the network comes back, and never lose cards, score or identity.
+    function hostWatchGuestPresence() {
+        if (!isHost || isSoloMode || !roomChannelReady || !Array.isArray(players)) return;
+        const present = getPresentRoomClientTokens();
+        if (!present.size) return; // presence not populated yet: never mass-disconnect
+        const myTok = String(myClientToken || '');
+
+        players.forEach(p => {
+            if (!p || p.isBot) return;
+            const tok = getPlayerRoomToken(p);
+            if (!tok || tok === myTok) return;
+
+            if (present.has(tok)) {
+                const t = presenceAbsentTimers.get(tok);
+                if (t) { clearTimeout(t); presenceAbsentTimers.delete(tok); }
+                // Network blip ended: restore automatically (only players WE marked offline).
+                if (p.presenceDropped === true && p.connected === false &&
+                    p.left !== true && p.viewOnly !== true && p.rejoinPending !== true) {
+                    p.connected = true;
+                    p.presenceDropped = false;
+                    broadcastPlayerList();
+                    if (roundActive) broadcastGameState(`${p.name} reconnected.`);
+                    updateWaitingRoomUI();
+                    renderGameBoard();
+                    logTicker(`${p.name} reconnected.`);
+                }
+                return;
+            }
+
+            if (p.connected === false || p.left === true || presenceAbsentTimers.has(tok)) return;
+            presenceAbsentTimers.set(tok, setTimeout(() => {
+                presenceAbsentTimers.delete(tok);
+                hostMarkPlayerOffline(tok);
+            }, PRESENCE_GRACE_MS));
+        });
+    }
+
+    function hostMarkPlayerOffline(tok) {
+        if (!isHost || isSoloMode) return;
+        if (getPresentRoomClientTokens().has(tok)) return;
+        const p = players.find(x => getPlayerRoomToken(x) === tok);
+        if (!p || p.connected === false || p.left === true) return;
+
+        p.connected = false;
+        p.presenceDropped = true;
+        p.rejoinPending = false;
+
+        if (roundActive && players[currentTurnIndex] === p) advanceTurn();
+        broadcastPlayerList();
+        if (roundActive) {
+            broadcastGameState(`${p.name} lost connection. Waiting for them to return.`);
+            finishTournamentIfNeeded();
+        }
+        updateWaitingRoomUI();
+        renderGameBoard();
+        logTicker(`${p.name} lost connection.`);
+    }
+
+    // Guests ask the host for the latest state after a network blip, when the tab
+    // becomes visible again, and periodically. The host answers with its current state.
+    function requestStateSync() {
+        if (isSoloMode || isHost || !roomCode || !roomChannelReady) return;
+        if (!Array.isArray(players) || !players.length) return;
+        sendRealtimeMessage({ type: 'STATE_SYNC_REQUEST', clientToken: myClientToken, roomCode });
+    }
+
+    window.addEventListener('online', () => {
+        try {
+            if (roomChannel && roomChannelReady) {
+                roomChannel.track({ clientToken: myClientToken, playerId: myId || myClientToken, roomCode, isHost: isHost === true });
+            }
+        } catch (e) {}
+        requestStateSync();
+    });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') requestStateSync();
+    });
+    setInterval(() => { try { requestStateSync(); } catch (e) {} }, 15000);
+    setInterval(() => { try { hostWatchGuestPresence(); } catch (e) {} }, 5000);
+
     async function maybeElectNewHost(reason = 'host-disconnected') {
         if (isSoloMode || !roomChannel || !roomChannelReady || !players.length) return;
         if (hostTransferInProgress) return;
@@ -2374,7 +2391,7 @@
         players.forEach(p => { p.isHost = getPlayerRoomToken(p) === candidate.token; });
         isHost = true;
         roomHostToken = candidate.token;
-        candidate.player.connected = true;
+        candidate.player.connected = true; candidate.player.left = false;
         candidate.player.viewOnly = false;
         candidate.player.rejoinPending = false;
 
@@ -2422,7 +2439,7 @@
         setTimeout(() => { hostTransferInProgress = false; }, 1500);
     }
 
-    function initRealtimeChannel(code) {
+    function initRealtimeChannel(code, keepVersion = false) {
         resetTournamentWinnerState(code);
 
         // A new room gets a completely fresh chat context.
@@ -2431,8 +2448,10 @@
 
         roomChannelReady = false;
         realtimeOutboundQueue = [];
-        authoritativeStateVersion = 0;
-        lastAppliedStateVersion = 0;
+        if (!keepVersion) {
+            authoritativeStateVersion = 0;
+            lastAppliedStateVersion = 0;
+        }
         processedGameActionIds.clear();
         if (!roomHostToken) {
             const saved = readLocalRoomSession();
@@ -2468,6 +2487,7 @@
             () => {
                 if (roomChannel !== channel || isSoloMode) return;
                 maybeElectNewHost('presence-sync');
+                hostWatchGuestPresence();
             }
         );
 
@@ -2946,6 +2966,7 @@
         // DENY
         if (permission === 'deny') {
             player.connected = false;
+            player.left = true; // host denied rejoin: explicit forfeit
             player.viewOnly = false;
             player.rejoinPending = false;
 
@@ -3006,7 +3027,7 @@
 
         // ALLOW PLAY
         if (permission === 'play') {
-            player.connected = true;
+            player.connected = true; player.left = false;
             player.viewOnly = false;
             player.rejoinPending = false;
 
@@ -3047,16 +3068,6 @@
     // ============================================================
 
     async function returnToLobbyWithoutReload(message = '') {
-        // If this player was already eliminated, settle the -100 loss before
-        // disconnecting from the room. This covers leaving before the final
-        // tournament result is reached.
-        try {
-            await settleWalletForEliminatedPlayer(
-                isSoloMode ? 'bot' : 'real'
-            );
-        } catch (e) {
-            console.error('Elimination wallet settlement before lobby failed:', e);
-        }
 
         try {
             if (roomChannel) {
@@ -3312,16 +3323,6 @@
         ))
             return;
 
-        // A player who is already eliminated must pay the -100 loss even
-        // when leaving before the whole game has finished. A player who is
-        // not eliminated is not charged for simply exiting the room.
-        try {
-            await settleWalletForEliminatedPlayer(
-                isSoloMode ? 'bot' : 'real'
-            );
-        } catch (e) {
-            console.error('Elimination wallet settlement on exit failed:', e);
-        }
 
         if (
             !isSoloMode &&
@@ -3344,6 +3345,7 @@
                     if (leaving) {
 
                         leaving.connected = false;
+                        leaving.left = true; // host pressed Exit: explicit forfeit
                         leaving.viewOnly = false;
                         leaving.rejoinPending = false;
                     }
@@ -3530,11 +3532,7 @@
 
             if (roundActive) {
 
-                if (
-                    currentTurnIndex >=
-                    players.length
-                )
-                    currentTurnIndex = 0;
+                ensureValidCurrentTurn();
 
                 broadcastGameState(
                     "Player removed by host."
@@ -3819,7 +3817,6 @@
             '-' +
             Math.random().toString(36).slice(2, 6).toUpperCase();
 
-        setWalletGameId();
 
         gameHistoryHostName = myName;
 
@@ -3862,10 +3859,6 @@
             });
         }
 
-        // Lock the payout multiplier to the number of opponents
-        // at the beginning of this game. Eliminations later do not
-        // change the win reward.
-        gameOpponentCount = Math.max(1, players.length - 1);
 
         myIndex = 0;
 
@@ -3892,6 +3885,7 @@
             fullDeck;
 
         currentTurnIndex = 0;
+        gameTerminalRecord = null;
         turnPhase = 'drop';
         roundActive = true;
 
@@ -4600,7 +4594,7 @@
     async function handleIncomingNetworkData(data) {
 
         // Save shortly after processing starts; incoming authoritative state
-        // is applied synchronously before any awaited wallet work.
+        // is applied synchronously before any awaited work.
         if (roomCode) {
             setTimeout(() => {
                 try { saveLocalRoomSession(); } catch (e) {}
@@ -4616,6 +4610,24 @@
             // ----------------------------------------------------
             // EXISTING PLAYER / NEW PLAYER JOIN REQUEST
             // ----------------------------------------------------
+
+            if (data.type === 'STATE_SYNC_REQUEST') {
+                const nowTs = Date.now();
+                if (nowTs - lastSyncReplyAt < 800) return;
+                const asker = String(data.clientToken || '').trim();
+                if (!asker || !players.some(pl => getPlayerRoomToken(pl) === asker)) return;
+                if (Number(roundCounter) > 0 || roundActive) {
+                    lastSyncReplyAt = nowTs;
+                    sendRealtimeMessage({
+                        type: 'GAME_STATE_UPDATE',
+                        players, deck, discardPile, currentTurnIndex, turnPhase,
+                        stateVersion: authoritativeStateVersion,
+                        roundActive, gameHistory, gameHistoryHostName,
+                        roomOwnerToken, roomHostToken, message: ''
+                    });
+                }
+                return;
+            }
 
             if (data.type === 'JOIN_REQUEST') {
 
@@ -4651,7 +4663,7 @@
                     // who already belongs to the room is restored immediately;
                     // no approval is required for a refresh.
                     if (data.autoRejoin === true || isReturningRoomOwner) {
-                        existingPlayer.connected = true;
+                        existingPlayer.connected = true; existingPlayer.left = false;
                         existingPlayer.viewOnly = false;
                         existingPlayer.rejoinPending = false;
                         existingPlayer.isHost =
@@ -4674,8 +4686,6 @@
                             roundActive,
                             gameHistory,
                             gameHistoryHostName,
-                            walletGameId,
-                            gameOpponentCount,
                             roomOwnerToken,
                             roomHostToken,
                             message: `${existingPlayer.name} rejoined and recovered the existing player record.`
@@ -4981,6 +4991,8 @@
                     leaving.connected =
                         false;
 
+                    leaving.left = true; // explicit exit (button) = forfeit
+
                     leaving.viewOnly =
                         false;
 
@@ -5158,14 +5170,7 @@
                 if (data.targetToken !== myClientToken)
                     break;
 
-                if (data.walletGameId)
-                    walletGameId = data.walletGameId;
 
-                if (data.gameOpponentCount !== undefined)
-                    gameOpponentCount = Math.max(
-                        1,
-                        Math.trunc(Number(data.gameOpponentCount) || 1)
-                    );
 
                 const eliminatedMe = players.find(
                     p =>
@@ -5183,9 +5188,6 @@
                 // Settle immediately, before the final tournament result.
                 // The RPC is idempotent, so later ROUND_OVER / Exit calls
                 // cannot deduct the same game twice.
-                await settleWalletForEliminatedPlayer(
-                    data.forceWalletType || (isSoloMode ? 'bot' : 'real')
-                );
 
                 renderGameBoard();
                 break;
@@ -5201,19 +5203,12 @@
                     myClientToken
                 ) {
 
-                    // Host removal itself is NOT a loss. Only a player
-                    // who is marked eliminated is charged -100.
                     if (data.eliminated === true) {
-                        await settleWalletForCompletedGame(
-                            '__ELIMINATION__',
-                            gameOpponentCount,
-                            isSoloMode ? 'bot' : 'real'
-                        );
                     }
 
                     alert(
                         data.eliminated === true
-                            ? "You were removed by host after elimination. -100 coins applied."
+                            ? "You were removed by host after elimination."
                             : "You were removed by host."
                     );
 
@@ -5647,7 +5642,7 @@
                 if (isHost) {
                     const me = players.find(p => getPlayerRoomToken(p) === myClientToken);
                     if (me) {
-                        me.connected = true;
+                        me.connected = true; me.left = false;
                         me.viewOnly = false;
                         me.rejoinPending = false;
                         me.isHost = true;
@@ -5763,7 +5758,7 @@
                     if (me) {
 
                         me.isHost = true;
-                        me.connected = true;
+                        me.connected = true; me.left = false;
                     }
 
                     document.getElementById(
@@ -5881,19 +5876,7 @@
                 }
 
 
-                walletGameId =
-                    data.walletGameId ||
-                    walletGameId ||
-                    roomCode;
 
-                gameOpponentCount =
-                    Math.max(
-                        1,
-                        Math.trunc(
-                            Number(data.gameOpponentCount) ||
-                            Math.max(1, data.players.length - 1)
-                        )
-                    );
 
                 deck =
                     data.deck;
@@ -5979,7 +5962,24 @@
             // GAME STATE UPDATE
             // ----------------------------------------------------
 
+            case 'GAME_ABANDONED':
+                gameTerminalRecord = { status: 'ABANDONED', reason: String(data.reason || 'ADMINISTRATIVE_TERMINATION') };
+                roundActive = false;
+                showGameNotice('Game abandoned: ' + gameTerminalRecord.reason.replace(/_/g, ' ').toLowerCase());
+                renderGameBoard();
+                saveLocalRoomSession();
+                break;
+
             case 'GAME_STATE_UPDATE':
+
+                // Reject malformed payloads before touching local state.
+                if (
+                    !Array.isArray(data.players) ||
+                    !Array.isArray(data.deck) ||
+                    !Array.isArray(data.discardPile)
+                ) {
+                    break;
+                }
 
                 /*
                  * Ignore stale/out-of-order authoritative states.
@@ -6019,7 +6019,10 @@
                 turnPhase =
                     data.turnPhase;
 
-                roundActive = true;
+                // Apply the host's authoritative value (was forced to true).
+                if (data.roundActive !== undefined) {
+                    roundActive = data.roundActive === true;
+                }
 
                 myIndex =
                     players.findIndex(
@@ -6030,9 +6033,6 @@
                             myClientToken
                     );
 
-                await settleWalletForEliminatedPlayer(
-                    isSoloMode ? 'bot' : 'real'
-                );
 
                 document.getElementById(
                     'waiting-screen'
@@ -6172,11 +6172,9 @@
                     gameHistory = [];
                     roundCounter = 0;
                     roundActive = false;
-                    walletGameId = '';
-                    gameOpponentCount = Math.max(1, players.filter(p => p && !p.isBot).length - 1);
                     myIndex = players.findIndex(p => p && (p.clientToken === myClientToken || p.id === myId));
                     if (myIndex >= 0) {
-                        players[myIndex].connected = true;
+                        players[myIndex].connected = true; players[myIndex].left = false;
                         players[myIndex].viewOnly = false;
                         players[myIndex].rejoinPending = false;
                     }
@@ -6223,15 +6221,7 @@
 
             case 'TOURNAMENT_WINNER':
 
-                if (data.walletGameId)
-                    walletGameId = data.walletGameId;
 
-                if (data.gameOpponentCount !== undefined)
-                    gameOpponentCount =
-                        Math.max(
-                            1,
-                            Math.trunc(Number(data.gameOpponentCount) || 1)
-                        );
 
                 if (Array.isArray(data.players) && data.players.length) {
                     players = data.players;
@@ -6242,11 +6232,6 @@
                     );
                 }
 
-                await settleWalletForCompletedGame(
-                    data.winnerName,
-                    gameOpponentCount,
-                    isSoloMode ? 'bot' : 'real'
-                );
 
                 showTournamentWinnerPopup(
                     data.winnerName,
@@ -6278,15 +6263,7 @@
                     data.gameHistory ||
                     gameHistory;
 
-                if (data.walletGameId)
-                    walletGameId = data.walletGameId;
 
-                if (data.gameOpponentCount !== undefined)
-                    gameOpponentCount =
-                        Math.max(
-                            1,
-                            Math.trunc(Number(data.gameOpponentCount) || 1)
-                        );
 
                 roundActive = false;
 
@@ -6299,16 +6276,8 @@
                             myClientToken
                     );
 
-                await settleWalletForEliminatedPlayer(
-                    isSoloMode ? 'bot' : 'real'
-                );
 
                 if (data.tournamentWinner) {
-                    await settleWalletForCompletedGame(
-                        data.tournamentWinner,
-                        gameOpponentCount,
-                        isSoloMode ? 'bot' : 'real'
-                    );
                     showTournamentWinnerPopup(
                         data.tournamentWinner,
                         data.roomCode,
@@ -6489,21 +6458,7 @@
         lastAppliedStateVersion = 0;
         processedGameActionIds.clear();
 
-        // One unique wallet settlement per online game session.
-        setWalletGameId();
 
-        // Lock the payout multiplier to the number of real players
-        // participating when the room starts. Later eliminations do
-        // not reduce the winner's reward.
-        gameOpponentCount = Math.max(
-            1,
-            players.filter(
-                p =>
-                    p.connected !== false &&
-                    !p.eliminated &&
-                    p.viewOnly !== true
-            ).length - 1
-        );
 
         let fullDeck =
             createDeck();
@@ -6535,6 +6490,13 @@
             fullDeck;
 
         currentTurnIndex = 0;
+        if (!ensureValidCurrentTurn()) {
+            roundActive = false;
+            startGameInFlight = false;
+            alert('No eligible player is available to take the first turn.');
+            return;
+        }
+        gameTerminalRecord = null;
         turnPhase = 'drop';
         roundActive = true;
         setHeaderAction(false);
@@ -6581,11 +6543,7 @@
             includeJoker:
                 includeJoker,
 
-            walletGameId:
-                walletGameId,
 
-            gameOpponentCount:
-                gameOpponentCount,
 
             gameHistory:
                 gameHistory
@@ -6702,6 +6660,8 @@
     // BOT
     // ============================================================
 
+    let botTurnTimer = null;
+
     function checkBotTurn() {
 
         if (
@@ -6719,11 +6679,12 @@
             !currentP.eliminated
         ) {
 
-            setTimeout(
+            if (botTurnTimer) return;
+            botTurnTimer = setTimeout(
                 () => {
-                    executeBotTurn(
-                        currentP
-                    );
+                    botTurnTimer = null;
+                    try { executeBotTurn(currentP); }
+                    catch (e) { console.error('Bot turn failed:', e); advanceTurn(); renderGameBoard(); checkBotTurn(); }
                 },
                 1200
             );
@@ -6748,8 +6709,9 @@
             );
 
         if (
-            botSum <= 5 &&
-            Math.random() < 0.7
+            !bot.hand.length ||
+            (botSum <= 5 &&
+            Math.random() < 0.7)
         ) {
 
             executeShowRound(
@@ -6831,20 +6793,7 @@
 
         } else {
 
-            if (
-                deck.length === 0 &&
-                discardPile.length > 1
-            ) {
-
-                let top =
-                    discardPile.pop();
-
-                deck =
-                    discardPile;
-
-                discardPile =
-                    [top];
-            }
+            recycleDiscardIntoDeck();
 
             if (deck.length > 0)
                 bot.hand.push(
@@ -6864,6 +6813,26 @@
     // ============================================================
     // CARD CLICK
     // ============================================================
+
+    // Fisher-Yates shuffle (used when the discard pile is recycled).
+    function shuffleInPlace(arr) {
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+    }
+
+    // When the stock is empty, shuffle the discard pile (keeping its top card) back in.
+    function recycleDiscardIntoDeck() {
+        if (deck.length === 0 && discardPile.length > 1) {
+            const top = discardPile.pop();
+            deck = shuffleInPlace(discardPile);
+            discardPile = [top];
+            return true;
+        }
+        return false;
+    }
 
     function applyDropActionForPlayer(playerIndex, cardUid) {
 
@@ -6937,18 +6906,14 @@
         if (!isPlayerAllowedToPlay(player))
             return false;
 
-        if (
-            deck.length === 0 &&
-            discardPile.length > 1
-        ) {
-            const top = discardPile.pop();
+        recycleDiscardIntoDeck();
 
-            deck = discardPile;
-            discardPile = [top];
+        if (!deck.length) {
+            // No card exists anywhere to draw: skip the draw so the game can never freeze.
+            turnPhase = 'drop';
+            advanceTurn();
+            return true;
         }
-
-        if (!deck.length)
-            return false;
 
         player.hand.push(deck.pop());
         player.hand = sortHandCards(player.hand);
@@ -7016,6 +6981,7 @@
 
         if (turnPhase === 'draw') {
 
+            if (!isSoloMode) broadcastGameState(`${me.name} dropped a card.`);
             renderGameBoard();
 
             logTicker(
@@ -7104,6 +7070,10 @@
         if (!players.length)
             return;
 
+        // A new turn always starts in the drop phase (fixes a stale 'draw' phase
+        // being inherited after disconnects / host transfers).
+        turnPhase = 'drop';
+
         let attempts = 0;
 
         do {
@@ -7125,9 +7095,17 @@
                 players[currentTurnIndex].eliminated ||
                 players[currentTurnIndex].connected === false ||
                 players[currentTurnIndex].viewOnly === true ||
-                players[currentTurnIndex].rejoinPending === true
+                players[currentTurnIndex].rejoinPending === true ||
+                players[currentTurnIndex].left === true
             )
         );
+
+        if (!isEligibleTurnPlayer(players[currentTurnIndex])) {
+            // Nobody can act: game waits for reconnection (or is abandoned after the grace period).
+            scheduleReconnectGraceCheck();
+            return false;
+        }
+        return true;
     }
 
     // ============================================================
@@ -7242,6 +7220,7 @@
         if (isShowAction) {
             const showSum = calculateHandSum(actionPlayer.hand || []);
             if (showSum > 5) return;
+            if (currentTurnIndex !== playerIndex || turnPhase !== 'drop') return;
             executeShowRound(actionPlayer.id || actionPlayer.clientToken || senderToken);
             return;
         }
@@ -7303,6 +7282,10 @@
         const sum = calculateHandSum(me.hand || []);
         if (sum > 5) {
             logTicker('Call Show is available only when your hand total is 5 or less.');
+            return;
+        }
+        if (currentTurnIndex !== myIndex || turnPhase !== 'drop') {
+            logTicker('You can call Show only on your own turn, before dropping a card.');
             return;
         }
         if (isHost || isSoloMode) {
@@ -7397,7 +7380,15 @@
     // SHOW ROUND
     // ============================================================
 
-    async function executeShowRound(
+    let showExecuting = false;
+    async function executeShowRound(callerPeerId) {
+        if (!roundActive || showExecuting) return;
+        showExecuting = true;
+        try { await executeShowRoundInner(callerPeerId); }
+        finally { showExecuting = false; }
+    }
+
+    async function executeShowRoundInner(
         callerPeerId
     ) {
 
@@ -7640,10 +7631,6 @@
         resultsText +=
             `</div>`;
 
-        // Mark newly eliminated players and notify each affected client
-        // immediately. This happens before the final game result, so an
-        // eliminated player who exits right away still receives the -100
-        // settlement and the game is counted in their account history.
         const newlyEliminatedPlayers = [];
 
         players.forEach(p => {
@@ -7662,13 +7649,6 @@
             }
         });
 
-        // If the host itself was eliminated in this round, settle its -100
-        // immediately. Other players settle on their own clients from the
-        // dedicated elimination event, the synchronized state, or their
-        // own Exit action (whichever happens first).
-        await settleWalletForEliminatedPlayer(
-            isSoloMode ? 'bot' : 'real'
-        );
 
         if (!isSoloMode && newlyEliminatedPlayers.length) {
             for (const eliminatedPlayer of newlyEliminatedPlayers) {
@@ -7679,9 +7659,6 @@
                     type: 'PLAYER_ELIMINATED',
                     targetToken,
                     roomCode,
-                    walletGameId,
-                    gameOpponentCount,
-                    forceWalletType: 'real'
                 });
             }
         }
@@ -7718,26 +7695,15 @@
 
         roundActive = false;
 
-        const remainingPlayers = players.filter(
-            p =>
-                !p.eliminated &&
-                p.connected !== false &&
-                p.viewOnly !== true
-        );
-
+        // Winner is decided by the lifecycle rules, never by connection flags.
+        const showOutcome = resolveTerminalOutcome();
         const roundWinner =
-            remainingPlayers.length === 1
-                ? remainingPlayers[0].name
+            (showOutcome.done && showOutcome.status === 'COMPLETED' && showOutcome.winner !== 'Nobody')
+                ? showOutcome.winner
                 : '';
+        if (roundWinner) gameTerminalRecord = { status: 'COMPLETED', reason: showOutcome.reason };
 
-        // Settle the wallet immediately when the game has a final winner.
-        // This works for both solo/bot games and online multiplayer.
         if (roundWinner) {
-            await settleWalletForCompletedGame(
-                roundWinner,
-                gameOpponentCount,
-                isSoloMode ? 'bot' : 'real'
-            );
         }
 
         // Persist the complete game history after every completed round.
@@ -7769,11 +7735,7 @@
             tournamentWinner:
                 roundWinner || '',
 
-            walletGameId:
-                walletGameId,
 
-            gameOpponentCount:
-                gameOpponentCount
         };
 
         if (roundWinner) {
@@ -7856,22 +7818,21 @@
         if (!isHost && !isSoloMode) return false;
         if (tournamentEndInFlight || !roundActive) return false;
 
-        const activePlayers = players.filter(p =>
-            p && !p.eliminated && p.connected !== false && p.viewOnly !== true
-        );
-        if (activePlayers.length > 1) return false;
+        const outcome = resolveTerminalOutcome();
+        if (!outcome.done) {
+            // Opponents may merely be disconnected: wait for them, never award a win.
+            const connectedNow = getTournamentSurvivors().filter(p => p.connected !== false && p.viewOnly !== true);
+            if (connectedNow.length < 2) scheduleReconnectGraceCheck();
+            return false;
+        }
 
         tournamentEndInFlight = true;
         try {
             roundActive = false;
-            const finalWinner = activePlayers[0] ? activePlayers[0].name : 'Nobody';
+            gameTerminalRecord = { status: 'COMPLETED', reason: outcome.reason };
+            const finalWinner = outcome.winner;
             const lastRound = gameHistory.length ? gameHistory[gameHistory.length - 1] : null;
 
-            await settleWalletForCompletedGame(
-                finalWinner,
-                gameOpponentCount,
-                isSoloMode ? 'bot' : 'real'
-            );
             await syncGameHistoryToSupabase(finalWinner);
             await sendRealtimeMessage({
                 type: 'TOURNAMENT_WINNER',
@@ -7879,8 +7840,6 @@
                 winnerName: finalWinner,
                 players,
                 callerName: lastRound?.callerName || '',
-                walletGameId,
-                gameOpponentCount
             });
             showTournamentWinnerPopup(finalWinner, roomCode, players, lastRound?.callerName || '');
             renderGameBoard();
@@ -7958,14 +7917,18 @@
         ) {
             nextRoundInFlight = false;
 
-            const finalWinner =
-                activePlayers[0] ? activePlayers[0].name : 'Nobody';
+            const nrOutcome = resolveTerminalOutcome();
+            if (!nrOutcome.done) {
+                // Not a real finish: other players are only disconnected.
+                logTicker('Waiting for disconnected players to reconnect before the next round.');
+                showGameNotice('Waiting for players to reconnect…');
+                scheduleReconnectGraceCheck();
+                return;
+            }
+            gameTerminalRecord = { status: 'COMPLETED', reason: nrOutcome.reason };
 
-            await settleWalletForCompletedGame(
-                finalWinner,
-                gameOpponentCount,
-                isSoloMode ? 'bot' : 'real'
-            );
+            const finalWinner = nrOutcome.winner;
+
 
             // Final update writes the winner into the same database row.
             await syncGameHistoryToSupabase(finalWinner);
@@ -8000,11 +7963,7 @@
                         ? gameHistory[gameHistory.length - 1].callerName
                         : '',
 
-                walletGameId:
-                    walletGameId,
 
-                gameOpponentCount:
-                    gameOpponentCount
             });
 
             // Do not leave the room automatically. The tournament popup
@@ -8100,11 +8059,7 @@
             includeJoker:
                 includeJoker,
 
-            walletGameId:
-                walletGameId,
 
-            gameOpponentCount:
-                gameOpponentCount,
 
             gameHistory:
                 gameHistory
@@ -8425,6 +8380,8 @@
         let canShow =
             (
                 roundActive &&
+                currentTurnIndex === myIndex &&
+                turnPhase === 'drop' &&
                 mySum <= 5 &&
                 !me.eliminated &&
                 me.connected !== false &&
@@ -8746,7 +8703,7 @@
 
 
     <!-- ========================================================= -->
-    <!-- PLAYER ACCOUNT / COIN STATISTICS MODALS                 -->
+    <!-- PLAYER ACCOUNT / STATISTICS MODALS                 -->
     <!-- ========================================================= -->
 
     <div id="my-game-history-modal"
@@ -9112,13 +9069,6 @@
             if (show) loadUsersStats();
         }
 
-        function toggleCoinInstructionsModal(show) {
-            const modal = document.getElementById('coin-instructions-modal');
-            if (!modal) return;
-            modal.classList.toggle('hidden', !show);
-            modal.classList.toggle('flex', show);
-        }
-
         function formatAccountDate(value) {
             if (!value) return '—';
             const date = new Date(value);
@@ -9142,10 +9092,7 @@
         }
 
         function isMyGameHistoryInProgress(row) {
-            const winner = String(row?.game_winner || '').trim();
-            const history = String(row?.game_history || '');
-            const finalResult = (history.match(/=== FINAL RESULT ===\s*\nWinner:\s*(.*)/i) || [,''])[1].trim();
-            return !winner || /^in\s*progress$/i.test(winner) || /^in\s*progress$/i.test(finalResult);
+            return parseGameHistoryStatus(row).inProgress;
         }
 
         function playerNamesFromGameRow(row) {
@@ -9284,7 +9231,7 @@
                     <div class="database-history-cell font-bold">${escapeAccountStatsHtml(row.game_host || '—')} - EP=${escapeAccountStatsHtml(eliminationPoints)}</div>
                     <div class="database-history-cell players-cell">${escapeAccountStatsHtml(row.players_name || '—')}</div>
                     <div class="database-history-cell points-cell">${escapeAccountStatsHtml(row.game_points || '—')}</div>
-                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeAccountStatsHtml(inProgress ? 'In Progress' : (row.game_winner || 'Completed'))}</div>
+                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeAccountStatsHtml(parseGameHistoryStatus(row).label)}</div>
                     <div class="database-history-cell history-action-cell">
                         <button type="button" onclick="openMyGameHistoryDetail(${rowIndex})" class="database-history-view-btn">View<br class="sm:hidden"> History</button>
                     </div>`;
@@ -9451,8 +9398,7 @@
                 const tr = document.createElement('tr');
                 tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/60 align-top';
                 const savedAt = row.created_at ? new Date(row.created_at).toLocaleString() : '—';
-                const winner = String(row.game_winner || '').trim();
-                const statusText = winner && !/^in\s*progress$/i.test(winner) ? winner : 'In Progress';
+                const statusText = parseGameHistoryStatus(row).label;
 
                 tr.innerHTML = `
                     <td class="p-3 font-bold text-amber-300">${escapeAccountStatsHtml(row.game_code || '—')}</td>
@@ -9775,9 +9721,9 @@
 
             const winner = String(row.game_winner || '').trim();
             const historyText = String(row.game_history || '');
-            const finalResult = (historyText.match(/=== FINAL RESULT ===\s*\nWinner:\s*(.*)/i) || [,''])[1].trim();
-            const inProgress = !winner || /^in\s*progress$/i.test(winner) || /^in\s*progress$/i.test(finalResult);
-            const displayWinner = inProgress ? 'In Progress' : (winner || finalResult || '—');
+            const histStatus = parseGameHistoryStatus(row);
+            const inProgress = histStatus.inProgress;
+            const displayWinner = histStatus.label || '—';
             const savedAt = row.created_at
                 ? new Date(row.created_at).toLocaleString()
                 : '—';
@@ -9911,7 +9857,7 @@
             rows.forEach(row => {
                 const rowIndex = databaseGameHistoryRows.indexOf(row);
                 const winner = String(row.game_winner || '').trim();
-                const inProgress = !winner || /^in\s*progress$/i.test(winner);
+                const inProgress = parseGameHistoryStatus(row).inProgress;
                 const savedAt = row.created_at
                     ? new Date(row.created_at).toLocaleString()
                     : '—';
