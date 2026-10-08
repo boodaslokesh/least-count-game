@@ -2325,8 +2325,39 @@
     function requestStateSync() {
         if (isSoloMode || isHost || !roomCode || !roomChannelReady) return;
         if (!Array.isArray(players) || !players.length) return;
-        sendRealtimeMessage({ type: 'STATE_SYNC_REQUEST', clientToken: myClientToken, roomCode });
+        // The host only answers when this client is actually behind, so frequent
+        // checks are cheap and a missed packet is repaired within a few seconds.
+        sendRealtimeMessage({
+            type: 'STATE_SYNC_REQUEST',
+            clientToken: myClientToken,
+            roomCode,
+            knownVersion: Number(lastAppliedStateVersion) || 0,
+            knownRoundActive: roundActive === true
+        });
     }
+
+    // Host: push the current authoritative snapshot (throttled) to heal any lagging guest.
+    let lastHostSnapshotAt = 0;
+    function hostSendSnapshot(force = false) {
+        if (!isHost || isSoloMode || !roomCode) return;
+        const now = Date.now();
+        if (!force && now - lastHostSnapshotAt < 600) return;
+        lastHostSnapshotAt = now;
+        if (!roundActive && lastRoundOverPayload && lastRoundOverPayload.stateVersion === authoritativeStateVersion) {
+            sendRealtimeMessage(lastRoundOverPayload);
+            return;
+        }
+        sendRealtimeMessage({
+            type: 'GAME_STATE_UPDATE',
+            players, deck, discardPile, currentTurnIndex, turnPhase,
+            stateVersion: authoritativeStateVersion,
+            roundActive, gameHistory, gameHistoryHostName,
+            roomOwnerToken, roomHostToken, message: ''
+        });
+    }
+    let lastRoundOverPayload = null;
+    let lastRoundOverShownVersion = -1;
+    let guestActionPendingUntil = 0;
 
     window.addEventListener('online', () => {
         try {
@@ -2339,7 +2370,7 @@
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') requestStateSync();
     });
-    setInterval(() => { try { requestStateSync(); } catch (e) {} }, 15000);
+    setInterval(() => { try { requestStateSync(); } catch (e) {} }, 4000);
     setInterval(() => { try { hostWatchGuestPresence(); } catch (e) {} }, 5000);
 
     async function maybeElectNewHost(reason = 'host-disconnected') {
@@ -2471,7 +2502,8 @@
         const channel = supabaseClient.channel(`room_${code}`, {
             config: {
                 broadcast: {
-                    self: true
+                    self: true,
+                    ack: true
                 }
             }
         });
@@ -4617,14 +4649,13 @@
                 const asker = String(data.clientToken || '').trim();
                 if (!asker || !players.some(pl => getPlayerRoomToken(pl) === asker)) return;
                 if (Number(roundCounter) > 0 || roundActive) {
+                    const behind =
+                        data.knownVersion === undefined ||
+                        Number(data.knownVersion) < Number(authoritativeStateVersion) ||
+                        (data.knownRoundActive !== undefined && (data.knownRoundActive === true) !== (roundActive === true));
+                    if (!behind) return;
                     lastSyncReplyAt = nowTs;
-                    sendRealtimeMessage({
-                        type: 'GAME_STATE_UPDATE',
-                        players, deck, discardPile, currentTurnIndex, turnPhase,
-                        stateVersion: authoritativeStateVersion,
-                        roundActive, gameHistory, gameHistoryHostName,
-                        roomOwnerToken, roomHostToken, message: ''
-                    });
+                    hostSendSnapshot(true);
                 }
                 return;
             }
@@ -5854,12 +5885,20 @@
 
             case 'START_GAME':
 
+                if (data.isNewGame === true) {
+                    lastAppliedStateVersion = 0;
+                    lastRoundOverShownVersion = -1;
+                }
+
                 if (
                     data.stateVersion !== undefined &&
                     Number(data.stateVersion) < Number(lastAppliedStateVersion)
                 ) {
                     break;
                 }
+
+                guestActionPendingUntil = 0;
+                turnPhase = 'drop';
 
                 if (data.stateVersion !== undefined) {
                     lastAppliedStateVersion =
@@ -5994,9 +6033,15 @@
                 }
 
                 if (data.stateVersion !== undefined) {
+                    const incomingVersion = Number(data.stateVersion) || 0;
+                    // A gap means a packet was lost in transit: ask the host to resend.
+                    if (lastAppliedStateVersion > 0 && incomingVersion > lastAppliedStateVersion + 1) {
+                        setTimeout(() => { try { requestStateSync(); } catch (e) {} }, 300);
+                    }
                     lastAppliedStateVersion =
-                        Number(data.stateVersion) || lastAppliedStateVersion;
+                        incomingVersion || lastAppliedStateVersion;
                 }
+                guestActionPendingUntil = 0;
 
                 players =
                     data.players;
@@ -6254,6 +6299,15 @@
                 ) {
                     break;
                 }
+
+                if (data.stateVersion !== undefined) {
+                    const roVersion = Number(data.stateVersion) || 0;
+                    if (roVersion < Number(lastAppliedStateVersion)) break;
+                    if (roVersion === Number(lastAppliedStateVersion) && lastRoundOverShownVersion === roVersion) break;
+                    lastAppliedStateVersion = roVersion;
+                    lastRoundOverShownVersion = roVersion;
+                }
+                guestActionPendingUntil = 0;
 
                 players =
                     data.players ||
@@ -6522,6 +6576,9 @@
             stateVersion:
                 authoritativeStateVersion,
 
+            isNewGame:
+                true,
+
             players:
                 players,
 
@@ -6635,9 +6692,6 @@
 
             roundActive:
                 roundActive,
-
-            gameHistory:
-                gameHistory,
 
             message:
                 msg
@@ -6956,6 +7010,9 @@
          */
         if (!isHost && !isSoloMode) {
 
+            if (Date.now() < guestActionPendingUntil) return;
+            guestActionPendingUntil = Date.now() + 3500;
+
             const actionId = createGameActionId('DROP');
 
             sendGameActionWithRetry({
@@ -7029,6 +7086,9 @@
          * client state that later overwrites the host.
          */
         if (!isHost && !isSoloMode) {
+
+            if (Date.now() < guestActionPendingUntil) return;
+            guestActionPendingUntil = Date.now() + 3500;
 
             const actionId = createGameActionId('DRAW');
 
@@ -7215,12 +7275,14 @@
         if (
             (!isShowAction && currentTurnIndex !== playerIndex) ||
             !isPlayerAllowedToPlay(actionPlayer)
-        )
+        ) {
+            hostSendSnapshot();
             return;
+        }
         if (isShowAction) {
             const showSum = calculateHandSum(actionPlayer.hand || []);
-            if (showSum > 5) return;
-            if (currentTurnIndex !== playerIndex || turnPhase !== 'drop') return;
+            if (showSum > 5) { hostSendSnapshot(); return; }
+            if (currentTurnIndex !== playerIndex || turnPhase !== 'drop') { hostSendSnapshot(); return; }
             executeShowRound(actionPlayer.id || actionPlayer.clientToken || senderToken);
             return;
         }
@@ -7260,8 +7322,10 @@
             return;
         }
 
-        if (!changed)
+        if (!changed) {
+            hostSendSnapshot();
             return;
+        }
 
         broadcastGameState(message);
         renderGameBoard();
@@ -7421,8 +7485,10 @@
 
             if (
                 !p.eliminated &&
-                p.connected !== false &&
-                p.viewOnly !== true
+                p.left !== true &&
+                p.viewOnly !== true &&
+                p.rejoinPending !== true &&
+                Array.isArray(p.hand)
             ) {
 
                 summaries.push({
@@ -7458,8 +7524,7 @@
         let lowerPlayers =
             summaries.filter(
                 item =>
-                    item.player.id !==
-                        caller.id &&
+                    item.player !== caller &&
                     item.sum <
                         callerSum
             );
@@ -7483,8 +7548,8 @@
 
                     let ptsAdded =
                         (
-                            item.player.id ===
-                            caller.id
+                            item.player ===
+                            caller
                         )
                             ? 25
                             : 0;
@@ -7497,7 +7562,10 @@
                             item.sum,
 
                         pointsAdded:
-                            ptsAdded
+                            ptsAdded,
+
+                        totalAfterRound:
+                            item.player.scores
                     });
                 }
             );
@@ -7507,8 +7575,7 @@
             let equalPlayers =
                 summaries.filter(
                     item =>
-                        item.player.id !==
-                            caller.id &&
+                        item.player !== caller &&
                         item.sum ===
                             callerSum
                 );
@@ -7524,10 +7591,10 @@
 
                 let matchedIds =
                     [
-                        caller.id,
+                        caller,
                         ...equalPlayers.map(
                             m =>
-                                m.player.id
+                                m.player
                         )
                     ];
 
@@ -7541,7 +7608,7 @@
 
                         if (
                             !matchedIds.includes(
-                                item.player.id
+                                item.player
                             )
                         ) {
 
@@ -7581,8 +7648,8 @@
                         let ptsAdded = 0;
 
                         if (
-                            item.player.id !==
-                            caller.id
+                            item.player !==
+                            caller
                         ) {
 
                             item.player.scores +=
@@ -7650,12 +7717,14 @@
         });
 
 
+        // ROUND_OVER carries every player's eliminated flag, so these notices are
+        // sent after it and never delay the round result on a slow network.
+        const eliminationNotices = [];
         if (!isSoloMode && newlyEliminatedPlayers.length) {
             for (const eliminatedPlayer of newlyEliminatedPlayers) {
                 const targetToken = getPlayerToken(eliminatedPlayer);
                 if (!targetToken) continue;
-
-                await sendRealtimeMessage({
+                eliminationNotices.push({
                     type: 'PLAYER_ELIMINATED',
                     targetToken,
                     roomCode,
@@ -7687,8 +7756,8 @@
         // Capture each player's running score as part of the round history snapshot.
         if (gameHistory.length) {
             const latestRound = gameHistory[gameHistory.length - 1];
-            latestRound.details.forEach(detail => {
-                const detailPlayer = players.find(p => p.name === detail.name);
+            latestRound.details.forEach((detail, di) => {
+                const detailPlayer = summaries[di] ? summaries[di].player : players.find(p => p.name === detail.name);
                 if (detailPlayer) detail.totalAfterRound = detailPlayer.scores;
             });
         }
@@ -7710,10 +7779,14 @@
         // Only the host writes, and the same host + game code updates the existing row.
         syncGameHistoryToSupabase(roundWinner);
 
+        if (!isSoloMode) authoritativeStateVersion += 1;
         let payload = {
 
             type:
                 'ROUND_OVER',
+
+            stateVersion:
+                authoritativeStateVersion,
 
             roomCode:
                 roomCode,
@@ -7762,9 +7835,22 @@
 
             // Wait until Supabase accepts the broadcast before this flow can
             // tear down the room channel.
+            lastRoundOverPayload = payload;
+            lastRoundOverShownVersion = authoritativeStateVersion;
+            lastAppliedStateVersion = authoritativeStateVersion;
             await sendRealtimeMessage(
                 payload
             );
+            for (const notice of eliminationNotices) {
+                sendRealtimeMessage(notice);
+            }
+            // Second delivery guards against a single dropped packet; guests dedupe by version.
+            setTimeout(() => {
+                if (isHost && !roundActive && lastRoundOverPayload === payload) {
+                    sendRealtimeMessage(payload);
+                }
+            }, 2000);
+            persistRoomStateToSupabase();
         }
     }
 
@@ -7975,12 +8061,15 @@
         let fullDeck =
             createDeck();
 
+        // Deal to every seat still in the tournament (including a player who is
+        // only temporarily offline) so nobody returns holding a stale hand.
         players.forEach(p => {
 
             if (
                 !p.eliminated &&
-                p.connected !== false &&
-                p.viewOnly !== true
+                p.left !== true &&
+                p.viewOnly !== true &&
+                p.rejoinPending !== true
             ) {
 
                 p.hand =
@@ -8001,6 +8090,8 @@
 
         roundActive = true;
         turnPhase = 'drop';
+        lastRoundOverPayload = null;
+        authoritativeStateVersion += 1;
 
         // Rotate the opening player each round (round-robin by seat order).
         // roundCounter is incremented when the previous round is recorded,
@@ -8034,6 +8125,9 @@
 
             type:
                 'START_GAME',
+
+            stateVersion:
+                authoritativeStateVersion,
 
             roomOwnerToken:
                 roomOwnerToken,
