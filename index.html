@@ -791,10 +791,8 @@
             <div id="round-over-content"
                  class="text-xs sm:text-sm text-zinc-300 space-y-2 max-h-48 overflow-y-auto p-2 bg-zinc-950 rounded-xl border border-zinc-900"></div>
 
-            <div id="next-round-countdown-box" class="text-center pt-1 space-y-1">
-                <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-400 font-bold">Next round starts in</div>
-                <div id="next-round-countdown-number" class="text-5xl font-black text-emerald-400 tabular-nums leading-none">7</div>
-                <p id="next-round-countdown-text" class="text-xs text-zinc-400 animate-pulse">Game will start in 7 seconds...</p>
+            <div id="next-round-countdown-box" class="text-center pt-1">
+                <p id="next-round-countdown-text" class="text-[11px] text-zinc-400"><span class="uppercase tracking-wider font-bold">Next round starts in</span> <span id="next-round-countdown-number" class="text-sm font-black text-emerald-400 tabular-nums">12</span><span class="text-emerald-400 font-bold">s</span></p>
             </div>
         </div>
     </div>
@@ -8038,24 +8036,22 @@
     }
 
     // ============================================================
-    // AUTOMATIC NEXT ROUND COUNTDOWN (7 seconds, no manual start)
+    // AUTOMATIC NEXT ROUND COUNTDOWN (12 seconds, no manual start)
     // Every client shows the same countdown. Only the current host
     // (or solo player) actually starts the round when it reaches 0.
     // ============================================================
-    const NEXT_ROUND_COUNTDOWN_SECONDS = 7;
+    const NEXT_ROUND_COUNTDOWN_SECONDS = 12;
     let nextRoundCountdownTimer = null;
     let nextRoundCountdownValue = NEXT_ROUND_COUNTDOWN_SECONDS;
     let nextRoundCountdownTicksAtZero = 0;
 
     function renderNextRoundCountdown() {
-        const num = document.getElementById('next-round-countdown-number');
         const txt = document.getElementById('next-round-countdown-text');
         const v = Math.max(0, nextRoundCountdownValue);
-        if (num) num.innerText = String(v);
         if (txt) {
-            txt.innerText = v > 0
-                ? `Game will start in ${v} second${v === 1 ? '' : 's'}...`
-                : 'Starting next round...';
+            txt.innerHTML = v > 0
+                ? `<span class="uppercase tracking-wider font-bold">Next round starts in</span> <span id="next-round-countdown-number" class="text-sm font-black text-emerald-400 tabular-nums">${v}</span><span class="text-emerald-400 font-bold">s</span>`
+                : '<span class="uppercase tracking-wider font-bold">Starting next round...</span>';
         }
     }
 
