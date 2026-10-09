@@ -781,10 +781,7 @@
 
         <div class="bg-black border border-zinc-800 w-full max-w-lg rounded-2xl p-5 shadow-2xl space-y-4 relative max-h-[85vh] overflow-y-auto">
 
-            <button onclick="closeRoundOverModal()"
-                    class="absolute top-3 right-3 text-zinc-400 hover:text-white font-bold text-xl px-2 py-0.5">
-                &times;
-            </button>
+            
 
             <h2 id="round-over-title"
                 class="text-xl sm:text-2xl font-black text-amber-400 text-center">
@@ -794,19 +791,11 @@
             <div id="round-over-content"
                  class="text-xs sm:text-sm text-zinc-300 space-y-2 max-h-48 overflow-y-auto p-2 bg-zinc-950 rounded-xl border border-zinc-900"></div>
 
-            <div id="host-next-round-container"
-                 class="hidden pt-1">
-
-                <button onclick="startNextRound()"
-                        class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl shadow-lg transition text-sm">
-                    Start Next Round
-                </button>
+            <div id="next-round-countdown-box" class="text-center pt-1 space-y-1">
+                <div class="text-[10px] uppercase tracking-[0.2em] text-zinc-400 font-bold">Next round starts in</div>
+                <div id="next-round-countdown-number" class="text-5xl font-black text-emerald-400 tabular-nums leading-none">7</div>
+                <p id="next-round-countdown-text" class="text-xs text-zinc-400 animate-pulse">Game will start in 7 seconds...</p>
             </div>
-
-            <p id="waiting-next-round-msg"
-               class="text-xs text-zinc-400 text-center animate-pulse">
-                Waiting for host to start next round...
-            </p>
         </div>
     </div>
 
@@ -2360,18 +2349,102 @@
     let guestActionPendingUntil = 0;
 
     window.addEventListener('online', () => {
+        try { healConnectionAfterResume(); } catch (e) { requestStateSync(); }
+    });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            try { healConnectionAfterResume(); } catch (e) { requestStateSync(); }
+        }
+    });
+    setInterval(() => { try { requestStateSync(); } catch (e) {} }, 4000);
+    setInterval(() => { try { hostWatchGuestPresence(); } catch (e) {} }, 5000);
+
+    // Called whenever this client becomes the authority (transfer / host left /
+    // automatic takeover). Without this, a new host kept its stale version
+    // counter and every guest ignored its updates -> frozen game.
+    function becomeHostSync(incomingVersion = 0) {
+        authoritativeStateVersion = Math.max(
+            Number(authoritativeStateVersion) || 0,
+            Number(lastAppliedStateVersion) || 0,
+            Number(incomingVersion) || 0
+        );
+        lastAppliedStateVersion = authoritativeStateVersion;
+        if (roundActive || (Array.isArray(gameHistory) && gameHistory.length > 0)) {
+            roundCounter = Math.max(
+                Number(roundCounter) || 0,
+                (Array.isArray(gameHistory) ? gameHistory.length : 0) + 1
+            );
+        }
+        gameTerminalRecord = null;
+    }
+
+    // Host-election grace: a host that is merely minimised / switching apps for
+    // a few seconds must not be replaced immediately.
+    const HOST_ELECTION_GRACE_MS = 5000;
+    let hostElectionTimer = null;
+    function scheduleHostElectionCheck() {
+        if (isSoloMode || isHost) {
+            if (hostElectionTimer) { clearTimeout(hostElectionTimer); hostElectionTimer = null; }
+            return;
+        }
+        const hostTok = String(
+            roomHostToken ||
+            (players.find(p => p && p.isHost === true)?.clientToken || '')
+        ).trim();
+        if (!hostTok || getPresentRoomClientTokens().has(hostTok)) {
+            if (hostElectionTimer) { clearTimeout(hostElectionTimer); hostElectionTimer = null; }
+            return;
+        }
+        if (hostElectionTimer) return;
+        hostElectionTimer = setTimeout(() => {
+            hostElectionTimer = null;
+            try { maybeElectNewHost('presence-grace'); } catch (e) {}
+        }, HOST_ELECTION_GRACE_MS);
+    }
+
+    // Brings a client back in sync after the tab was minimised / network resumed.
+    function healConnectionAfterResume() {
+        if (!roomCode || isSoloMode) return;
         try {
             if (roomChannel && roomChannelReady) {
                 roomChannel.track({ clientToken: myClientToken, playerId: myId || myClientToken, roomCode, isHost: isHost === true });
             }
         } catch (e) {}
-        requestStateSync();
-    });
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') requestStateSync();
-    });
-    setInterval(() => { try { requestStateSync(); } catch (e) {} }, 4000);
-    setInterval(() => { try { hostWatchGuestPresence(); } catch (e) {} }, 5000);
+
+        if (isHost) {
+            if (roundActive || lastRoundOverPayload) hostSendSnapshot(true);
+            // If another client took over while this browser was away, this request
+            // makes the real host answer, which lets this browser step down.
+            sendRealtimeMessage({
+                type: 'STATE_SYNC_REQUEST',
+                clientToken: myClientToken,
+                roomCode,
+                knownVersion: Number(lastAppliedStateVersion) || 0,
+                knownRoundActive: roundActive === true
+            });
+        } else {
+            const me = players.find(pl => pl && getPlayerRoomToken(pl) === String(myClientToken));
+            if (me && me.connected === false && me.left !== true && me.viewOnly !== true && roomChannelReady) {
+                sendRealtimeMessage({
+                    type: 'JOIN_REQUEST',
+                    name: myName,
+                    clientToken: myClientToken,
+                    senderId: myClientToken,
+                    roomCode,
+                    rejoinRequest: true,
+                    autoRejoin: true
+                });
+            }
+            requestStateSync();
+        }
+
+        // If the realtime socket died while minimised, rebuild it.
+        setTimeout(() => {
+            try {
+                if (roomCode && !isSoloMode && !roomChannelReady) initRealtimeChannel(roomCode, true);
+            } catch (e) {}
+        }, 4000);
+    }
 
     async function maybeElectNewHost(reason = 'host-disconnected') {
         if (isSoloMode || !roomChannel || !roomChannelReady || !players.length) return;
@@ -2426,10 +2499,10 @@
         candidate.player.viewOnly = false;
         candidate.player.rejoinPending = false;
 
-        authoritativeStateVersion = Math.max(
-            Number(authoritativeStateVersion) || 0,
-            Number(lastAppliedStateVersion) || 0
-        ) + 1;
+        becomeHostSync(0);
+        // Jump well ahead so no guest (or returning old host) can hold a newer version.
+        authoritativeStateVersion = authoritativeStateVersion + 20;
+        lastAppliedStateVersion = authoritativeStateVersion;
 
         const takeoverPayload = {
             type: 'HOST_TAKEOVER',
@@ -2518,7 +2591,7 @@
             { event: 'sync' },
             () => {
                 if (roomChannel !== channel || isSoloMode) return;
-                maybeElectNewHost('presence-sync');
+                scheduleHostElectionCheck();
                 hostWatchGuestPresence();
             }
         );
@@ -3382,6 +3455,11 @@
                         leaving.rejoinPending = false;
                     }
 
+                    // Nothing to forfeit before the game starts: just remove the host.
+                    if (leaving && !roundActive && Number(roundCounter) <= 0) {
+                        players = players.filter(pl => pl !== leaving);
+                    }
+
                     if (
                         roundActive &&
                         players[currentTurnIndex] &&
@@ -3400,6 +3478,9 @@
                                 (p.clientToken || p.id) !==
                                 myClientToken &&
                                 p.connected !== false &&
+                                p.left !== true &&
+                                p.isBot !== true &&
+                                p.viewOnly !== true &&
                                 !p.eliminated
                         );
 
@@ -3629,6 +3710,9 @@
                 type:
                     'HOST_TRANSFERRED',
 
+                stateVersion:
+                    authoritativeStateVersion,
+
                 roomOwnerToken:
                     roomOwnerToken,
 
@@ -3646,6 +3730,11 @@
                 gameHistoryHostName:
                     gameHistoryHostName
             });
+
+            lastAppliedStateVersion = Math.max(
+                Number(lastAppliedStateVersion) || 0,
+                Number(authoritativeStateVersion) || 0
+            );
 
             updateWaitingRoomUI();
             renderGameBoard();
@@ -3742,10 +3831,8 @@
     }
 
     function closeRoundOverModal() {
-
-        document.getElementById(
-            'round-over-modal'
-        ).classList.add('hidden');
+        // The round-over popup can no longer be dismissed manually;
+        // it always closes itself when the next round starts.
     }
 
     function generateShortCode() {
@@ -4253,6 +4340,12 @@
         ).innerText =
             targetEliminationPoints;
 
+        // Only the real host may ever see the Start button.
+        const hostControlsEl = document.getElementById('host-controls');
+        const waitingMsgEl = document.getElementById('waiting-msg');
+        if (hostControlsEl) hostControlsEl.classList.toggle('hidden', !isHost);
+        if (waitingMsgEl) waitingMsgEl.classList.toggle('hidden', !!isHost);
+
         const jokerDisplay = document.getElementById('display-joker-option');
         if (jokerDisplay) jokerDisplay.innerText = includeJoker ? 'Yes (0)' : 'No';
 
@@ -4636,6 +4729,24 @@
         // ========================================================
         // HOST SIDE
         // ========================================================
+
+        if (isHost && !isSoloMode) {
+            const incomingVersion = Number(data.stateVersion) || 0;
+            const takeoverByOther =
+                data.type === 'HOST_TAKEOVER' &&
+                String(data.newHostToken || '').trim() !== String(myClientToken);
+            const foreignAuthority =
+                ['GAME_STATE_UPDATE', 'START_GAME', 'ROUND_OVER'].includes(data.type) &&
+                incomingVersion > (Number(authoritativeStateVersion) || 0) &&
+                Number(roundCounter) > 0;
+            if (takeoverByOther || foreignAuthority) {
+                // Another client is the real authority now (e.g. this browser was
+                // minimised and a new host took over): step down and follow it.
+                isHost = false;
+                lastAppliedStateVersion = 0;
+                document.getElementById('host-controls')?.classList.add('hidden');
+            }
+        }
 
         if (isHost) {
 
@@ -5029,6 +5140,15 @@
 
                     leaving.rejoinPending =
                         false;
+
+                    // Before the game starts a leaving player is simply removed.
+                    if (!roundActive && Number(roundCounter) <= 0) {
+                        players = players.filter(pl => pl !== leaving);
+                        broadcastPlayerList();
+                        updateWaitingRoomUI();
+                        logTicker(`${leaving.name} left the room.`);
+                        return;
+                    }
 
                     if (
                         roundActive &&
@@ -5590,6 +5710,7 @@
                 isHost =
                     data.newHostToken ===
                     myClientToken;
+                if (isHost) becomeHostSync(data.stateVersion);
 
                 if (isHost) {
 
@@ -5774,6 +5895,7 @@
                 isHost =
                     data.newHostToken ===
                     myClientToken;
+                if (isHost) becomeHostSync(data.stateVersion);
 
                 if (isHost) {
 
@@ -5818,6 +5940,10 @@
                 updateWaitingRoomUI();
                 renderGameBoard();
 
+                if (isHost && roundActive) {
+                    try { await finishTournamentIfNeeded(); } catch (e) {}
+                }
+
                 break;
 
             // ----------------------------------------------------
@@ -5826,8 +5952,36 @@
 
             case 'UPDATE_PLAYERS':
 
+                var inGameNow =
+                    roundActive === true ||
+                    !document.getElementById('game-board-screen').classList.contains('hidden');
+
+                if (inGameNow && Array.isArray(players) && players.length) {
+                    // During a game this packet may only refresh connection flags.
+                    // Replacing the whole list could overwrite newer hands/scores
+                    // with an older copy and would wrongly show the waiting room.
+                    (Array.isArray(data.players) ? data.players : []).forEach(inc => {
+                        const t = getPlayerRoomToken(inc);
+                        const cur = players.find(x => getPlayerRoomToken(x) === t);
+                        if (!cur) return;
+                        ['connected', 'viewOnly', 'rejoinPending', 'left', 'isHost'].forEach(k => {
+                            if (inc[k] !== undefined) cur[k] = inc[k];
+                        });
+                    });
+                    var mergedHost = players.find(p => p && p.isHost === true);
+                    if (mergedHost) roomHostToken = getPlayerRoomToken(mergedHost);
+                    if (data.targetPoints !== undefined) targetEliminationPoints = data.targetPoints;
+                    updateWaitingRoomUI();
+                    renderGameBoard();
+                    break;
+                }
+
                 players =
                     data.players;
+
+                myIndex = players.findIndex(
+                    p => p && (p.id === myId || p.clientToken === myClientToken)
+                );
 
                 var synchronizedHost = players.find(p => p && p.isHost === true);
                 if (synchronizedHost) {
@@ -6097,11 +6251,9 @@
                     'hidden'
                 );
 
-                document.getElementById(
-                    'round-over-modal'
-                ).classList.add(
-                    'hidden'
-                );
+                if (data.roundActive !== false) {
+                    document.getElementById('round-over-modal').classList.add('hidden');
+                }
 
                 document.getElementById(
                     'room-badge'
@@ -6969,8 +7121,8 @@
             return true;
         }
 
+        // The drawn card always stays at the END of the hand.
         player.hand.push(deck.pop());
-        player.hand = sortHandCards(player.hand);
 
         turnPhase = 'drop';
         advanceTurn();
@@ -7876,24 +8028,82 @@
             'hidden'
         );
 
-        const nextRoundContainer = document.getElementById('host-next-round-container');
-        const waitingNextRound = document.getElementById('waiting-next-round-msg');
-
         if (tournamentWinnerName) {
-            nextRoundContainer?.classList.add('hidden');
-            waitingNextRound?.classList.add('hidden');
-        } else if (isHost || isSoloMode) {
-            nextRoundContainer?.classList.remove('hidden');
-            waitingNextRound?.classList.add('hidden');
+            stopNextRoundCountdown();
+            document.getElementById('next-round-countdown-box')?.classList.add('hidden');
         } else {
-            nextRoundContainer?.classList.add('hidden');
-            waitingNextRound?.classList.remove('hidden');
+            document.getElementById('next-round-countdown-box')?.classList.remove('hidden');
+            startNextRoundCountdown();
         }
+    }
 
-        if (waitingNextRound) {
-            waitingNextRound.innerText =
-                "Waiting for host to start next round...";
+    // ============================================================
+    // AUTOMATIC NEXT ROUND COUNTDOWN (7 seconds, no manual start)
+    // Every client shows the same countdown. Only the current host
+    // (or solo player) actually starts the round when it reaches 0.
+    // ============================================================
+    const NEXT_ROUND_COUNTDOWN_SECONDS = 7;
+    let nextRoundCountdownTimer = null;
+    let nextRoundCountdownValue = NEXT_ROUND_COUNTDOWN_SECONDS;
+    let nextRoundCountdownTicksAtZero = 0;
+
+    function renderNextRoundCountdown() {
+        const num = document.getElementById('next-round-countdown-number');
+        const txt = document.getElementById('next-round-countdown-text');
+        const v = Math.max(0, nextRoundCountdownValue);
+        if (num) num.innerText = String(v);
+        if (txt) {
+            txt.innerText = v > 0
+                ? `Game will start in ${v} second${v === 1 ? '' : 's'}...`
+                : 'Starting next round...';
         }
+    }
+
+    function stopNextRoundCountdown() {
+        if (nextRoundCountdownTimer) {
+            clearInterval(nextRoundCountdownTimer);
+            nextRoundCountdownTimer = null;
+        }
+    }
+
+    function startNextRoundCountdown() {
+        stopNextRoundCountdown();
+        nextRoundCountdownValue = NEXT_ROUND_COUNTDOWN_SECONDS;
+        nextRoundCountdownTicksAtZero = 0;
+        renderNextRoundCountdown();
+
+        nextRoundCountdownTimer = setInterval(() => {
+            try {
+                const modal = document.getElementById('round-over-modal');
+                // Round already started (or modal was replaced): stop quietly.
+                if (!modal || modal.classList.contains('hidden') || roundActive) {
+                    stopNextRoundCountdown();
+                    return;
+                }
+
+                if (nextRoundCountdownValue > 0) {
+                    nextRoundCountdownValue -= 1;
+                    renderNextRoundCountdown();
+                    if (nextRoundCountdownValue > 0) return;
+                }
+
+                // Countdown is at zero.
+                nextRoundCountdownTicksAtZero += 1;
+
+                if (isHost || isSoloMode) {
+                    // Try immediately, then retry every 3 seconds (e.g. while
+                    // waiting for a disconnected player to come back).
+                    if (nextRoundCountdownTicksAtZero === 1 || nextRoundCountdownTicksAtZero % 3 === 0) {
+                        if (!nextRoundInFlight) startNextRound();
+                    }
+                } else if (nextRoundCountdownTicksAtZero % 3 === 0) {
+                    // Guest safety net: ask the host for the latest state.
+                    requestStateSync();
+                }
+            } catch (e) {
+                console.error('Next round countdown failed:', e);
+            }
+        }, 1000);
     }
 
     // ============================================================
@@ -7971,16 +8181,7 @@
                 clientToken: myClientToken
             });
 
-            document.getElementById(
-                'waiting-next-round-msg'
-            ).classList.remove(
-                'hidden'
-            );
-
-            document.getElementById(
-                'waiting-next-round-msg'
-            ).innerText =
-                "Requesting next round...";
+            logTicker('Requesting next round...');
 
             return;
         }
@@ -8159,6 +8360,8 @@
                 gameHistory
         };
 
+        stopNextRoundCountdown();
+
         document.getElementById(
             'round-over-modal'
         ).classList.add(
@@ -8170,6 +8373,21 @@
             sendRealtimeMessage(
                 startPayload
             );
+
+            // The new hands are the most important packet of a round. Re-send it
+            // (same version, so it is harmless if already applied) to guarantee
+            // that no guest keeps looking at the previous round's cards.
+            [1200, 3500].forEach(delay => {
+                setTimeout(() => {
+                    if (
+                        isHost &&
+                        roundActive &&
+                        Number(authoritativeStateVersion) === Number(startPayload.stateVersion)
+                    ) {
+                        sendRealtimeMessage(startPayload);
+                    }
+                }, delay);
+            });
         }
 
         renderGameBoard();
