@@ -176,6 +176,14 @@
         </div>
 
         <div class="flex items-center gap-1.5 shrink-0">
+            <button id="turn-sound-toggle-btn" type="button" onclick="toggleYourTurnSound()"
+                    class="hidden bg-zinc-900 hover:bg-zinc-800 text-[10px] sm:text-[11px] font-bold leading-none px-2 py-1 rounded-lg border border-zinc-700 transition whitespace-nowrap"
+                    title="Your turn voice on" aria-label="Your turn voice on" aria-pressed="true">🗣️ Your Turn</button>
+
+            <button id="sound-toggle-btn" type="button" onclick="toggleGameSound()"
+                    class="hidden bg-zinc-900 hover:bg-zinc-800 text-[10px] sm:text-[11px] font-bold leading-none px-2 py-1 rounded-lg border border-zinc-700 transition whitespace-nowrap"
+                    title="Game sounds on" aria-label="Game sounds on" aria-pressed="true">🔊 Game</button>
+
             <div id="game-status-banner"
                  class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden"
                  style="display:none;">
@@ -880,6 +888,166 @@
             if (isEligibleTurnPlayer(players[idx])) { currentTurnIndex = idx; return true; }
         }
         return false;
+    }
+
+
+    // ============================================================
+    // GAME START VOICE ANNOUNCEMENT (female AI-style voice, loud)
+    // "The game has started with host <host> and players <p1>, <p2> ..."
+    // Fully isolated: any failure here is swallowed and never touches game logic.
+    // ============================================================
+    let lastSpokenGameKey = '';
+    let announcerVoiceCache = null;
+    let announcerAudioUnlocked = false;
+
+    let announcerVoiceCacheCount = -1;
+
+    // Picks the best-sounding female English voice available on this device.
+    // Neural / "Natural" / Premium voices are ranked above ordinary ones.
+    function pickAnnouncerVoice() {
+        try {
+            const voices = (window.speechSynthesis && window.speechSynthesis.getVoices()) || [];
+            if (!voices.length) return null;
+            if (announcerVoiceCache && announcerVoiceCacheCount === voices.length && voices.includes(announcerVoiceCache)) return announcerVoiceCache;
+
+            // Most pleasant female voices first (higher weight = preferred).
+            const preferred = [
+                [/aria/i, 60], [/jenny/i, 58], [/sonia/i, 56], [/libby/i, 54], [/neerja/i, 54],
+                [/ava\b.*(premium|enhanced|natural)|ava \(/i, 52], [/samantha/i, 50], [/serena/i, 50],
+                [/google uk english female/i, 48], [/zira/i, 44], [/hazel/i, 44], [/susan/i, 40],
+                [/karen/i, 40], [/moira/i, 40], [/tessa/i, 40], [/veena/i, 40], [/heera/i, 38],
+                [/swara/i, 38], [/emma/i, 36], [/joanna/i, 36], [/salli/i, 34], [/kendra/i, 34],
+                [/allison/i, 34], [/victoria/i, 32], [/fiona/i, 32], [/amy/i, 32], [/google us english/i, 20]
+            ];
+            const femaleHint = /(female|woman)/i;
+            const maleHint = /(\bmale\b|david|mark|george|james|daniel|alex|fred|rishi|ravi|prabhat|guy|brian|ryan|thomas|oliver|arthur|aaron)/i;
+            let best = null, bestScore = -1e9;
+            voices.forEach(v => {
+                const lang = String(v.lang || '').toLowerCase().replace('_', '-');
+                if (!lang.startsWith('en')) return;
+                const name = String(v.name || '');
+                let score = 0;
+                for (const [re, w] of preferred) { if (re.test(name)) { score += w; break; } }
+                if (femaleHint.test(name)) score += 12;
+                if (maleHint.test(name) && !/female/i.test(name)) score -= 80;
+                if (/(natural|neural|online|premium)/i.test(name)) score += 30;
+                else if (/(enhanced|siri|studio|wavenet)/i.test(name)) score += 18;
+                if (v.localService === false) score += 4;
+                if (lang === 'en-in') score += 3; else if (lang === 'en-us' || lang === 'en-gb') score += 2;
+                if (score > bestScore) { best = v; bestScore = score; }
+            });
+            announcerVoiceCache = best;
+            announcerVoiceCacheCount = voices.length;
+            return best;
+        } catch (e) { return null; }
+    }
+
+    // Soft, warm, clear delivery used by every spoken announcement.
+    function applyAnnouncerVoice(u) {
+        const v = pickAnnouncerVoice();
+        if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
+        const neural = !!(v && /(natural|neural|online|premium|enhanced)/i.test(v.name));
+        u.volume = 1;                 // maximum loudness
+        u.rate = neural ? 0.95 : 0.9; // calm, graceful pace
+        u.pitch = neural ? 1.05 : 1.2; // gentle feminine tone (neural voices need less lift)
+    }
+
+    function joinSpokenNames(names) {
+        const list = (names || []).map(n => String(n || '').trim()).filter(Boolean);
+        if (list.length <= 1) return list.join('');
+        return list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
+    }
+
+    function buildGameStartSpeech(hostName, playerNames) {
+        const host = String(hostName || '').trim() || 'the host';
+        const others = (playerNames || []).map(n => String(n || '').trim()).filter(Boolean);
+        return others.length
+            ? `The game has started with host ${host} and players ${joinSpokenNames(others)}.`
+            : `The game has started with host ${host}.`;
+    }
+
+    function announceGameStart(hostName, playerNames, key) {
+        try {
+            if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return false;
+            const k = String(key || '');
+            if (k && k === lastSpokenGameKey) return false; // already announced on this device
+            lastSpokenGameKey = k;
+            // The "game has started" announcement always plays (no on/off option).
+
+            const synth = window.speechSynthesis;
+            const text = buildGameStartSpeech(hostName, playerNames);
+            const speakNow = () => {
+                try {
+                    const u = new SpeechSynthesisUtterance(text);
+                    applyAnnouncerVoice(u);
+                    try { synth.cancel(); } catch (e) {}
+                    synth.speak(u);
+                } catch (e) { console.warn('Game start voice failed:', e); }
+            };
+
+            if (!synth.getVoices().length) {
+                // Voices load asynchronously on some browsers; speak as soon as they arrive.
+                let spoken = false;
+                const once = () => { if (spoken) return; spoken = true; speakNow(); };
+                try { synth.addEventListener('voiceschanged', once, { once: true }); } catch (e) {}
+                setTimeout(once, 700);
+            } else {
+                speakNow();
+            }
+            return true;
+        } catch (e) {
+            console.warn('Game start voice error:', e);
+            return false;
+        }
+    }
+
+    // Some mobile browsers (iOS Safari) only allow speech after a user gesture.
+    // Prime the speech engine silently on the first tap/click.
+    (function primeAnnouncerAudio() {
+        const unlock = () => {
+            if (announcerAudioUnlocked) return;
+            announcerAudioUnlocked = true;
+            try {
+                if ('speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') {
+                    const u = new SpeechSynthesisUtterance(' ');
+                    u.volume = 0;
+                    window.speechSynthesis.speak(u);
+                    window.speechSynthesis.getVoices();
+                }
+            } catch (e) {}
+        };
+        ['pointerdown', 'touchstart', 'click', 'keydown'].forEach(evt =>
+            document.addEventListener(evt, unlock, { once: true, passive: true })
+        );
+    })();
+
+    // "<Player> called the show" voice. Always plays (no on/off option).
+    // Deduplicated per round so a re-sent ROUND_OVER packet never repeats it.
+    let lastShowCallKey = '';
+    function announceShowCalled(callerName) {
+        try {
+            if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return;
+            const name = String(callerName || '').trim();
+            if (!name) return;
+            const key = `${roomCode}|${Array.isArray(gameHistory) ? gameHistory.length : 0}|${name}`;
+            if (key === lastShowCallKey) return;
+            lastShowCallKey = key;
+            const synth = window.speechSynthesis;
+            const u = new SpeechSynthesisUtterance(`${name} called the show`);
+            applyAnnouncerVoice(u);
+            try { synth.cancel(); } catch (e) {}
+            synth.speak(u);
+        } catch (e) { console.warn('Show call voice failed:', e); }
+    }
+
+    function announceGameStartFromState(stateVersion) {
+        try {
+            const list = (Array.isArray(players) ? players : []).filter(p => p && p.viewOnly !== true);
+            const hostP = list.find(p => p.isHost === true) || list[0];
+            const hostName = (hostP && hostP.name) || (isSoloMode ? myName : '') || '';
+            const others = list.filter(p => p !== hostP).map(p => p.name);
+            announceGameStart(hostName, others, `${roomCode}`); // once per room/game, never per round
+        } catch (e) {}
     }
 
     function showGameNotice(text) {
@@ -2244,6 +2412,7 @@
     // GUEST PRESENCE WATCHER (host only) + STATE RESYNC (guests)
     // ============================================================
     const PRESENCE_GRACE_MS = 6000;
+    const LOBBY_PRESENCE_GRACE_MS = 20000;
     const presenceAbsentTimers = new Map();
     let lastSyncReplyAt = 0;
 
@@ -2265,7 +2434,11 @@
                 const t = presenceAbsentTimers.get(tok);
                 if (t) { clearTimeout(t); presenceAbsentTimers.delete(tok); }
                 // Network blip ended: restore automatically (only players WE marked offline).
-                if (p.presenceDropped === true && p.connected === false &&
+                // In the pre-game lobby ANY not-left player whose browser is present is
+                // restored (the presenceDropped flag can be lost by state resyncs).
+                const inLobbyNow = !roundActive && Number(roundCounter) <= 0;
+                if (p.connected === false &&
+                    (p.presenceDropped === true || inLobbyNow) &&
                     p.left !== true && p.viewOnly !== true && p.rejoinPending !== true) {
                     p.connected = true;
                     p.presenceDropped = false;
@@ -2279,11 +2452,37 @@
             }
 
             if (p.connected === false || p.left === true || presenceAbsentTimers.has(tok)) return;
+            // A phone that is only minimised for a moment must not be shown offline
+            // in the lobby: use a longer grace before the game has started.
+            const graceMs = (!roundActive && Number(roundCounter) <= 0) ? LOBBY_PRESENCE_GRACE_MS : PRESENCE_GRACE_MS;
             presenceAbsentTimers.set(tok, setTimeout(() => {
                 presenceAbsentTimers.delete(tok);
                 hostMarkPlayerOffline(tok);
-            }, PRESENCE_GRACE_MS));
+            }, graceMs));
         });
+    }
+
+    // Host: right before dealing, bring back every player who is still in the room
+    // (browser present) but was only flagged offline because the tab was minimised.
+    function hostReviveLobbyPlayersByPresence() {
+        if (!isHost || isSoloMode || !Array.isArray(players)) return false;
+        const present = getPresentRoomClientTokens();
+        if (!present.size) return false;
+        let changed = false;
+        players.forEach(p => {
+            if (!p || p.isBot) return;
+            const tok = getPlayerRoomToken(p);
+            if (!tok || !present.has(tok)) return;
+            const t = presenceAbsentTimers.get(tok);
+            if (t) { clearTimeout(t); presenceAbsentTimers.delete(tok); }
+            if (p.connected === false && p.left !== true && p.viewOnly !== true && p.rejoinPending !== true) {
+                p.connected = true;
+                p.presenceDropped = false;
+                changed = true;
+            }
+        });
+        if (changed) { try { broadcastPlayerList(); updateWaitingRoomUI(); } catch (e) {} }
+        return changed;
     }
 
     function hostMarkPlayerOffline(tok) {
@@ -2400,6 +2599,8 @@
         }, HOST_ELECTION_GRACE_MS);
     }
 
+    let lastReturnAnnounceAt = 0;
+
     // Brings a client back in sync after the tab was minimised / network resumed.
     function healConnectionAfterResume() {
         if (!roomCode || isSoloMode) return;
@@ -2422,7 +2623,12 @@
             });
         } else {
             const me = players.find(pl => pl && getPlayerRoomToken(pl) === String(myClientToken));
-            if (me && me.connected === false && me.left !== true && me.viewOnly !== true && roomChannelReady) {
+            // Always announce the return (not only when the local copy already says
+            // offline: a minimised tab holds a stale list and would stay offline on the host).
+            const nowTs = Date.now();
+            const canAnnounce = !me || (me.left !== true && me.viewOnly !== true);
+            if (canAnnounce && roomChannelReady && nowTs - lastReturnAnnounceAt > 2500) {
+                lastReturnAnnounceAt = nowTs;
                 sendRealtimeMessage({
                     type: 'JOIN_REQUEST',
                     name: myName,
@@ -2439,7 +2645,8 @@
         // If the realtime socket died while minimised, rebuild it.
         setTimeout(() => {
             try {
-                if (roomCode && !isSoloMode && !roomChannelReady) initRealtimeChannel(roomCode, true);
+                const socketDead = !!(roomChannel && roomChannel.state && roomChannel.state !== 'joined');
+                if (roomCode && !isSoloMode && (!roomChannelReady || socketDead)) initRealtimeChannel(roomCode, true);
             } catch (e) {}
         }, 4000);
     }
@@ -3419,12 +3626,285 @@
     // EXIT GAME
     // ============================================================
 
+
+    // ============================================================
+    // COMPUTER ROOM: KEEP PLAYING IN THE BACKGROUND AFTER ELIMINATION
+    // If the human is eliminated and presses Exit, the bots must still finish
+    // the tournament and record the real winner. The remaining game is played
+    // on an isolated copy of the state (so a new room started right after
+    // exiting is never affected) and the result is saved to the history row.
+    // Real multiplayer rooms never go through this code.
+    // ============================================================
+    async function bgUpsertHistoryRow(filterQuery, payload) {
+        const headers = {
+            'apikey': SUPABASE_APIKEY,
+            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+            'Content-Type': 'application/json'
+        };
+        const lookup = await fetch(`${GAME_HISTORY_URL}${filterQuery}`, { headers });
+        if (!lookup.ok) throw new Error('Background lookup failed');
+        const rows = await lookup.json();
+        if (Array.isArray(rows) && rows.length) {
+            await fetch(`${GAME_HISTORY_URL}?id=eq.${encodeURIComponent(rows[0].id)}`, {
+                method: 'PATCH',
+                headers: { ...headers, 'Prefer': 'return=representation' },
+                body: JSON.stringify(payload)
+            });
+        } else {
+            await fetch(GAME_HISTORY_URL, {
+                method: 'POST',
+                headers: { ...headers, 'Prefer': 'return=representation' },
+                body: JSON.stringify(payload)
+            });
+        }
+    }
+
+    // Plays the rest of a computer game (bots only) on a cloned state.
+    // Returns { winner, reason, players, gameHistory, roundCounter, deck, discardPile, currentTurnIndex }.
+    function simulateSoloRemainder(startState) {
+        const S = {
+            players: JSON.parse(JSON.stringify(startState.players)),
+            deck: JSON.parse(JSON.stringify(startState.deck || [])),
+            discard: JSON.parse(JSON.stringify(startState.discardPile || [])),
+            turn: Number(startState.currentTurnIndex) || 0,
+            active: startState.roundActive === true,
+            history: JSON.parse(JSON.stringify(startState.gameHistory || [])),
+            roundCounter: Number(startState.roundCounter) || 0
+        };
+        const target = Number(startState.targetPoints) || 50;
+        const perPlayer = Number(startState.cardsPerPlayer) || 5;
+
+        const sum = h => (Array.isArray(h) ? h : []).reduce((a, c) => a + (Number(c && c.points) || 0), 0);
+        const alive = () => S.players.filter(p => p && !p.eliminated && p.left !== true && p.viewOnly !== true);
+        const eligible = p => !!p && !p.eliminated && p.left !== true && p.connected !== false &&
+            p.viewOnly !== true && p.rejoinPending !== true;
+
+        const advance = () => {
+            const n = S.players.length;
+            let a = 0;
+            do { S.turn = (S.turn + 1) % n; a++; } while (a < n && !eligible(S.players[S.turn]));
+        };
+        const recycle = () => {
+            if (S.deck.length === 0 && S.discard.length > 1) {
+                const top = S.discard.pop();
+                S.deck = shuffleInPlace(S.discard);
+                S.discard = [top];
+            }
+        };
+
+        // Same bot rules as executeBotTurn().
+        const botStep = (bot) => {
+            const botSum = sum(bot.hand);
+            if (!bot.hand.length || (botSum <= 5 && Math.random() < 0.7)) return 'show';
+            const top = S.discard[S.discard.length - 1];
+            const match = bot.hand.find(c => top && c.val === top.val);
+            let group;
+            if (match) {
+                group = bot.hand.filter(c => c.val === match.val);
+            } else {
+                bot.hand.sort((a, b) => b.points - a.points);
+                group = bot.hand.filter(c => c.val === bot.hand[0].val);
+            }
+            bot.hand = sortHandCards(bot.hand.filter(c => !group.includes(c)));
+            group.forEach(c => S.discard.push(c));
+            const matchesBoard = !!top && group[0].val === top.val;
+            if (matchesBoard) {
+                advance();
+            } else {
+                recycle();
+                if (S.deck.length > 0) bot.hand.push(S.deck.pop());
+                advance();
+            }
+            return 'turn';
+        };
+
+        // Same scoring rules as executeShowRoundInner().
+        const doShow = (caller) => {
+            const summaries = S.players
+                .filter(p => !p.eliminated && p.left !== true && p.viewOnly !== true &&
+                    p.rejoinPending !== true && Array.isArray(p.hand))
+                .map(p => ({ player: p, sum: sum(p.hand) }));
+            const callerSum = sum(caller.hand);
+            const rec = { roundNumber: S.roundCounter++, callerName: caller.name, callerSum, details: [] };
+
+            const lower = summaries.filter(i => i.player !== caller && i.sum < callerSum);
+            if (lower.length > 0) {
+                caller.scores += 25;
+                rec.outcome = 'Failed Show (+25 penalty)';
+                summaries.forEach(i => rec.details.push({
+                    name: i.player.name, sum: i.sum, pointsAdded: i.player === caller ? 25 : 0
+                }));
+            } else {
+                const equal = summaries.filter(i => i.player !== caller && i.sum === callerSum);
+                if (equal.length > 0) {
+                    rec.outcome = 'Matched Show';
+                    const matched = [caller, ...equal.map(m => m.player)];
+                    summaries.forEach(i => {
+                        let add = 0;
+                        if (!matched.includes(i.player)) { i.player.scores += i.sum; add = i.sum; }
+                        rec.details.push({ name: i.player.name, sum: i.sum, pointsAdded: add });
+                    });
+                } else {
+                    rec.outcome = 'Good Show';
+                    summaries.forEach(i => {
+                        let add = 0;
+                        if (i.player !== caller) { i.player.scores += i.sum; add = i.sum; }
+                        rec.details.push({ name: i.player.name, sum: i.sum, pointsAdded: add });
+                    });
+                }
+            }
+            rec.details.forEach((d, di) => { if (summaries[di]) d.totalAfterRound = summaries[di].player.scores; });
+            S.history.push(rec);
+            S.players.forEach(p => { if (p.scores >= target) p.eliminated = true; });
+        };
+
+        const dealNextRound = () => {
+            const fresh = createDeck();
+            S.players.forEach(p => {
+                if (!p.eliminated && p.left !== true && p.viewOnly !== true && p.rejoinPending !== true) {
+                    p.hand = sortHandCards(fresh.splice(0, perPlayer));
+                }
+            });
+            S.discard = [fresh.pop()];
+            S.deck = fresh;
+            S.active = true;
+            const n = Math.max(1, S.players.length);
+            const firstSeat = Math.max(0, S.roundCounter) % n;
+            let starter = -1;
+            for (let off = 0; off < S.players.length; off++) {
+                const idx = (firstSeat + off) % S.players.length;
+                if (eligible(S.players[idx])) { starter = idx; break; }
+            }
+            S.turn = starter >= 0 ? starter : 0;
+        };
+
+        let safetyRounds = 0;
+        while (safetyRounds++ < 1000) {
+            if (alive().length <= 1) break;
+            if (!S.active) dealNextRound();
+
+            let steps = 0;
+            while (S.active) {
+                if (!eligible(S.players[S.turn])) advance();
+                const bot = S.players[S.turn];
+                if (!bot || !eligible(bot)) { S.active = false; break; }
+                steps++;
+                let action;
+                if (steps > 3000) {
+                    // Safety net: a round that cannot finish is ended by the lowest hand.
+                    const low = alive().filter(eligible).sort((a, b) => sum(a.hand) - sum(b.hand))[0] || bot;
+                    doShow(low);
+                    S.active = false;
+                    break;
+                }
+                action = botStep(bot);
+                if (action === 'show') { doShow(bot); S.active = false; }
+            }
+        }
+
+        const survivors = alive();
+        let winner, reason = 'ELIMINATION';
+        if (survivors.length === 1) winner = survivors[0].name;
+        else if (survivors.length > 1) winner = survivors.slice().sort((a, b) => a.scores - b.scores)[0].name;
+        else winner = 'Nobody';
+
+        return {
+            winner, reason,
+            players: S.players,
+            gameHistory: S.history,
+            roundCounter: S.roundCounter,
+            deck: S.deck,
+            discardPile: S.discard,
+            currentTurnIndex: S.turn
+        };
+    }
+
+    // Called from confirmExitGame() BEFORE the local state is cleared.
+    // Returns { winner } when a background finish was run, otherwise null.
+    function runSoloBackgroundFinish() {
+        if (!isSoloMode || !roomCode || !Array.isArray(players)) return null;
+        const human = players.find(p => p && !p.isBot);
+        if (!human || human.eliminated !== true) return null;       // only after the human is eliminated
+        if (gameTerminalRecord) return null;                         // already finished/abandoned
+        if (resolveTerminalOutcome().done) return null;              // winner already recorded
+        if (players.filter(p => p && p.isBot && !p.eliminated).length < 2) return null;
+
+        const result = simulateSoloRemainder({
+            players, deck, discardPile, currentTurnIndex, roundActive, gameHistory, roundCounter,
+            targetPoints: targetEliminationPoints, cardsPerPlayer
+        });
+
+        // Build the database rows from the finished copy, then restore the live globals.
+        const saved = { players, deck, discardPile, currentTurnIndex, turnPhase, roundActive, gameHistory, roundCounter, gameTerminalRecord };
+        let historyPayload = null, statePayload = null;
+        try {
+            players = result.players;
+            deck = result.deck;
+            discardPile = result.discardPile;
+            currentTurnIndex = result.currentTurnIndex;
+            turnPhase = 'drop';
+            roundActive = false;
+            gameHistory = result.gameHistory;
+            roundCounter = result.roundCounter;
+            gameTerminalRecord = { status: 'COMPLETED', reason: result.reason };
+
+            historyPayload = buildGameHistoryPayload(result.winner);
+            if (currentUser) {
+                const snap = buildPersistentRoomSnapshot();
+                const stateCode = `${GAME_ROOM_STATE_PREFIX}${String(roomCode).toUpperCase()}`;
+                if (snap) {
+                    statePayload = {
+                        code: stateCode,
+                        row: {
+                            game_host: getGameHistoryHostName(),
+                            game_code: stateCode,
+                            game_winner: '',
+                            players_name: players.map(p => p?.name || '').filter(Boolean).join(', '),
+                            game_points: 'ROOM_STATE',
+                            game_history: `${GAME_ROOM_STATE_PREFIX}${JSON.stringify({ ...snap, stateVersion: Number(authoritativeStateVersion) || 0 })}`
+                        }
+                    };
+                }
+            }
+        } finally {
+            players = saved.players; deck = saved.deck; discardPile = saved.discardPile;
+            currentTurnIndex = saved.currentTurnIndex; turnPhase = saved.turnPhase;
+            roundActive = saved.roundActive; gameHistory = saved.gameHistory;
+            roundCounter = saved.roundCounter; gameTerminalRecord = saved.gameTerminalRecord;
+        }
+
+        // Fire-and-forget: uploads continue even though the user is back in the lobby.
+        (async () => {
+            try {
+                const q = `?game_host=eq.${encodeURIComponent(historyPayload.game_host)}` +
+                          `&game_code=eq.${encodeURIComponent(historyPayload.game_code)}&select=id`;
+                await bgUpsertHistoryRow(q, historyPayload);
+            } catch (e) { console.warn('Background computer game history save failed:', e); }
+            try {
+                if (statePayload) {
+                    await bgUpsertHistoryRow(`?game_code=eq.${encodeURIComponent(statePayload.code)}&select=id`, statePayload.row);
+                }
+            } catch (e) { console.warn('Background computer game state save failed:', e); }
+        })();
+
+        return { winner: result.winner };
+    }
+
     async function confirmExitGame() {
 
         if (!confirm(
             "Are you sure you want to exit?"
         ))
             return;
+
+        // Computer room: if the human is already eliminated, let the bots finish
+        // the tournament in the background and record the winner.
+        let backgroundSoloResult = null;
+        try {
+            if (isSoloMode) backgroundSoloResult = runSoloBackgroundFinish();
+        } catch (e) {
+            console.error('Background computer game failed:', e);
+        }
 
 
         if (
@@ -3595,6 +4075,9 @@
         document.getElementById('lobby-error').classList.add('hidden');
         logTicker('Ready');
         refreshPublicRoomsList();
+        if (backgroundSoloResult && backgroundSoloResult.winner) {
+            showGameNotice(`Computer game finished in the background. Winner: ${backgroundSoloResult.winner}`);
+        }
     }
 
     // ============================================================
@@ -4043,6 +4526,8 @@
         logTicker(
             "Solo game started against Computer bots!"
         );
+
+        announceGameStartFromState(0);
 
         checkBotTurn();
     }
@@ -5258,6 +5743,7 @@
 
                     if (
                         requestedPlayer &&
+                        data.autoRejoin !== true &&
                         (
                             requestedPlayer.connected === false ||
                             requestedPlayer.rejoinPending === true
@@ -6147,6 +6633,10 @@
 
                 renderGameBoard();
 
+                if (data.isNewGame === true) {
+                    announceGameStartFromState(data.stateVersion);
+                }
+
                 break;
 
             // ----------------------------------------------------
@@ -6481,6 +6971,8 @@
                     );
 
 
+                announceShowCalled(data.callerName);
+
                 if (data.tournamentWinner) {
                     showTournamentWinnerPopup(
                         data.tournamentWinner,
@@ -6637,6 +7129,8 @@
         }
 
         if (!assertValidDeckConfiguration()) { startGameInFlight = false; return; }
+
+        try { hostReviveLobbyPlayersByPresence(); } catch (e) {}
 
         if (
             players.filter(
@@ -6806,6 +7300,7 @@
         logTicker(
             "Game started!"
         );
+        announceGameStartFromState(startPayload.stateVersion);
         startGameInFlight = false;
     }
 
@@ -7921,6 +8416,7 @@
                 ? showOutcome.winner
                 : '';
         if (roundWinner) gameTerminalRecord = { status: 'COMPLETED', reason: showOutcome.reason };
+        announceShowCalled(caller.name);
 
         if (roundWinner) {
         }
@@ -8858,6 +9354,307 @@
             }
         );
     }
+
+    // ============================================================
+    // SOUND OPTIONS (remembered on this device, both default: ON)
+    //   🔊 Game      - card drop / draw sounds
+    //   🗣️ Your Turn - "Your turn now" AI voice
+    // The "game has started" voice announcement is NOT affected by these.
+    // ============================================================
+    let gameSoundEnabled = true;
+    try { gameSoundEnabled = localStorage.getItem('leastCountGameSoundEnabled') !== '0'; } catch (e) {}
+    let yourTurnSoundEnabled = true;
+    try { yourTurnSoundEnabled = localStorage.getItem('leastCountYourTurnSoundEnabled') !== '0'; } catch (e) {}
+
+    function isGameSoundEnabled() { return gameSoundEnabled === true; }
+    function isYourTurnSoundEnabled() { return yourTurnSoundEnabled === true; }
+
+    function renderGameSoundToggle() {
+        try {
+            const btn = document.getElementById('sound-toggle-btn');
+            if (btn) {
+                btn.textContent = gameSoundEnabled ? '🔊 Game' : '🔇 Game';
+                const label = gameSoundEnabled ? 'Game sounds on (tap to mute)' : 'Game sounds off (tap to turn on)';
+                btn.title = label;
+                btn.setAttribute('aria-label', label);
+                btn.setAttribute('aria-pressed', gameSoundEnabled ? 'true' : 'false');
+                btn.style.opacity = gameSoundEnabled ? '1' : '0.65';
+            }
+            const tbtn = document.getElementById('turn-sound-toggle-btn');
+            if (tbtn) {
+                tbtn.textContent = yourTurnSoundEnabled ? '🗣️ Your Turn' : '🔇 Your Turn';
+                const tlabel = yourTurnSoundEnabled ? 'Your turn voice on (tap to mute)' : 'Your turn voice off (tap to turn on)';
+                tbtn.title = tlabel;
+                tbtn.setAttribute('aria-label', tlabel);
+                tbtn.setAttribute('aria-pressed', yourTurnSoundEnabled ? 'true' : 'false');
+                tbtn.style.opacity = yourTurnSoundEnabled ? '1' : '0.65';
+            }
+        } catch (e) {}
+    }
+
+    function toggleGameSound() {
+        gameSoundEnabled = !gameSoundEnabled;
+        try { localStorage.setItem('leastCountGameSoundEnabled', gameSoundEnabled ? '1' : '0'); } catch (e) {}
+        renderGameSoundToggle();
+        try { if (gameSoundEnabled) getCardAudioCtx(); } catch (e) {}
+    }
+
+    function toggleYourTurnSound() {
+        yourTurnSoundEnabled = !yourTurnSoundEnabled;
+        try { localStorage.setItem('leastCountYourTurnSoundEnabled', yourTurnSoundEnabled ? '1' : '0'); } catch (e) {}
+        renderGameSoundToggle();
+    }
+
+    function setGameSoundToggleVisible(show) {
+        try {
+            const btn = document.getElementById('sound-toggle-btn');
+            if (btn) btn.classList.toggle('hidden', !show);
+            const tbtn = document.getElementById('turn-sound-toggle-btn');
+            if (tbtn) tbtn.classList.toggle('hidden', !show);
+            renderGameSoundToggle();
+        } catch (e) {}
+    }
+
+    // ============================================================
+    // "YOUR TURN NOW" AI VOICE
+    // Speaks once each time the turn passes to this player.
+    // Watches the shared state after each render; game logic is untouched.
+    // ============================================================
+    let yourTurnWasMine = false;
+    let yourTurnRoomKey = '';
+
+    function speakYourTurnNow() {
+        try {
+            if (!isYourTurnSoundEnabled()) return;
+            if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return;
+            const u = new SpeechSynthesisUtterance('Your turn now');
+            applyAnnouncerVoice(u);
+            // Queued (no cancel) so it never cuts off the "game has started" announcement.
+            window.speechSynthesis.speak(u);
+        } catch (e) {}
+    }
+
+    function yourTurnWatch() {
+        try {
+            const room = String(roomCode || '');
+            if (room !== yourTurnRoomKey) { yourTurnRoomKey = room; yourTurnWasMine = false; }
+            const me = Array.isArray(players) ? players[myIndex] : null;
+            const mineNow = !!(
+                roundActive === true &&
+                me &&
+                currentTurnIndex === myIndex &&
+                typeof isPlayerAllowedToPlay === 'function' &&
+                isPlayerAllowedToPlay(me)
+            );
+            if (mineNow && !yourTurnWasMine) {
+                // Short delay lets a "game has started" announcement start first, then this queues behind it.
+                setTimeout(() => {
+                    try {
+                        const m = players[myIndex];
+                        if (roundActive === true && m && currentTurnIndex === myIndex && isPlayerAllowedToPlay(m)) {
+                            speakYourTurnNow();
+                        }
+                    } catch (e) {}
+                }, 450);
+            }
+            yourTurnWasMine = mineNow;
+        } catch (e) {}
+    }
+
+    // Show the switch only while inside a room (waiting room / game board).
+    (function wireGameSoundToggleVisibility() {
+        const origFooter = updateGameOnlyFooterControls;
+        updateGameOnlyFooterControls = function (show) {
+            const r = origFooter.apply(this, arguments);
+            setGameSoundToggleVisible(!!show);
+            return r;
+        };
+        const origWaiting = updateWaitingRoomUI;
+        updateWaitingRoomUI = function () {
+            const r = origWaiting.apply(this, arguments);
+            if (roomCode) setGameSoundToggleVisible(true);
+            return r;
+        };
+        renderGameSoundToggle();
+    })();
+
+    // ============================================================
+    // CARD SOUNDS (only the player who makes the move hears them)
+    //   drop = sound 1: a real-feeling card "thwap" on the table
+    //   draw = sound 2: a soft card slide + pick-up flick
+    // Synthesised with Web Audio (no files) through a small studio chain
+    // (compressor + light room reverb). Triggered by watching the shared table
+    // state, so game logic is never touched.
+    // ============================================================
+    let cardAudioCtx = null;
+    let cardAudioChain = null;
+    let cardSoundSnapshot = null;
+
+    function getCardAudioCtx() {
+        try {
+            if (!cardAudioCtx) {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (!AC) return null;
+                cardAudioCtx = new AC();
+            }
+            if (cardAudioCtx.state === 'suspended') cardAudioCtx.resume();
+            return cardAudioCtx;
+        } catch (e) { return null; }
+    }
+
+    (function primeCardAudio() {
+        const unlock = () => { getCardAudioCtx(); };
+        ['pointerdown', 'touchstart', 'click', 'keydown'].forEach(evt =>
+            document.addEventListener(evt, unlock, { once: true, passive: true })
+        );
+    })();
+
+    function cardNoiseBuffer(ctx, seconds) {
+        const len = Math.max(1, Math.floor(ctx.sampleRate * seconds));
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        return buf;
+    }
+
+    // Master chain: gentle compressor for a polished, punchy level + short room tail.
+    function getCardAudioChain(ctx) {
+        if (cardAudioChain && cardAudioChain.ctx === ctx) return cardAudioChain;
+        const dry = ctx.createGain();
+        dry.gain.value = 0.9;
+        const wet = ctx.createGain();
+        wet.gain.value = 0.16;
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -14;
+        comp.ratio.value = 4;
+        comp.attack.value = 0.002;
+        comp.release.value = 0.12;
+        const verb = ctx.createConvolver();
+        const len = Math.floor(ctx.sampleRate * 0.28);
+        const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+        for (let ch = 0; ch < 2; ch++) {
+            const d = ir.getChannelData(ch);
+            for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+        }
+        verb.buffer = ir;
+        const input = ctx.createGain();
+        input.connect(dry); dry.connect(comp);
+        input.connect(verb); verb.connect(wet); wet.connect(comp);
+        comp.connect(ctx.destination);
+        cardAudioChain = { ctx, input };
+        return cardAudioChain;
+    }
+
+    // One shaped noise burst: band-pass (optionally swept) with a fast envelope.
+    function cardNoiseHit(ctx, out, t, o) {
+        const src = ctx.createBufferSource();
+        src.buffer = cardNoiseBuffer(ctx, o.dur + 0.05);
+        const f = ctx.createBiquadFilter();
+        f.type = o.type || 'bandpass';
+        f.Q.value = o.q || 1;
+        f.frequency.setValueAtTime(o.f0, t);
+        if (o.f1) f.frequency.exponentialRampToValueAtTime(o.f1, t + o.dur);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(o.peak, t + (o.attack || 0.003));
+        g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
+        src.connect(f); f.connect(g); g.connect(out);
+        src.start(t); src.stop(t + o.dur + 0.05);
+    }
+
+    function cardTone(ctx, out, t, o) {
+        const osc = ctx.createOscillator();
+        osc.type = o.type || 'sine';
+        osc.frequency.setValueAtTime(o.f0, t);
+        if (o.f1) osc.frequency.exponentialRampToValueAtTime(o.f1, t + o.dur);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(o.peak, t + (o.attack || 0.004));
+        g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
+        osc.connect(g); g.connect(out);
+        osc.start(t); osc.stop(t + o.dur + 0.02);
+    }
+
+    // Sound 1 - DROP: sharp snap (card edge) + papery body + warm table thump.
+    function playCardDropSound() {
+        try {
+            if (!isGameSoundEnabled()) return;
+            const ctx = getCardAudioCtx();
+            if (!ctx) return;
+            const out = getCardAudioChain(ctx).input;
+            const t = ctx.currentTime + 0.005;
+            cardNoiseHit(ctx, out, t, { type: 'highpass', f0: 3200, q: 0.7, dur: 0.035, peak: 0.55, attack: 0.0015 }); // snap
+            cardNoiseHit(ctx, out, t, { type: 'bandpass', f0: 1500, f1: 700, q: 0.9, dur: 0.11, peak: 0.75, attack: 0.002 }); // paper body
+            cardTone(ctx, out, t, { type: 'sine', f0: 170, f1: 62, dur: 0.16, peak: 0.6, attack: 0.003 });                    // table thump
+            cardTone(ctx, out, t, { type: 'triangle', f0: 340, f1: 150, dur: 0.07, peak: 0.12, attack: 0.002 });              // wood knock
+        } catch (e) {}
+    }
+
+    // Sound 2 - DRAW: soft slide of a card off the deck + a light pick-up flick.
+    function playCardDrawSound() {
+        try {
+            if (!isGameSoundEnabled()) return;
+            const ctx = getCardAudioCtx();
+            if (!ctx) return;
+            const out = getCardAudioChain(ctx).input;
+            const t = ctx.currentTime + 0.005;
+            cardNoiseHit(ctx, out, t, { type: 'bandpass', f0: 900, f1: 4200, q: 1.3, dur: 0.2, peak: 0.5, attack: 0.06 });     // slide
+            cardNoiseHit(ctx, out, t + 0.02, { type: 'lowpass', f0: 2600, q: 0.5, dur: 0.15, peak: 0.18, attack: 0.05 });       // paper rustle
+            cardNoiseHit(ctx, out, t + 0.17, { type: 'highpass', f0: 4500, q: 0.7, dur: 0.03, peak: 0.35, attack: 0.001 });     // flick
+            cardTone(ctx, out, t + 0.17, { type: 'sine', f0: 700, f1: 1100, dur: 0.07, peak: 0.16, attack: 0.003 });            // soft pop
+        } catch (e) {}
+    }
+
+    function cardSoundTurnToken(idx) {
+        try {
+            const pl = Array.isArray(players) ? players[idx] : null;
+            return pl ? String(getPlayerRoomToken(pl) || '') : '';
+        } catch (e) { return ''; }
+    }
+
+    // Compares the table with the previous render and plays a sound ONLY when the
+    // move was made by this player (whose turn it was before the change).
+    // Other players' moves, bots, round starts, reshuffles and rejoin syncs are silent.
+    function cardSoundWatch() {
+        const snap = {
+            room: String(roomCode || ''),
+            active: roundActive === true,
+            rounds: Array.isArray(gameHistory) ? gameHistory.length : 0,
+            deck: Array.isArray(deck) ? deck.length : 0,
+            disc: Array.isArray(discardPile) ? discardPile.length : 0,
+            turnTok: cardSoundTurnToken(currentTurnIndex)
+        };
+        const prev = cardSoundSnapshot;
+        cardSoundSnapshot = snap;
+        if (!prev || !snap.active || !prev.active) return;
+        if (prev.room !== snap.room || prev.rounds !== snap.rounds) return;
+
+        const dDisc = snap.disc - prev.disc;
+        const dDeck = prev.deck - snap.deck;
+        if (dDisc < 0 || dDeck < 0) return; // reshuffle / new deal
+
+        // The mover is whoever held the turn before this change.
+        const myTok = cardSoundTurnToken(myIndex);
+        if (!myTok || prev.turnTok !== myTok) return;
+
+        const dropped = dDisc >= 1 && dDisc <= 7;
+        const drew = dDeck === 1;
+        if (dropped) playCardDropSound();
+        if (drew) {
+            if (dropped) setTimeout(playCardDrawSound, 380);
+            else playCardDrawSound();
+        }
+    }
+
+    (function wrapRenderForCardSounds() {
+        const originalRender = renderGameBoard;
+        renderGameBoard = function () {
+            const result = originalRender.apply(this, arguments);
+            try { cardSoundWatch(); } catch (e) {}
+            try { yourTurnWatch(); } catch (e) {}
+            return result;
+        };
+    })();
 
     // ============================================================
     // SCOREBOARD
