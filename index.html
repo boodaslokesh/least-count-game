@@ -304,6 +304,20 @@
                     </div>
                 </div>
 
+                <div class="mt-2 grid grid-cols-2 gap-2 items-end">
+                    <div>
+                        <label for="bet-mode-select" class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Fun Bet</label>
+                        <select id="bet-mode-select" onchange="updateBetControls()" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-medium text-xs">
+                            <option value="free" selected>Free</option>
+                            <option value="fun">Fun Bet</option>
+                        </select>
+                    </div>
+                    <div id="bet-amount-wrap" class="hidden">
+                        <label for="bet-amount-input" class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Bet / game (₹)</label>
+                        <input id="bet-amount-input" type="number" min="0.01" max="100000" step="0.01" value="10" inputmode="decimal" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-medium text-xs" />
+                    </div>
+                </div>
+
                 <div class="mt-2">
                     <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Joker Card</label>
                     <select id="joker-option-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
@@ -788,6 +802,13 @@
                     <div class="text-[9px] uppercase tracking-[0.18em] text-emerald-300 font-black mb-1">Final Round History</div>
                     <div id="tournament-round-results" class="text-[10px] leading-4 text-zinc-300 max-h-28 overflow-y-auto pr-1">Final round details are not available.</div>
                 </div>
+                <div id="tournament-settlement-panel" class="hidden text-left rounded-xl border border-emerald-500/30 bg-black/80 p-2 space-y-2 max-h-52 overflow-y-auto">
+                    <div class="text-[9px] uppercase tracking-[0.18em] text-emerald-300 font-black">Final Player Balances</div>
+                    <div id="tournament-balance-table" class="text-[10px]"></div>
+                    <div class="text-[9px] uppercase tracking-[0.18em] text-amber-300 font-black pt-1 border-t border-zinc-800">Who Pays Whom</div>
+                    <div id="tournament-payments-table" class="text-[10px]"></div>
+                    <div id="tournament-settlement-note" class="text-[9px] text-zinc-400"></div>
+                </div>
                 <div class="grid grid-cols-3 gap-1.5 pt-1.5">
                     <button onclick="stayInTournamentGame()" class="py-1.5 px-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-lg shadow transition text-[10px] leading-tight whitespace-nowrap">Stay in Room</button>
                     <button onclick="startAgainSamePlayers()" class="py-1.5 px-1 bg-amber-400 hover:bg-amber-300 text-black font-black rounded-lg shadow transition text-[10px] leading-tight whitespace-nowrap">🔁 Start Again</button>
@@ -1174,7 +1195,7 @@
             `Game Code: ${roomCode}\n` +
             `Players: ${safePlayers.map(p => p.name).join(', ')}\n` +
             `Player IDs: ${safePlayers.map(p => `${p.name}=${p.clientToken || p.id || ''}`).join(', ')}\n` +
-            `Settings: ${maxPlayersLimit} players, ${cardsPerPlayer} cards/player, ${targetEliminationPoints} elimination points, Joker: ${includeJoker ? 'Yes (0 points)' : 'No'}\n\n`;
+            `Settings: ${maxPlayersLimit} players, ${cardsPerPlayer} cards/player, ${targetEliminationPoints} elimination points, Joker: ${includeJoker ? 'Yes (0 points)' : 'No'}, Bet: ${betMode === 'fun' ? formatBetMoney(betAmountPaise) + ' per game' : 'Free'}\n\n`;
 
         const formatRoundsForHistory = (rounds) => {
             let out = '';
@@ -1220,6 +1241,7 @@
             text += `Status: IN_PROGRESS\n`;
         }
 
+        text += buildBettingHistoryText();
         return text.trim();
     }
 
@@ -1257,6 +1279,8 @@
             cardsPerPlayer: Number(cardsPerPlayer) || 5,
             targetEliminationPoints: Number(targetEliminationPoints) || 50,
             includeJoker: includeJoker === true,
+            betMode: betMode,
+            betAmountPaise: betAmountPaise,
             players: Array.isArray(players) ? players : [],
             deck: Array.isArray(deck) ? deck : [],
             discardPile: Array.isArray(discardPile) ? discardPile : [],
@@ -1316,6 +1340,8 @@
         cardsPerPlayer = Number(snapshot.cardsPerPlayer) || 5;
         targetEliminationPoints = Number(snapshot.targetEliminationPoints) || 50;
         includeJoker = snapshot.includeJoker === true;
+        betMode = snapshot.betMode === 'fun' ? 'fun' : 'free';
+        betAmountPaise = Math.max(1, Number(snapshot.betAmountPaise) || 1000);
 
         players = Array.isArray(snapshot.players) ? snapshot.players : [];
         deck = Array.isArray(snapshot.deck) ? snapshot.deck : [];
@@ -1731,6 +1757,7 @@
         if (winnerEl) winnerEl.innerText = winnerName || 'Nobody';
         if (resultsEl) resultsEl.innerHTML = roundResultsHtml || '<div class="text-zinc-500 italic">Final round details are not available.</div>';
         if (roundModal) roundModal.classList.add('hidden');
+        renderTournamentSettlement();
         if (modal) modal.classList.remove('hidden');
         return true;
     }
@@ -1796,7 +1823,8 @@
             maxPlayersLimit,
             cardsPerPlayer,
             targetPoints: targetEliminationPoints,
-            includeJoker
+            includeJoker,
+            betMode, betAmountPaise
         });
 
         if (roomChannel) {
@@ -1920,6 +1948,8 @@
                 status,
                 reason,
                 points,
+                participants: (Array.isArray(players) ? players : []).filter(p => p && p.left !== true).map(p => String(p.name || 'Player')),
+                betMode, betAmountPaise,
                 rounds: JSON.parse(JSON.stringify(Array.isArray(gameHistory) ? gameHistory : []))
             }]);
         gameNumber = finishedNumber + 1;
@@ -2068,6 +2098,135 @@
     // ============================================================
     let gameNumber = 1;
     let completedGames = [];
+    // Fun-bet settings are part of the synchronized room snapshot. Currency is stored in paise.
+    let betMode = 'free';
+    let betAmountPaise = 1000;
+
+    function updateBetControls() {
+        const mode = document.getElementById('bet-mode-select')?.value || 'free';
+        const wrap = document.getElementById('bet-amount-wrap');
+        if (wrap) wrap.classList.toggle('hidden', mode !== 'fun');
+    }
+
+    function readBetSettingsFromLobby() {
+        betMode = document.getElementById('bet-mode-select')?.value === 'fun' ? 'fun' : 'free';
+        const raw = Number(document.getElementById('bet-amount-input')?.value || 10);
+        if (betMode === 'fun') {
+            if (!Number.isFinite(raw) || raw <= 0 || raw > 100000) {
+                showLobbyError('Enter a valid bet amount greater than ₹0 and no more than ₹100,000.');
+                return false;
+            }
+            betAmountPaise = Math.round(raw * 100);
+            if (betAmountPaise < 1) {
+                showLobbyError('Bet amount must be at least ₹0.01.');
+                return false;
+            }
+        } else {
+            betAmountPaise = 1000;
+        }
+        return true;
+    }
+
+    function formatBetMoney(paise) {
+        const n = Number(paise || 0) / 100;
+        return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+    }
+
+    function getBettingGameResults(includeCurrent = true) {
+        const byNumber = new Map();
+        (Array.isArray(completedGames) ? completedGames : []).forEach(g => {
+            if (g && g.status === 'COMPLETED' && g.winner && !/^(nobody|abandoned|in progress)$/i.test(String(g.winner))) byNumber.set(Number(g.gameNumber), g);
+        });
+        if (includeCurrent && gameTerminalRecord?.status === 'COMPLETED') {
+            const outcome = resolveTerminalOutcome();
+            const winner = String(outcome.winner || '').trim();
+            if (outcome.done && winner && !/^(nobody|abandoned|in progress)$/i.test(winner)) {
+                byNumber.set(Number(gameNumber) || 1, {
+                    gameNumber: Number(gameNumber) || 1, winner, status: 'COMPLETED',
+                    betMode, betAmountPaise,
+                    participants: (Array.isArray(players) ? players : []).filter(p => p && p.left !== true).map(p => String(p.name || 'Player'))
+                });
+            }
+        }
+        return [...byNumber.values()].sort((a,b) => Number(a.gameNumber)-Number(b.gameNumber));
+    }
+
+    function calculateTournamentSettlement(includeCurrent = true) {
+        const games = getBettingGameResults(includeCurrent);
+        const balances = new Map();
+        const wins = new Map();
+        const played = new Map();
+        const bet = Math.max(0, Math.round(Number(betAmountPaise) || 0));
+        games.forEach(g => {
+            const names = Array.isArray(g.participants) && g.participants.length
+                ? [...new Set(g.participants.map(n => String(n || '').trim()).filter(Boolean))]
+                : [...new Set((Array.isArray(players) ? players : []).filter(p => p && p.left !== true).map(p => String(p.name || '').trim()).filter(Boolean))];
+            const winner = String(g.winner || '').trim();
+            const gameBet = g.betMode === 'fun' && Number.isFinite(Number(g.betAmountPaise))
+                ? Math.max(0, Math.round(Number(g.betAmountPaise))) : bet;
+            if (!winner || !names.includes(winner) || names.length < 2) return;
+            names.forEach(name => { if (!balances.has(name)) balances.set(name, 0); played.set(name, (played.get(name) || 0) + 1); wins.set(name, wins.get(name) || 0); });
+            wins.set(winner, (wins.get(winner) || 0) + 1);
+            balances.set(winner, balances.get(winner) + (names.length - 1) * gameBet);
+            names.filter(name => name !== winner).forEach(name => balances.set(name, balances.get(name) - gameBet));
+        });
+        const sum = [...balances.values()].reduce((a,b) => a+b, 0);
+        const debtors = [...balances.entries()].filter(([,v]) => v < 0).map(([name,v]) => ({name, remaining: -v}));
+        const creditors = [...balances.entries()].filter(([,v]) => v > 0).map(([name,v]) => ({name, remaining: v}));
+        const payments = [];
+        let di = 0, ci = 0;
+        while (di < debtors.length && ci < creditors.length) {
+            const amount = Math.min(debtors[di].remaining, creditors[ci].remaining);
+            if (amount > 0) payments.push({ payer: debtors[di].name, receiver: creditors[ci].name, amountPaise: amount });
+            debtors[di].remaining -= amount;
+            creditors[ci].remaining -= amount;
+            if (debtors[di].remaining === 0) di++;
+            if (creditors[ci].remaining === 0) ci++;
+        }
+        return { games, balances: [...balances.entries()].map(([name,balancePaise]) => ({name, balancePaise, wins: wins.get(name)||0, games: played.get(name)||0})), payments, sumPaise: sum, valid: sum === 0 && debtors.every(d=>d.remaining===0) && creditors.every(c=>c.remaining===0), betPaise: bet };
+    }
+
+    function renderTournamentSettlement() {
+        const panel = document.getElementById('tournament-settlement-panel');
+        if (!panel) return;
+        const shouldShow = betMode === 'fun';
+        panel.classList.toggle('hidden', !shouldShow);
+        if (!shouldShow) return;
+        const result = calculateTournamentSettlement(true);
+        const balanceEl = document.getElementById('tournament-balance-table');
+        const paymentEl = document.getElementById('tournament-payments-table');
+        const note = document.getElementById('tournament-settlement-note');
+        if (!result.valid) {
+            if (balanceEl) balanceEl.innerHTML = '<div class="text-rose-300">Settlement validation failed: balances do not sum to zero. Please refresh and check saved results.</div>';
+            if (paymentEl) paymentEl.innerHTML = '<div class="text-zinc-500">Payments are hidden until balances validate.</div>';
+            if (note) note.textContent = 'No payment instructions shown because the balance check failed.';
+            return;
+        }
+        const signed = v => v > 0 ? '+' + formatBetMoney(v) : v < 0 ? '−' + formatBetMoney(-v) : formatBetMoney(0);
+        if (balanceEl) balanceEl.innerHTML = `<div class="grid grid-cols-4 gap-1 text-zinc-500 border-b border-zinc-800 pb-1"><span>Player</span><span class="text-right">Wins</span><span class="text-right">Games</span><span class="text-right">Net</span></div>` + result.balances.map(b => `<div class="grid grid-cols-4 gap-1 py-1 border-b border-zinc-900"><span class="break-words">${escapeBetHtml(b.name)}</span><span class="text-right">${b.wins}</span><span class="text-right">${b.games}</span><span class="text-right font-bold ${b.balancePaise>0?'text-emerald-300':b.balancePaise<0?'text-rose-300':'text-zinc-300'}">${signed(b.balancePaise)}</span></div>`).join('');
+        if (paymentEl) paymentEl.innerHTML = result.payments.length ? `<div class="grid grid-cols-3 gap-1 text-zinc-500 border-b border-zinc-800 pb-1"><span>Payer</span><span>Receiver</span><span class="text-right">Amount</span></div>` + result.payments.map(t => `<div class="grid grid-cols-3 gap-1 py-1 border-b border-zinc-900"><span class="break-words text-rose-300">${escapeBetHtml(t.payer)}</span><span class="break-words text-emerald-300">${escapeBetHtml(t.receiver)}</span><span class="text-right font-bold">${formatBetMoney(t.amountPaise)}</span></div>`).join('') : '<div class="text-zinc-300 py-1">No payments due.</div>';
+        if (note) note.textContent = `Bet per game: ${formatBetMoney(result.betPaise)} · ${result.games.length} completed winning game(s) counted · balances verified at ₹0 net.`;
+    }
+
+    function escapeBetHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    }
+
+    function buildBettingHistoryText() {
+        if (betMode !== 'fun') return '';
+        const result = calculateTournamentSettlement(true);
+        let out = `\n\n=== FUN BET HISTORY ===\nBet per game: ${formatBetMoney(betAmountPaise)}\n`;
+        result.games.forEach(g => { out += `Game ${g.gameNumber}: ${g.winner || 'No winner'}\n`; });
+        out += 'Final Player Balances\n';
+        result.balances.forEach(b => out += `${b.name}: ${b.balancePaise > 0 ? '+' : b.balancePaise < 0 ? '−' : ''}${formatBetMoney(Math.abs(b.balancePaise))} | Wins: ${b.wins} | Games: ${b.games}\n`);
+        out += 'Who Pays Whom\n';
+        if (!result.valid) out += 'Settlement validation failed; do not use payment instructions.\n';
+        else if (!result.payments.length) out += 'No payments due.\n';
+        else result.payments.forEach(t => out += `${t.payer} pays ${t.receiver}: ${formatBetMoney(t.amountPaise)}\n`);
+        out += `Balance check: ${result.sumPaise === 0 ? 'PASS (₹0)' : 'FAIL'}\n`;
+        return out;
+    }
+
 
     function resetMultiGameState() {
         gameNumber = 1;
@@ -4619,6 +4778,7 @@
             );
 
         includeJoker = document.getElementById('joker-option-select').value === 'yes';
+        if (!readBetSettingsFromLobby()) return;
 
         if (!validateDeckCapacity(
             Number(document.getElementById('max-players-select')?.value || maxPlayersLimit),
@@ -4805,6 +4965,7 @@
             );
 
         includeJoker = document.getElementById('joker-option-select').value === 'yes';
+        if (!readBetSettingsFromLobby()) return;
 
         isHost = true;
         myId = myClientToken;
@@ -6694,6 +6855,8 @@
                     var mergedHost = players.find(p => p && p.isHost === true);
                     if (mergedHost) roomHostToken = getPlayerRoomToken(mergedHost);
                     if (data.targetPoints !== undefined) targetEliminationPoints = data.targetPoints;
+                    if (data.betMode !== undefined) betMode = data.betMode === 'fun' ? 'fun' : 'free';
+                    if (data.betAmountPaise !== undefined) betAmountPaise = Math.max(1, Number(data.betAmountPaise) || 1000);
                     updateWaitingRoomUI();
                     renderGameBoard();
                     break;
@@ -6723,6 +6886,8 @@
                     data.targetPoints;
                 includeJoker =
                     data.includeJoker === true;
+                if (data.betMode !== undefined) betMode = data.betMode === 'fun' ? 'fun' : 'free';
+                if (data.betAmountPaise !== undefined) betAmountPaise = Math.max(1, Number(data.betAmountPaise) || 1000);
 
                 resetJoinButtonState(
                     true
@@ -7102,6 +7267,8 @@
                     maxPlayersLimit = Number(data.maxPlayersLimit) || maxPlayersLimit;
                     cardsPerPlayer = Number(data.cardsPerPlayer) || cardsPerPlayer;
                     targetEliminationPoints = Number(data.targetPoints) || targetEliminationPoints;
+                    if (data.betMode !== undefined) betMode = data.betMode === 'fun' ? 'fun' : 'free';
+                    if (data.betAmountPaise !== undefined) betAmountPaise = Math.max(1, Number(data.betAmountPaise) || 1000);
                     includeJoker = data.includeJoker === true;
                     gameHistory = [];
                     roundCounter = 0;
@@ -7504,6 +7671,9 @@
 
             includeJoker:
                 includeJoker,
+
+            betMode: betMode,
+            betAmountPaise: betAmountPaise,
 
 
 
@@ -11103,6 +11273,91 @@
             `;
         }
 
+        function renderDatabaseBettingHistoryHtml(historyText) {
+            const text = String(historyText || '');
+            const marker = '=== FUN BET HISTORY ===';
+            const start = text.indexOf(marker);
+            if (start < 0) return '';
+            const section = text.slice(start + marker.length).trim();
+            if (!section) return '';
+
+            const lines = section.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+            const betLine = lines.find(line => line.startsWith('Bet per game:')) || '';
+            const gameLines = lines.filter(line => /^Game\s+.+?:\s*/i.test(line));
+            const balanceStart = lines.findIndex(line => line.toLowerCase() === 'final player balances');
+            const paymentStart = lines.findIndex(line => line.toLowerCase() === 'who pays whom');
+            const balanceEnd = paymentStart >= 0 ? paymentStart : lines.findIndex(line => line.startsWith('Balance check:'));
+            const balanceLines = balanceStart >= 0
+                ? lines.slice(balanceStart + 1, balanceEnd >= 0 ? balanceEnd : lines.length).filter(line => line.includes('| Wins:'))
+                : [];
+            const paymentEnd = lines.findIndex((line, i) => i > paymentStart && line.startsWith('Balance check:'));
+            const paymentLines = paymentStart >= 0
+                ? lines.slice(paymentStart + 1, paymentEnd >= 0 ? paymentEnd : lines.length).filter(line => / pays .*: /.test(line) || line === 'No payments due.' || line.startsWith('Settlement validation failed'))
+                : [];
+            const balanceCheck = lines.find(line => line.startsWith('Balance check:')) || '';
+            const moneyTableStyle = 'w-full table-fixed border-collapse text-[10px] sm:text-xs';
+            const cellStyle = 'px-2 py-2 border-b border-zinc-800 align-top break-words';
+            const headStyle = 'px-2 py-2 border-b border-zinc-700 bg-zinc-900 text-zinc-400 text-left font-bold';
+
+            const gamesHtml = gameLines.length ? `
+                <div class="mb-4 min-w-0">
+                    <div class="px-3 py-2 bg-zinc-900 text-[10px] font-black uppercase tracking-wider text-amber-300">Betting History</div>
+                    <div class="w-full overflow-hidden">
+                        <table class="${moneyTableStyle}">
+                            <thead><tr><th class="${headStyle} w-1/3">Game</th><th class="${headStyle}">Winner</th></tr></thead>
+                            <tbody>${gameLines.map(line => {
+                                const match = line.match(/^Game\s+(.+?):\s*(.*)$/i);
+                                return match ? `<tr><td class="${cellStyle}">${escapeDatabaseHistoryHtml(match[1])}</td><td class="${cellStyle}">${escapeDatabaseHistoryHtml(match[2] || 'No winner')}</td></tr>` : '';
+                            }).join('')}</tbody>
+                        </table>
+                    </div>
+                </div>` : '';
+
+            const balancesHtml = balanceLines.length ? `
+                <div class="mb-4 min-w-0">
+                    <div class="px-3 py-2 bg-zinc-900 text-[10px] font-black uppercase tracking-wider text-amber-300">Final Player Balances</div>
+                    <div class="w-full overflow-hidden">
+                        <table class="${moneyTableStyle}">
+                            <thead><tr><th class="${headStyle}">Player</th><th class="${headStyle} text-right">Wins</th><th class="${headStyle} text-right">Games</th><th class="${headStyle} text-right">Net Balance</th></tr></thead>
+                            <tbody>${balanceLines.map(line => {
+                                const match = line.match(/^(.*?):\s*([+−-]?₹?[\d,]+(?:\.\d{1,2})?)\s*\|\s*Wins:\s*(\d+)\s*\|\s*Games:\s*(\d+)$/);
+                                if (!match) return `<tr><td class="${cellStyle}" colspan="4">${escapeDatabaseHistoryHtml(line)}</td></tr>`;
+                                const balance = match[2];
+                                const balanceClass = balance.startsWith('+') ? 'text-emerald-300' : (balance.startsWith('−') || balance.startsWith('-')) ? 'text-rose-300' : 'text-zinc-200';
+                                return `<tr><td class="${cellStyle}">${escapeDatabaseHistoryHtml(match[1])}</td><td class="${cellStyle} text-right">${match[3]}</td><td class="${cellStyle} text-right">${match[4]}</td><td class="${cellStyle} text-right font-bold ${balanceClass}">${escapeDatabaseHistoryHtml(balance)}</td></tr>`;
+                            }).join('')}</tbody>
+                        </table>
+                    </div>
+                </div>` : '';
+
+            const paymentRows = paymentLines.map(line => {
+                const match = line.match(/^(.*?) pays (.*?):\s*(.+)$/);
+                return match ? `<tr><td class="${cellStyle} text-rose-300">${escapeDatabaseHistoryHtml(match[1])}</td><td class="${cellStyle} text-emerald-300">${escapeDatabaseHistoryHtml(match[2])}</td><td class="${cellStyle} text-right font-bold">${escapeDatabaseHistoryHtml(match[3])}</td></tr>` : `<tr><td class="${cellStyle}" colspan="3">${escapeDatabaseHistoryHtml(line)}</td></tr>`;
+            }).join('');
+            const paymentsHtml = paymentLines.length ? `
+                <div class="mb-2 min-w-0">
+                    <div class="px-3 py-2 bg-zinc-900 text-[10px] font-black uppercase tracking-wider text-amber-300">Who Pays Whom</div>
+                    <div class="w-full overflow-hidden">
+                        <table class="${moneyTableStyle}">
+                            <thead><tr><th class="${headStyle}">Payer</th><th class="${headStyle}">Receiver</th><th class="${headStyle} text-right">Amount</th></tr></thead>
+                            <tbody>${paymentRows}</tbody>
+                        </table>
+                    </div>
+                </div>` : '';
+            const checkClass = /PASS/i.test(balanceCheck) ? 'text-emerald-300' : /FAIL/i.test(balanceCheck) ? 'text-rose-300' : 'text-zinc-300';
+
+            return `<div class="border border-amber-500/25 rounded-xl overflow-hidden bg-black mt-3 min-w-0">
+                <div class="px-3 py-2 border-b border-zinc-800 bg-zinc-900 text-[10px] font-black uppercase tracking-wider text-amber-300">Betting History & Final Settlement</div>
+                <div class="p-2 sm:p-3 min-w-0">
+                    ${betLine ? `<div class="mb-3 text-[11px] sm:text-xs text-zinc-300">${escapeDatabaseHistoryHtml(betLine)}</div>` : ''}
+                    ${gamesHtml}
+                    ${balancesHtml}
+                    ${paymentsHtml}
+                    ${balanceCheck ? `<div class="pt-2 text-[11px] sm:text-xs font-bold ${checkClass}">${escapeDatabaseHistoryHtml(balanceCheck)}</div>` : ''}
+                </div>
+            </div>`;
+        }
+
         function openDatabaseHistoryDetail(rowIndex) {
             const row = (rowIndex && typeof rowIndex === 'object') ? rowIndex : databaseGameHistoryRows[rowIndex];
             const modal = document.getElementById('database-history-detail-modal');
@@ -11148,6 +11403,7 @@
                         ${renderDatabaseHistoryRoundsHtml(historyText, row)}
                     </div>
                 </div>
+                ${renderDatabaseBettingHistoryHtml(historyText)}
 
                 <div class="text-[9px] sm:text-[10px] text-zinc-600 mt-3 flex flex-wrap gap-x-4 gap-y-1">
                     <span>Game: ${escapeDatabaseHistoryHtml(row.game_code || '—')}</span>
