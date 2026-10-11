@@ -1297,6 +1297,7 @@
     }
 
     function saveLocalRoomSession() {
+        if (isSpectator) return;
         const snapshot = buildPersistentRoomSnapshot();
         if (!snapshot) return;
 
@@ -2058,6 +2059,9 @@
     let roomOwnerToken = '';
     let hostTransferInProgress = false;
     let lastHostTransferAt = 0;
+    // Spectator = someone who is NOT a room player and joined by code while a game is running.
+    let isSpectator = false;
+    const spectatorTokens = new Set();
 
     try {
         myClientToken =
@@ -3794,7 +3798,7 @@
         } catch (e) {}
 
         updateGameOnlyFooterControls(false);
-
+        isSpectator = false;
         isHost = false;
         isSoloMode = false;
         roomHostToken = '';
@@ -4441,7 +4445,7 @@
         roomChannel = null;
         try { clearLocalRoomSession(); } catch (e) {}
         updateGameOnlyFooterControls(false);
-
+        isSpectator = false;
         isHost = false;
         isSoloMode = false;
         myId = '';
@@ -5132,6 +5136,7 @@
         roomHostToken = '';
         myId = myClientToken;
         roomCode = codeInput;
+        isSpectator = false;
         gameHistory = [];
         resetMultiGameState();
 
@@ -5644,7 +5649,7 @@
                 const nowTs = Date.now();
                 if (nowTs - lastSyncReplyAt < 800) return;
                 const asker = String(data.clientToken || '').trim();
-                if (!asker || !players.some(pl => getPlayerRoomToken(pl) === asker)) return;
+                if (!asker || (!players.some(pl => getPlayerRoomToken(pl) === asker) && !spectatorTokens.has(asker))) return;
                 if (Number(roundCounter) > 0 || roundActive) {
                     const behind =
                         data.knownVersion === undefined ||
@@ -5821,20 +5826,23 @@
                  * If game has already started, a player who
                  * does not already exist cannot join.
                  */
-                if (roundActive) {
-
+                if (roundActive || Number(roundCounter) > 0) {
+                    // Not a room player: never added to the players list, never triggers
+                    // a rejoin popup, never takes turns. View-only spectator.
+                    const specToken = String(data.clientToken || '').trim();
+                    if (specToken) spectatorTokens.add(specToken);
                     sendRealtimeMessage({
-
-                        type:
-                            'REJECT',
-
-                        targetToken:
-                            data.clientToken,
-
-                        reason:
-                            'Game already started. Only previous players can request rejoin.'
+                        type: 'SPECTATE_ACCEPT',
+                        targetToken: data.clientToken,
+                        gameNumber, completedGames,
+                        players, deck, discardPile, currentTurnIndex, turnPhase,
+                        roundActive, gameHistory, gameHistoryHostName,
+                        maxPlayers: maxPlayersLimit, cardsPerPlayer,
+                        targetPoints: targetEliminationPoints, includeJoker,
+                        betMode, betAmountPaise,
+                        stateVersion: authoritativeStateVersion
                     });
-
+                    logTicker(`${data.name || 'A visitor'} is watching (view only).`);
                     return;
                 }
 
@@ -6181,6 +6189,45 @@
             // ----------------------------------------------------
             // REJECT
             // ----------------------------------------------------
+
+            case 'SPECTATE_ACCEPT':
+                {
+                    if (data.targetToken !== myClientToken) break;
+                    isSpectator = true;
+                    isHost = false;
+                    players = Array.isArray(data.players) ? data.players : [];
+                    deck = Array.isArray(data.deck) ? data.deck : [];
+                    discardPile = Array.isArray(data.discardPile) ? data.discardPile : [];
+                    currentTurnIndex = Number(data.currentTurnIndex) || 0;
+                    turnPhase = data.turnPhase || 'drop';
+                    roundActive = data.roundActive === true;
+                    gameHistory = Array.isArray(data.gameHistory) ? data.gameHistory : [];
+                    if (data.gameHistoryHostName) gameHistoryHostName = data.gameHistoryHostName;
+                    maxPlayersLimit = Number(data.maxPlayers) || maxPlayersLimit;
+                    cardsPerPlayer = Number(data.cardsPerPlayer) || cardsPerPlayer;
+                    targetEliminationPoints = Number(data.targetPoints) || targetEliminationPoints;
+                    includeJoker = data.includeJoker === true;
+                    if (data.betMode !== undefined) betMode = data.betMode === 'fun' ? 'fun' : 'free';
+                    if (data.betAmountPaise !== undefined) betAmountPaise = Math.max(1, Number(data.betAmountPaise) || 1000);
+                    applyMultiGameFields(data, true);
+                    lastAppliedStateVersion = Number(data.stateVersion) || 0;
+                    const specHostPlayer = players.find(p => p && p.isHost === true);
+                    if (specHostPlayer) roomHostToken = getPlayerRoomToken(specHostPlayer);
+                    myIndex = -1;
+
+                    resetJoinButtonState(true);
+                    document.getElementById('lobby-screen').classList.add('hidden');
+                    document.getElementById('waiting-screen').classList.add('hidden');
+                    document.getElementById('game-board-screen').classList.remove('hidden');
+                    document.getElementById('room-badge').classList.remove('hidden');
+                    document.getElementById('sticky-scores-wrapper').classList.remove('hidden');
+                    document.getElementById('current-room-id').innerText = roomCode;
+                    document.getElementById('game-status-banner').classList.remove('hidden');
+                    setHeaderAction(false);
+                    renderGameBoard();
+                    logTicker('You are watching this game in view-only mode.');
+                }
+                break;
 
             case 'REJECT':
 
@@ -9562,11 +9609,28 @@
         ).innerText =
             deck.length;
 
-        let me =
-            players[myIndex];
+        let me = players[myIndex];
 
-        if (!me)
+        if (isSpectator || !me) {
+            if (isSpectator) {
+                const nameEl = document.getElementById('my-display-name');
+                if (nameEl) nameEl.innerText = 'Spectator (View Only)';
+                const sumEl = document.getElementById('my-hand-sum');
+                if (sumEl) sumEl.innerText = '0';
+                const handEl = document.getElementById('my-hand-cards');
+                if (handEl) handEl.innerHTML = '';
+                const showBtn = document.getElementById('call-show-btn');
+                if (showBtn) showBtn.disabled = true;
+                const activeP = players[currentTurnIndex];
+                const ta = document.getElementById('turn-announcement');
+                if (ta) ta.innerText = activeP ? ('Turn: ' + activeP.name) : 'Watching';
+                const ai = document.getElementById('action-instruction');
+                if (ai) ai.innerText = 'You are not a player in this room. View only.';
+                const banner = document.getElementById('game-status-banner');
+                if (banner) banner.innerText = 'Spectator - View Only';
+            }
             return;
+        }
 
         const myHandContainer =
             document.getElementById(
@@ -11245,14 +11309,32 @@
                             <span class="text-emerald-300">Game ${line.n}</span>
                             <span class="${line.inProgress ? 'text-amber-300' : 'text-emerald-300'}">${escapeDatabaseHistoryHtml(right)}</span>
                         </div>
-                        ${gameRounds.length ? renderDatabaseRoundsTableHtml(gameRounds) : '<div class="database-history-no-rounds">No completed rounds yet.</div>'}
+                        ${gameRounds.length ? renderDatabaseRoundsTableHtml(gameRounds, line.inProgress ? 'Current Points' : 'Final Points') : '<div class="database-history-no-rounds">No completed rounds yet.</div>'}
                     </div>`;
                 }).join('');
             }
-            return renderDatabaseRoundsTableHtml(allRounds);
+            return renderDatabaseRoundsTableHtml(allRounds, (row && parseGameHistoryStatus(row).inProgress) ? 'Current Points' : 'Final Points');
         }
 
-        function renderDatabaseRoundsTableHtml(rounds) {
+        function renderDatabaseRoundsTableHtml(rounds, closingLabel) {
+            const core = renderDatabaseRoundsTableCoreHtml(rounds);
+            if (!Array.isArray(rounds) || !rounds.length) return core;
+            const order = [];
+            const totals = {};
+            rounds.forEach(r => (r.details || []).forEach(d => {
+                if (!(d.name in totals)) order.push(d.name);
+                totals[d.name] = d.totalAfterRound;
+            }));
+            if (!order.length) return core;
+            const cells = order.map(n =>
+                `<span class="mr-3 whitespace-nowrap"><span class="text-white font-bold">${escapeDatabaseHistoryHtml(n)}</span>: <span class="text-amber-300 font-black">${escapeDatabaseHistoryHtml(totals[n])}</span></span>`
+            ).join('');
+            const row = `<div class="database-round-history-grid database-round-history-row" style="background:#0b1f17;"><div style="grid-column:1 / -1; border-right:0; font-size:10px;"><span class="text-emerald-300 font-black uppercase mr-2">${escapeDatabaseHistoryHtml(closingLabel || 'Final Points')}</span>${cells}</div></div>`;
+            const idx = core.lastIndexOf('</div>');
+            return idx < 0 ? core + row : core.slice(0, idx) + row + core.slice(idx);
+        }
+
+        function renderDatabaseRoundsTableCoreHtml(rounds) {
             if (!rounds.length) {
                 return `<div class="database-history-no-rounds">No completed rounds have been saved yet. The game may still be in its first round.</div>`;
             }
