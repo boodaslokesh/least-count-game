@@ -11307,6 +11307,7 @@
                     return `<div class="mb-3">
                         <div class="flex items-center justify-between gap-2 px-1 pb-1.5 text-[11px] font-black">
                             <span class="text-emerald-300">Game ${line.n}</span>
+                            ${gameRounds.length ? `<span class="flex-1 min-w-0 text-[10px] font-bold text-zinc-300 text-left sm:text-center break-words">${getRoundsFinalTotals(gameRounds).map(f => escapeDatabaseHistoryHtml(f.name) + ': <span class="text-amber-300">' + escapeDatabaseHistoryHtml(f.total) + '</span>').join(', ')}</span>` : ''}
                             <span class="${line.inProgress ? 'text-amber-300' : 'text-emerald-300'}">${escapeDatabaseHistoryHtml(right)}</span>
                         </div>
                         ${gameRounds.length ? renderDatabaseRoundsTableHtml(gameRounds, line.inProgress ? 'Current Points' : 'Final Points') : '<div class="database-history-no-rounds">No completed rounds yet.</div>'}
@@ -11316,22 +11317,18 @@
             return renderDatabaseRoundsTableHtml(allRounds, (row && parseGameHistoryStatus(row).inProgress) ? 'Current Points' : 'Final Points');
         }
 
-        function renderDatabaseRoundsTableHtml(rounds, closingLabel) {
-            const core = renderDatabaseRoundsTableCoreHtml(rounds);
-            if (!Array.isArray(rounds) || !rounds.length) return core;
+        function getRoundsFinalTotals(rounds) {
             const order = [];
             const totals = {};
-            rounds.forEach(r => (r.details || []).forEach(d => {
+            (Array.isArray(rounds) ? rounds : []).forEach(r => (r.details || []).forEach(d => {
                 if (!(d.name in totals)) order.push(d.name);
                 totals[d.name] = d.totalAfterRound;
             }));
-            if (!order.length) return core;
-            const cells = order.map(n =>
-                `<span class="mr-3 whitespace-nowrap"><span class="text-white font-bold">${escapeDatabaseHistoryHtml(n)}</span>: <span class="text-amber-300 font-black">${escapeDatabaseHistoryHtml(totals[n])}</span></span>`
-            ).join('');
-            const row = `<div class="database-round-history-grid database-round-history-row" style="background:#0b1f17;"><div style="grid-column:1 / -1; border-right:0; font-size:10px;"><span class="text-emerald-300 font-black uppercase mr-2">${escapeDatabaseHistoryHtml(closingLabel || 'Final Points')}</span>${cells}</div></div>`;
-            const idx = core.lastIndexOf('</div>');
-            return idx < 0 ? core + row : core.slice(0, idx) + row + core.slice(idx);
+            return order.map(name => ({ name, total: totals[name] }));
+        }
+
+        function renderDatabaseRoundsTableHtml(rounds, closingLabel) {
+            return renderDatabaseRoundsTableCoreHtml(rounds);
         }
 
         function renderDatabaseRoundsTableCoreHtml(rounds) {
