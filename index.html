@@ -1750,6 +1750,12 @@
         if (!eventRoom || !currentRoom || eventRoom !== currentRoom) return false;
         if (tournamentWinnerShown) return false;
         tournamentWinnerShown = true;
+        // Guests never run the host's tournament-end code, so mark the game as finished here;
+        // the fun-bet settlement counts the current game only when this record exists.
+        if (!gameTerminalRecord) {
+            const finishedOutcome = resolveTerminalOutcome();
+            if (finishedOutcome.done) gameTerminalRecord = { status: 'COMPLETED', reason: finishedOutcome.reason };
+        }
         const modal = document.getElementById('tournament-winner-modal');
         const winnerEl = document.getElementById('tournament-winner-name');
         const resultsEl = document.getElementById('tournament-round-results');
@@ -3071,6 +3077,7 @@
         const oldHost = players.find(p => getPlayerRoomToken(p) === currentHostToken);
         if (oldHost) {
             oldHost.connected = false;
+            oldHost.presenceDropped = true; // lets the new host auto-restore the old host when they return
             oldHost.viewOnly = false;
             oldHost.rejoinPending = false;
             oldHost.isHost = false;
