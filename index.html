@@ -1351,6 +1351,16 @@
         turnPhase = String(snapshot.turnPhase || 'drop');
         roundActive = snapshot.roundActive === true;
         gameHistory = Array.isArray(snapshot.gameHistory) ? snapshot.gameHistory : [];
+        // Restore the "finished" state too (it is not stored in the snapshot itself).
+        gameTerminalRecord = null;
+        if (!roundActive) {
+            try {
+                const restoredOutcome = resolveTerminalOutcome();
+                if (restoredOutcome.done && restoredOutcome.status === 'COMPLETED') {
+                    gameTerminalRecord = { status: 'COMPLETED', reason: restoredOutcome.reason };
+                }
+            } catch (e) {}
+        }
         roundCounter = Number(snapshot.roundCounter) || 0;
         gameNumber = Number(snapshot.gameNumber) || 1;
         completedGames = Array.isArray(snapshot.completedGames) ? snapshot.completedGames : [];
@@ -1632,8 +1642,27 @@
         return true;
     }
 
+    // A finished game must never be written back as "In Progress" just because a caller
+    // passed an empty winner (e.g. after a page refresh / redeploy, host takeover, or an
+    // elimination-points change). If the saved state shows the tournament is over,
+    // the winner is recomputed from the players' real elimination state.
+    function effectiveFinalWinner(finalWinner) {
+        if (finalWinner) return finalWinner;
+        if (gameTerminalRecord && gameTerminalRecord.status === 'ABANDONED') return '';
+        if (roundActive) return '';
+        try {
+            const o = resolveTerminalOutcome();
+            if (o.done && o.status === 'COMPLETED' && o.winner && o.winner !== 'Nobody') {
+                if (!gameTerminalRecord) gameTerminalRecord = { status: 'COMPLETED', reason: o.reason };
+                return o.winner;
+            }
+        } catch (e) {}
+        return '';
+    }
+
     async function syncGameHistoryToSupabase(finalWinner = '') {
         if (!isHost || !roomCode) return;
+        finalWinner = effectiveFinalWinner(finalWinner);
 
         // Never create a game-history row for a room that is merely waiting
         // in the lobby. A game record begins only when the actual game starts.
