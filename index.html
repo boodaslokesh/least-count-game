@@ -178,11 +178,11 @@
         <div class="flex items-center gap-1.5 shrink-0">
             <button id="turn-sound-toggle-btn" type="button" onclick="toggleYourTurnSound()"
                     class="hidden bg-zinc-900 hover:bg-zinc-800 text-[10px] sm:text-[11px] font-bold leading-none px-2 py-1 rounded-lg border border-zinc-700 transition whitespace-nowrap"
-                    title="Your turn voice on" aria-label="Your turn voice on" aria-pressed="true">🗣️ Your Turn</button>
+                    title="Your turn voice on" aria-label="Your turn voice on" aria-pressed="true">🗣️</button>
 
             <button id="sound-toggle-btn" type="button" onclick="toggleGameSound()"
                     class="hidden bg-zinc-900 hover:bg-zinc-800 text-[10px] sm:text-[11px] font-bold leading-none px-2 py-1 rounded-lg border border-zinc-700 transition whitespace-nowrap"
-                    title="Game sounds on" aria-label="Game sounds on" aria-pressed="true">🔊 Game</button>
+                    title="Game sounds on" aria-label="Game sounds on" aria-pressed="true">🔊</button>
 
             <div id="game-status-banner"
                  class="text-[11px] font-semibold bg-zinc-900 px-2.5 py-0.5 rounded-full border border-zinc-800 hidden"
@@ -533,6 +533,10 @@
                     </div>
 
                     <div class="flex space-x-2">
+                        <button id="play-again-board-btn" type="button" onclick="startAgainSamePlayers()"
+                                class="hidden px-3 py-1 bg-amber-400 hover:bg-amber-300 text-black text-[11px] font-bold rounded-lg shadow transition">
+                            🔁 Start Again
+                        </button>
                         <button id="call-show-btn"
                                 onclick="callShow()"
                                 disabled
@@ -555,6 +559,11 @@
 
         <div class="flex items-center gap-3 shrink-0">
             <div id="game-footer-links" class="hidden items-center gap-2 text-[11px]">
+                <button id="game-db-footer-btn" type="button" onclick="toggleDatabaseHistory(true)"
+                        class="bg-transparent text-zinc-300 hover:text-white font-semibold underline underline-offset-2 transition">
+                    Game History DB
+                </button>
+                <em class="text-zinc-700 not-italic">|</em>
                 <button id="history-footer-btn" onclick="toggleHistoryModal(true)"
                         class="game-only-footer-control hidden bg-transparent text-zinc-300 hover:text-white font-semibold underline underline-offset-2 transition">
                     History
@@ -703,6 +712,10 @@
                     <h4 class="font-bold text-white">7. Multiplayer and rejoining</h4>
                     <p>The host controls starting rounds. A view-only spectator can watch but cannot play cards or call Show. If you leave, use the room's rejoin process to request access again; the host can allow viewing, allow playing, or deny the request.</p>
                 </section>
+                <section class="space-y-1">
+                    <h4 class="font-bold text-white">8. Playing again</h4>
+                    <p>When a game finishes you can choose <strong class="text-white">Start Again</strong> to play another game in the same room with the same members. Scores restart from zero, and Game History DB lists every game of the room (Game1, Game2, ...) with its own rounds and winner.</p>
+                </section>
                 <p class="text-[11px] text-zinc-500 border-t border-zinc-800 pt-2">Card point values and round settings follow the values configured in this game. Check the Scores and History panels to review totals and completed rounds.</p>
             </div>
             <div class="flex justify-end pt-1">
@@ -775,9 +788,10 @@
                     <div class="text-[9px] uppercase tracking-[0.18em] text-emerald-300 font-black mb-1">Final Round History</div>
                     <div id="tournament-round-results" class="text-[10px] leading-4 text-zinc-300 max-h-28 overflow-y-auto pr-1">Final round details are not available.</div>
                 </div>
-                <div class="grid grid-cols-2 gap-2 pt-1.5">
-                    <button onclick="stayInTournamentGame()" class="py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-lg shadow-lg transition text-[11px]">Stay in Room</button>
-                    <button onclick="exitTournamentToLobby()" class="py-2 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-lg shadow-lg transition text-[11px]">Exit Room</button>
+                <div class="grid grid-cols-3 gap-1.5 pt-1.5">
+                    <button onclick="stayInTournamentGame()" class="py-1.5 px-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-lg shadow transition text-[10px] leading-tight whitespace-nowrap">Stay in Room</button>
+                    <button onclick="startAgainSamePlayers()" class="py-1.5 px-1 bg-amber-400 hover:bg-amber-300 text-black font-black rounded-lg shadow transition text-[10px] leading-tight whitespace-nowrap">🔁 Start Again</button>
+                    <button onclick="exitTournamentToLobby()" class="py-1.5 px-1 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-lg shadow transition text-[10px] leading-tight whitespace-nowrap">Exit Room</button>
                 </div>
             </div>
         </div>
@@ -1046,7 +1060,7 @@
             const hostP = list.find(p => p.isHost === true) || list[0];
             const hostName = (hostP && hostP.name) || (isSoloMode ? myName : '') || '';
             const others = list.filter(p => p !== hostP).map(p => p.name);
-            announceGameStart(hostName, others, `${roomCode}`); // once per room/game, never per round
+            announceGameStart(hostName, others, `${roomCode}|${gameNumber}`); // once per game, never per round
         } catch (e) {}
     }
 
@@ -1092,8 +1106,10 @@
     function parseGameHistoryStatus(row) {
         const winner = String(row?.game_winner || '').trim();
         const text = String(row?.game_history || '');
-        const sm = text.match(/^Status:\s*(.+)$/im);
-        const rm = text.match(/^End Reason:\s*(.+)$/im);
+        const finalIdx = text.search(/=== FINAL RESULT ===/i);
+        const finalText = finalIdx >= 0 ? text.slice(finalIdx) : text;
+        const sm = finalText.match(/^Status:\s*(.+)$/im);
+        const rm = finalText.match(/^End Reason:\s*(.+)$/im);
         const finalResult = (text.match(/=== FINAL RESULT ===\s*\nWinner:\s*(.*)/i) || [, ''])[1].trim();
         const notWinner = !winner || /^(in\s*progress|abandoned|waiting)$/i.test(winner);
         let status = sm ? sm[1].trim().toUpperCase().replace(/\s+/g, '_') : '';
@@ -1109,6 +1125,45 @@
                  inProgress: status === 'IN_PROGRESS' || status === 'WAITING' };
     }
 
+    // Per-game status lines for rows that contain several games of one room:
+    // Game1: <winner>, Game2: <winner>, Game3: In Progress ...
+    function parseGameStatusLines(row) {
+        const text = String(row?.game_history || '').replace(/\r\n/g, '\n');
+        const markers = [...text.matchAll(/^=== GAME (\d+) ===$/gm)];
+        if (!markers.length) return [];
+        const lines = [];
+        const done = new Set();
+        for (const m of text.matchAll(/^\[GAME (\d+) RESULT\][ \t]*Winner:[ \t]*(.*?)[ \t]*\|[ \t]*Status:[ \t]*([A-Z_]+)/gm)) {
+            const n = Number(m[1]);
+            const winner = String(m[2] || '').trim();
+            lines.push({
+                n,
+                inProgress: false,
+                label: m[3] === 'ABANDONED' ? 'Abandoned' : (winner || 'Nobody')
+            });
+            done.add(n);
+        }
+        const currentN = Number(markers[markers.length - 1][1]);
+        if (!done.has(currentN)) {
+            const st = parseGameHistoryStatus(row);
+            lines.push({
+                n: currentN,
+                inProgress: st.inProgress,
+                label: st.status === 'COMPLETED' ? (st.winner || 'Nobody')
+                    : st.status === 'ABANDONED' ? 'Abandoned' : 'In Progress'
+            });
+        }
+        return lines.sort((a, b) => a.n - b.n);
+    }
+
+    function getStatusCellHtml(row, fallbackText) {
+        const lines = parseGameStatusLines(row);
+        if (!lines.length) return escapeRoundResultHtml(fallbackText);
+        return '<div class="min-w-0">' + lines.map(l =>
+            `<div class="${l.inProgress ? 'status-progress' : 'status-complete'}">Game${l.n}: ${escapeRoundResultHtml(l.label)}</div>`
+        ).join('') + '</div>';
+    }
+
     function buildGameHistoryText(finalWinner = '') {
         const hostName = getGameHistoryHostName();
         const safePlayers = Array.isArray(players) ? players : [];
@@ -1121,22 +1176,35 @@
             `Player IDs: ${safePlayers.map(p => `${p.name}=${p.clientToken || p.id || ''}`).join(', ')}\n` +
             `Settings: ${maxPlayersLimit} players, ${cardsPerPlayer} cards/player, ${targetEliminationPoints} elimination points, Joker: ${includeJoker ? 'Yes (0 points)' : 'No'}\n\n`;
 
-        if (Array.isArray(gameHistory) && gameHistory.length) {
-            gameHistory.forEach(round => {
-                text += `[ROUND ${round.roundNumber}]\n`;
-                text += `- Caller: ${round.callerName || 'N/A'}\n`;
-                text += `- Caller Sum: ${round.callerSum ?? 'N/A'}\n`;
-                text += `- Outcome: ${round.outcome || 'N/A'}\n`;
+        const formatRoundsForHistory = (rounds) => {
+            let out = '';
+            if (Array.isArray(rounds) && rounds.length) {
+                rounds.forEach(round => {
+                    out += `[ROUND ${round.roundNumber}]\n`;
+                    out += `- Caller: ${round.callerName || 'N/A'}\n`;
+                    out += `- Caller Sum: ${round.callerSum ?? 'N/A'}\n`;
+                    out += `- Outcome: ${round.outcome || 'N/A'}\n`;
 
-                if (Array.isArray(round.details)) {
-                    round.details.forEach(detail => {
-                        text += `- ${detail.name}: Hand Sum = ${detail.sum}, Points Added = ${detail.pointsAdded}, Total Score = ${detail.totalAfterRound ?? 'N/A'}\n`;
-                    });
-                }
+                    if (Array.isArray(round.details)) {
+                        round.details.forEach(detail => {
+                            out += `- ${detail.name}: Hand Sum = ${detail.sum}, Points Added = ${detail.pointsAdded}, Total Score = ${detail.totalAfterRound ?? 'N/A'}\n`;
+                        });
+                    }
 
-                text += `\n`;
-            });
-        }
+                    out += `\n`;
+                });
+            }
+            return out;
+        };
+
+        // Finished games of this room first (Game 1, Game 2 ...), then the current game.
+        (Array.isArray(completedGames) ? completedGames : []).forEach(g => {
+            text += `=== GAME ${g.gameNumber} ===\n`;
+            text += formatRoundsForHistory(g.rounds);
+            text += `[GAME ${g.gameNumber} RESULT] Winner: ${g.winner || 'Nobody'} | Status: ${g.status || 'COMPLETED'} | Reason: ${g.reason || 'ELIMINATION'} | Points: ${g.points || ''}\n\n`;
+        });
+        text += `=== GAME ${Number(gameNumber) || 1} ===\n`;
+        text += formatRoundsForHistory(gameHistory);
 
         text += `=== FINAL RESULT ===\n`;
         if (gameTerminalRecord && gameTerminalRecord.status === 'ABANDONED') {
@@ -1197,6 +1265,8 @@
             roundActive: !!roundActive,
             gameHistory: Array.isArray(gameHistory) ? gameHistory : [],
             roundCounter: Number(roundCounter) || 0,
+            gameNumber: Number(gameNumber) || 1,
+            completedGames: Array.isArray(completedGames) ? completedGames : [],
             gameHistoryHostName: String(getGameHistoryHostName() || ''),
             authoritativeStateVersion: Number(authoritativeStateVersion) || 0
         };
@@ -1255,6 +1325,8 @@
         roundActive = snapshot.roundActive === true;
         gameHistory = Array.isArray(snapshot.gameHistory) ? snapshot.gameHistory : [];
         roundCounter = Number(snapshot.roundCounter) || 0;
+        gameNumber = Number(snapshot.gameNumber) || 1;
+        completedGames = Array.isArray(snapshot.completedGames) ? snapshot.completedGames : [];
         gameHistoryHostName = String(snapshot.gameHistoryHostName || '');
         authoritativeStateVersion = Number(snapshot.authoritativeStateVersion) || 0;
         lastAppliedStateVersion = authoritativeStateVersion;
@@ -1668,7 +1740,7 @@
         if (modal) modal.classList.add('hidden');
 
         if (isHost || isSoloMode) {
-            await createNewRoomWithSamePlayers();
+            await startAgainSameRoom();
             return;
         }
 
@@ -1678,7 +1750,7 @@
             roomCode
         });
 
-        logTicker('Requesting the host to start a new room with the same players...');
+        logTicker('Requesting the host to start another game with the same players...');
     }
 
     async function createNewRoomWithSamePlayers() {
@@ -1741,6 +1813,7 @@
         myIndex = players.findIndex(p => p.clientToken === myClientToken);
         gameHistory = [];
         roundCounter = 0;
+        resetMultiGameState();
         roundActive = false;
         authoritativeStateVersion = 0;
         lastAppliedStateVersion = 0;
@@ -1802,6 +1875,135 @@
         logTicker('Tournament completed. You stayed in the room.');
     }
 
+    // ------------------------------------------------------------
+    // START AGAIN (same room code, same members, next game)
+    // ------------------------------------------------------------
+    let restartKeepVersions = false;
+    let startAgainInFlight = false;
+    let restartPending = false;
+
+    function isCurrentGameFinished() {
+        if (roundActive) return false;
+        if (restartPending) return true;
+        if (gameTerminalRecord) return true;
+        return resolveTerminalOutcome().done === true;
+    }
+
+    // Stores the finished game (winner + all its rounds) and moves to the next game number.
+    function archiveCurrentGameForRestart() {
+        const out = resolveTerminalOutcome();
+        let status = 'COMPLETED';
+        let reason = 'ELIMINATION';
+        let winner = 'Nobody';
+
+        if (gameTerminalRecord && gameTerminalRecord.status === 'ABANDONED') {
+            status = 'ABANDONED';
+            reason = gameTerminalRecord.reason || 'ADMINISTRATIVE_TERMINATION';
+            winner = 'Abandoned';
+        } else if (out.done) {
+            winner = out.winner || 'Nobody';
+            reason = out.reason || reason;
+        } else if (gameTerminalRecord) {
+            reason = gameTerminalRecord.reason || reason;
+        }
+
+        const points = (Array.isArray(players) ? players : [])
+            .map(p => `${p.name}: ${p.scores || 0} pts`)
+            .join(', ');
+
+        const finishedNumber = Number(gameNumber) || 1;
+        completedGames = (Array.isArray(completedGames) ? completedGames : [])
+            .filter(g => Number(g.gameNumber) !== finishedNumber)
+            .concat([{
+                gameNumber: finishedNumber,
+                winner,
+                status,
+                reason,
+                points,
+                rounds: JSON.parse(JSON.stringify(Array.isArray(gameHistory) ? gameHistory : []))
+            }]);
+        gameNumber = finishedNumber + 1;
+    }
+
+    async function startAgainSameRoom() {
+        if (!isHost && !isSoloMode) return false;
+        if (startAgainInFlight || startGameInFlight || roundActive) return false;
+
+        if (!isCurrentGameFinished()) {
+            logTicker('The current game is not finished yet.');
+            return false;
+        }
+
+        try { hostReviveLobbyPlayersByPresence(); } catch (e) {}
+
+        const ready = players.filter(p =>
+            p && p.left !== true && p.connected !== false &&
+            p.viewOnly !== true && p.rejoinPending !== true
+        );
+        if (ready.length < 2) {
+            showGameNotice('At least 2 connected players are needed to start another game.');
+            logTicker('At least 2 connected players are needed to start another game.');
+            return false;
+        }
+        if (!validateDeckCapacity(maxPlayersLimit, cardsPerPlayer)) {
+            assertValidDeckConfiguration();
+            return false;
+        }
+
+        startAgainInFlight = true;
+        try {
+            stopNextRoundCountdown();
+
+            if (!restartPending) archiveCurrentGameForRestart();
+            restartPending = true;
+
+            // Same room, same members: everybody starts the new game from zero.
+            players = players.filter(p => p && p.left !== true);
+            players.forEach(p => {
+                p.scores = 0;
+                p.hand = [];
+                p.eliminated = false;
+            });
+            myIndex = players.findIndex(p => p && (p.clientToken === myClientToken || p.id === myId));
+            if (myIndex < 0) myIndex = 0;
+
+            gameHistory = [];
+            roundCounter = 0;
+            gameTerminalRecord = null;
+            lastRoundOverPayload = null;
+            lastRoundOverShownVersion = -1;
+            tournamentEndInFlight = false;
+            showRoundInFlight = false;
+            nextRoundInFlight = false;
+            tournamentWinnerShown = false;
+            document.getElementById('tournament-winner-modal')?.classList.add('hidden');
+            document.getElementById('round-over-modal')?.classList.add('hidden');
+
+            restartKeepVersions = true;
+            await startHostGame();
+        } finally {
+            restartKeepVersions = false;
+            startAgainInFlight = false;
+        }
+
+        if (!roundActive) return false; // start was refused; a retry is still possible
+        restartPending = false;
+
+        if (isSoloMode) {
+            roundCounter = 0; // same round numbering as the first computer game
+            checkBotTurn();
+        }
+        logTicker(`Game ${gameNumber} started in room ${roomCode}.`);
+        return true;
+    }
+
+    function updatePlayAgainBoardButton() {
+        const btn = document.getElementById('play-again-board-btn');
+        if (!btn) return;
+        const show = !roundActive && tournamentWinnerShown === true;
+        btn.classList.toggle('hidden', !show);
+    }
+
     async function exitTournamentToLobby() {
         const modal = document.getElementById('tournament-winner-modal');
         if (modal) modal.classList.add('hidden');
@@ -1858,6 +2060,34 @@
     let myIndex = 0;
     let gameHistory = [];
     let roundCounter = 0;
+
+    // ============================================================
+    // MULTI-GAME SUPPORT (several games in the same room)
+    // gameNumber      : the game currently being played (1, 2, 3 ...)
+    // completedGames  : archived finished games [{gameNumber, winner, status, reason, points, rounds}]
+    // ============================================================
+    let gameNumber = 1;
+    let completedGames = [];
+
+    function resetMultiGameState() {
+        gameNumber = 1;
+        completedGames = [];
+    }
+
+    // Packets that belong to an older game of this room must never touch the current game.
+    function isStaleGamePacket(data) {
+        return !!data && data.gameNumber !== undefined &&
+            Number(data.gameNumber) < Number(gameNumber);
+    }
+
+    function applyMultiGameFields(data, force) {
+        if (!data || data.gameNumber === undefined) return;
+        const incoming = Number(data.gameNumber) || 1;
+        if (force === true || incoming >= Number(gameNumber)) {
+            gameNumber = incoming;
+            if (Array.isArray(data.completedGames)) completedGames = data.completedGames;
+        }
+    }
 
     // ============================================================
     // CONCURRENCY GUARDS
@@ -2534,7 +2764,7 @@
             return;
         }
         sendRealtimeMessage({
-            type: 'GAME_STATE_UPDATE',
+            gameNumber: gameNumber, completedGames: completedGames, type: 'GAME_STATE_UPDATE',
             players, deck, discardPile, currentTurnIndex, turnPhase,
             stateVersion: authoritativeStateVersion,
             roundActive, gameHistory, gameHistoryHostName,
@@ -2710,7 +2940,7 @@
         lastAppliedStateVersion = authoritativeStateVersion;
 
         const takeoverPayload = {
-            type: 'HOST_TAKEOVER',
+            gameNumber: gameNumber, completedGames: completedGames, type: 'HOST_TAKEOVER',
             reason,
             newHostToken: candidate.token,
             oldHostToken: currentHostToken,
@@ -3413,6 +3643,7 @@
         myIndex = 0;
         gameHistory = [];
         roundCounter = 0;
+        resetMultiGameState();
         deck = [];
         discardPile = [];
         currentTurnIndex = 0;
@@ -3976,7 +4207,7 @@
 
                         await sendRealtimeMessage({
 
-                            type:
+                            gameNumber: gameNumber, completedGames: completedGames, type:
                                 'HOST_LEFT',
 
                             newHostToken:
@@ -4053,6 +4284,7 @@
         myIndex = 0;
         gameHistory = [];
         roundCounter = 0;
+        resetMultiGameState();
         deck = [];
         discardPile = [];
         currentTurnIndex = 0;
@@ -4422,6 +4654,7 @@
 
         gameHistory = [];
         roundCounter = 0;
+        resetMultiGameState();
         resetTournamentWinnerState(roomCode);
 
         players = [
@@ -4590,6 +4823,7 @@
         roundActive = false;
         gameHistory = [];
         roundCounter = 0;
+        resetMultiGameState();
 
         players = [
             {
@@ -4731,6 +4965,7 @@
         myId = myClientToken;
         roomCode = codeInput;
         gameHistory = [];
+        resetMultiGameState();
 
         // Recover the permanent room-owner identity when this browser created
         // the room earlier. Host authority may have moved to another player.
@@ -5301,7 +5536,7 @@
                         persistRoomStateToSupabase();
 
                         sendRealtimeMessage({
-                            type: 'GAME_STATE_UPDATE',
+                            gameNumber: gameNumber, completedGames: completedGames, type: 'GAME_STATE_UPDATE',
                             players,
                             deck,
                             discardPile,
@@ -5343,7 +5578,7 @@
 
                             sendRealtimeMessage({
 
-                                type:
+                                gameNumber: gameNumber, completedGames: completedGames, type:
                                     'GAME_STATE_UPDATE',
 
                                 players:
@@ -5690,8 +5925,10 @@
             // ----------------------------------------------------
 
             else if (data.type === 'START_AGAIN_REQUEST') {
-                if (isHost || isSoloMode) {
-                    await createNewRoomWithSamePlayers();
+                const askerToken = String(data.clientToken || '').trim();
+                if ((isHost || isSoloMode) &&
+                    players.some(pl => getPlayerRoomToken(pl) === askerToken)) {
+                    await startAgainSameRoom();
                 }
             }
 
@@ -6243,6 +6480,7 @@
                     break;
                 }
 
+                applyMultiGameFields(data, true);
                 players = data.players || players;
                 deck = Array.isArray(data.deck) ? data.deck : deck;
                 discardPile = Array.isArray(data.discardPile) ? data.discardPile : discardPile;
@@ -6306,6 +6544,7 @@
 
             case 'HOST_LEFT':
 
+                applyMultiGameFields(data, true);
                 players =
                     data.players ||
                     players;
@@ -6523,10 +6762,17 @@
 
             case 'START_GAME':
 
+                if (isStaleGamePacket(data)) break;
+
                 if (data.isNewGame === true) {
                     lastAppliedStateVersion = 0;
                     lastRoundOverShownVersion = -1;
+                    // New game in the same room: close the previous winner popup.
+                    tournamentWinnerShown = false;
+                    gameTerminalRecord = null;
+                    document.getElementById('tournament-winner-modal')?.classList.add('hidden');
                 }
+                applyMultiGameFields(data, true);
 
                 if (
                     data.stateVersion !== undefined &&
@@ -6662,6 +6908,8 @@
                     break;
                 }
 
+                if (isStaleGamePacket(data)) break;
+
                 /*
                  * Ignore stale/out-of-order authoritative states.
                  * The host increments stateVersion for every accepted
@@ -6684,6 +6932,7 @@
                         incomingVersion || lastAppliedStateVersion;
                 }
                 guestActionPendingUntil = 0;
+                applyMultiGameFields(data);
 
                 players =
                     data.players;
@@ -6856,6 +7105,7 @@
                     includeJoker = data.includeJoker === true;
                     gameHistory = [];
                     roundCounter = 0;
+                    resetMultiGameState();
                     roundActive = false;
                     myIndex = players.findIndex(p => p && (p.clientToken === myClientToken || p.id === myId));
                     if (myIndex >= 0) {
@@ -6906,6 +7156,8 @@
 
             case 'TOURNAMENT_WINNER':
 
+                if (isStaleGamePacket(data)) break;
+
 
 
                 if (Array.isArray(data.players) && data.players.length) {
@@ -6940,6 +7192,8 @@
                     break;
                 }
 
+                if (isStaleGamePacket(data)) break;
+
                 if (data.stateVersion !== undefined) {
                     const roVersion = Number(data.stateVersion) || 0;
                     if (roVersion < Number(lastAppliedStateVersion)) break;
@@ -6948,6 +7202,7 @@
                     lastRoundOverShownVersion = roVersion;
                 }
                 guestActionPendingUntil = 0;
+                applyMultiGameFields(data);
 
                 players =
                     data.players ||
@@ -7152,8 +7407,14 @@
         roundCounter = 1;
         gameHistory = [];
 
-        authoritativeStateVersion = 0;
-        lastAppliedStateVersion = 0;
+        if (restartKeepVersions) {
+            // Same room, new game: the version counter keeps increasing so no
+            // late packet of the previous game can ever look newer.
+            lastAppliedStateVersion = authoritativeStateVersion;
+        } else {
+            authoritativeStateVersion = 0;
+            lastAppliedStateVersion = 0;
+        }
         processedGameActionIds.clear();
 
 
@@ -7214,7 +7475,7 @@
 
         let startPayload = {
 
-            type:
+            gameNumber: gameNumber, completedGames: completedGames, type:
                 'START_GAME',
 
             stateVersion:
@@ -7314,7 +7575,7 @@
 
         let payload = {
 
-            type:
+            gameNumber: gameNumber, completedGames: completedGames, type:
                 'GAME_STATE_UPDATE',
 
             stateVersion:
@@ -8428,7 +8689,7 @@
         if (!isSoloMode) authoritativeStateVersion += 1;
         let payload = {
 
-            type:
+            gameNumber: gameNumber, completedGames: completedGames, type:
                 'ROUND_OVER',
 
             stateVersion:
@@ -8623,7 +8884,7 @@
 
             await syncGameHistoryToSupabase(finalWinner);
             await sendRealtimeMessage({
-                type: 'TOURNAMENT_WINNER',
+                gameNumber: gameNumber, completedGames: completedGames, type: 'TOURNAMENT_WINNER',
                 roomCode,
                 winnerName: finalWinner,
                 players,
@@ -8725,7 +8986,7 @@
             // Await the send so the room channel is not removed before
             // Supabase accepts the final winner event.
             await sendRealtimeMessage({
-                type:
+                gameNumber: gameNumber, completedGames: completedGames, type:
                     'TOURNAMENT_WINNER',
 
                 roomCode:
@@ -8816,7 +9077,7 @@
 
         let startPayload = {
 
-            type:
+            gameNumber: gameNumber, completedGames: completedGames, type:
                 'START_GAME',
 
             stateVersion:
@@ -9373,7 +9634,7 @@
         try {
             const btn = document.getElementById('sound-toggle-btn');
             if (btn) {
-                btn.textContent = gameSoundEnabled ? '🔊 Game' : '🔇 Game';
+                btn.textContent = gameSoundEnabled ? '🔊' : '🔇';
                 const label = gameSoundEnabled ? 'Game sounds on (tap to mute)' : 'Game sounds off (tap to turn on)';
                 btn.title = label;
                 btn.setAttribute('aria-label', label);
@@ -9382,7 +9643,7 @@
             }
             const tbtn = document.getElementById('turn-sound-toggle-btn');
             if (tbtn) {
-                tbtn.textContent = yourTurnSoundEnabled ? '🗣️ Your Turn' : '🔇 Your Turn';
+                tbtn.textContent = yourTurnSoundEnabled ? '🗣️' : '🤫';
                 const tlabel = yourTurnSoundEnabled ? 'Your turn voice on (tap to mute)' : 'Your turn voice off (tap to turn on)';
                 tbtn.title = tlabel;
                 tbtn.setAttribute('aria-label', tlabel);
@@ -9652,6 +9913,7 @@
             const result = originalRender.apply(this, arguments);
             try { cardSoundWatch(); } catch (e) {}
             try { yourTurnWatch(); } catch (e) {}
+            try { updatePlayAgainBoardButton(); } catch (e) {}
             return result;
         };
     })();
@@ -10336,7 +10598,7 @@
                     <div class="database-history-cell font-bold">${escapeAccountStatsHtml(row.game_host || '—')} - EP=${escapeAccountStatsHtml(eliminationPoints)}</div>
                     <div class="database-history-cell players-cell">${escapeAccountStatsHtml(row.players_name || '—')}</div>
                     <div class="database-history-cell points-cell">${escapeAccountStatsHtml(row.game_points || '—')}</div>
-                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeAccountStatsHtml(parseGameHistoryStatus(row).label)}</div>
+                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${getStatusCellHtml(row, parseGameHistoryStatus(row).label)}</div>
                     <div class="database-history-cell history-action-cell">
                         <button type="button" onclick="openMyGameHistoryDetail(${rowIndex})" class="database-history-view-btn">View<br class="sm:hidden"> History</button>
                     </div>`;
@@ -10483,7 +10745,7 @@
                             <th class="text-left p-3">Game</th>
                             <th class="text-left p-3">Date</th>
                             <th class="text-left p-3">Host</th>
-                            <th class="text-left p-3">Round</th>
+                            <th class="text-left p-3">Game / Round</th>
                             <th class="text-left p-3">Caller</th>
                             <th class="text-left p-3">Caller Sum</th>
                             <th class="text-left p-3">Outcome</th>
@@ -10509,7 +10771,7 @@
                     <td class="p-3 font-bold text-amber-300">${escapeAccountStatsHtml(row.game_code || '—')}</td>
                     <td class="p-3 text-zinc-400">${escapeAccountStatsHtml(savedAt)}</td>
                     <td class="p-3 text-white font-bold">${escapeAccountStatsHtml(row.game_host || '—')}</td>
-                    <td class="p-3 text-white font-bold">${escapeAccountStatsHtml(round?.roundNumber || '—')}</td>
+                    <td class="p-3 text-white font-bold">${escapeAccountStatsHtml(round ? ('G' + round.gameNumber + ' · R' + round.roundNumber) : '—')}</td>
                     <td class="p-3 text-zinc-300">${escapeAccountStatsHtml(round?.caller || '—')}</td>
                     <td class="p-3 text-zinc-300">${escapeAccountStatsHtml(round?.callerSum || '—')}</td>
                     <td class="p-3 text-zinc-300 break-words max-w-[260px]">${escapeAccountStatsHtml(round?.outcome || statusText)}</td>
@@ -10753,6 +11015,7 @@
             const rounds = [];
             const marker = /\[ROUND\s+(\d+)\]/gi;
             const matches = [...text.matchAll(marker)];
+            const gameMarkers = [...text.matchAll(/^=== GAME (\d+) ===$/gm)].map(g => ({ index: g.index, n: g[1] }));
 
             matches.forEach((match, index) => {
                 const start = match.index + match[0].length;
@@ -10775,7 +11038,11 @@
                     }
                 });
 
+                let roundGameNumber = '1';
+                gameMarkers.forEach(g => { if (g.index < match.index) roundGameNumber = g.n; });
+
                 rounds.push({
+                    gameNumber: roundGameNumber,
                     roundNumber: match[1],
                     caller: caller || '—',
                     callerSum: callerSum || '—',
@@ -10788,8 +11055,27 @@
             return rounds;
         }
 
-        function renderDatabaseHistoryRoundsHtml(historyText) {
-            const rounds = parseDatabaseHistoryRounds(historyText);
+        function renderDatabaseHistoryRoundsHtml(historyText, row) {
+            const allRounds = parseDatabaseHistoryRounds(historyText);
+            const statusLines = row ? parseGameStatusLines(row) : [];
+            if (statusLines.length) {
+                return statusLines.map(line => {
+                    const gameRounds = allRounds.filter(r => Number(r.gameNumber) === Number(line.n));
+                    const right = line.inProgress ? 'In Progress'
+                        : (line.label === 'Abandoned' ? 'Abandoned' : 'Winner: ' + line.label);
+                    return `<div class="mb-3">
+                        <div class="flex items-center justify-between gap-2 px-1 pb-1.5 text-[11px] font-black">
+                            <span class="text-emerald-300">Game ${line.n}</span>
+                            <span class="${line.inProgress ? 'text-amber-300' : 'text-emerald-300'}">${escapeDatabaseHistoryHtml(right)}</span>
+                        </div>
+                        ${gameRounds.length ? renderDatabaseRoundsTableHtml(gameRounds) : '<div class="database-history-no-rounds">No completed rounds yet.</div>'}
+                    </div>`;
+                }).join('');
+            }
+            return renderDatabaseRoundsTableHtml(allRounds);
+        }
+
+        function renderDatabaseRoundsTableHtml(rounds) {
             if (!rounds.length) {
                 return `<div class="database-history-no-rounds">No completed rounds have been saved yet. The game may still be in its first round.</div>`;
             }
@@ -10850,7 +11136,7 @@
                     </div>
                     <div class="database-history-detail-stat">
                         <div class="database-history-detail-label">Status</div>
-                        <div class="database-history-detail-value ${inProgress ? 'text-amber-300' : 'text-emerald-300'}">${escapeDatabaseHistoryHtml(displayWinner)}</div>
+                        <div class="database-history-detail-value ${inProgress ? 'text-amber-300' : 'text-emerald-300'}">${getStatusCellHtml(row, displayWinner)}</div>
                     </div>
                 </div>
 
@@ -10859,7 +11145,7 @@
                         Round History ${inProgress ? '· Live / In Progress' : ''}
                     </div>
                     <div class="p-2 sm:p-3">
-                        ${renderDatabaseHistoryRoundsHtml(historyText)}
+                        ${renderDatabaseHistoryRoundsHtml(historyText, row)}
                     </div>
                 </div>
 
@@ -10978,7 +11264,7 @@
                     <div class="database-history-cell font-bold">${escapeDatabaseHistoryHtml(row.game_host || '—')} - EP=${escapeDatabaseHistoryHtml(eliminationPoints)}</div>
                     <div class="database-history-cell players-cell">${escapeDatabaseHistoryHtml(row.players_name || '—')}</div>
                     <div class="database-history-cell points-cell">${escapeDatabaseHistoryHtml(row.game_points || '—')}</div>
-                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${escapeDatabaseHistoryHtml(inProgress ? 'In Progress' : winner)}</div>
+                    <div class="database-history-cell ${inProgress ? 'status-progress' : 'status-complete'}">${getStatusCellHtml(row, inProgress ? 'In Progress' : winner)}</div>
                     <div class="database-history-cell history-action-cell">
                         <button type="button" onclick="openDatabaseHistoryDetail(${rowIndex})" class="database-history-view-btn">
                             View<br class="sm:hidden"> History
