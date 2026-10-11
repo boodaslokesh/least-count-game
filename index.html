@@ -10392,13 +10392,26 @@
                     <p class="text-[11px] text-zinc-500 mt-1">Registered users and game counts.</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button onclick="loadUsersStats()" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-amber-300 hover:bg-zinc-800">Refresh</button>
+                    <button onclick="loadUsersStats(true)" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-amber-300 hover:bg-zinc-800">Refresh</button>
                     <button onclick="toggleUsersStatsModal(false)" class="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
                 </div>
             </div>
 
             <div id="users-stats-summary" class="p-4 border-b border-zinc-800 shrink-0 text-xs text-zinc-400">Loading...</div>
             <div id="users-stats-list" class="p-4 overflow-y-auto flex-1"></div>
+        </div>
+    </div>
+
+    <!-- USER STATS DETAIL (bot / real played & won) -->
+    <div id="user-stats-detail-modal"
+         class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-3 z-[225]">
+        <div class="bg-zinc-950 border border-amber-500/30 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800">
+                <h2 id="user-stats-detail-title" class="text-base font-black text-amber-300 truncate">Player</h2>
+                <button type="button" onclick="toggleUserStatsDetail(false)"
+                        class="shrink-0 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
+            </div>
+            <div id="user-stats-detail-body" class="p-4"></div>
         </div>
     </div>
 
@@ -11098,7 +11111,162 @@
             }
         }
 
-        async function loadUsersStats() {
+        // ============================================================
+        // TOTAL GAME USERS: one box per user, newest joiner first.
+        // Clicking a box shows Bot / Real played + won in a table.
+        // ============================================================
+        let usersStatsList = [];
+
+        function getUserJoinDate(row) {
+            const raw = row?.created_at || row?.joined_at || row?.registered_at || row?.join_date || row?.createdAt || '';
+            const t = raw ? new Date(raw).getTime() : NaN;
+            return Number.isFinite(t) ? t : null;
+        }
+
+        // Counts games played / won per player (bot vs real) from the saved game history.
+        function computeUserStatsFromHistory(games) {
+            const stats = new Map();
+            (Array.isArray(games) ? games : []).forEach(game => {
+                const playersText = String(game?.players_name || '');
+                const isBot = /\bBot(?:\s+\d+)?\b/i.test(playersText);
+                const names = [...new Set(
+                    playersText.split(/[,|]/).map(n => n.trim())
+                        .filter(n => n && !/^bot(\s+\d+)?$/i.test(n))
+                )];
+                let lines = [];
+                try { lines = parseGameStatusLines(game); } catch (e) { lines = []; }
+                if (!lines.length) {
+                    const st = parseGameHistoryStatus(game);
+                    lines = [{
+                        n: 1,
+                        inProgress: st.inProgress,
+                        label: st.status === 'COMPLETED' ? (st.winner || 'Nobody') : (st.status === 'ABANDONED' ? 'Abandoned' : '')
+                    }];
+                }
+                const when = game?.created_at ? new Date(game.created_at).getTime() : NaN;
+                names.forEach(name => {
+                    const key = name.toLowerCase();
+                    if (!stats.has(key)) {
+                        stats.set(key, { name, botPlayed: 0, realPlayed: 0, botWon: 0, realWon: 0, firstSeen: null });
+                    }
+                    const entry = stats.get(key);
+                    if (Number.isFinite(when) && (entry.firstSeen === null || when < entry.firstSeen)) entry.firstSeen = when;
+                    lines.forEach(line => {
+                        if (String(line.label || '') === 'Abandoned') return;
+                        if (isBot) entry.botPlayed += 1; else entry.realPlayed += 1;
+                        if (!line.inProgress && String(line.label || '').trim().toLowerCase() === key) {
+                            if (isBot) entry.botWon += 1; else entry.realWon += 1;
+                        }
+                    });
+                });
+            });
+            return stats;
+        }
+
+        function formatUserJoinDate(ts) {
+            if (!ts) return 'Date not available';
+            const d = new Date(ts);
+            return Number.isNaN(d.getTime()) ? 'Date not available'
+                : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+
+        function toggleUserStatsDetail(show) {
+            const modal = document.getElementById('user-stats-detail-modal');
+            if (!modal) return;
+            modal.classList.toggle('hidden', !show);
+            modal.classList.toggle('flex', show);
+        }
+
+        function openUserStatsDetail(index) {
+            const u = usersStatsList[index];
+            const modal = document.getElementById('user-stats-detail-modal');
+            const body = document.getElementById('user-stats-detail-body');
+            const title = document.getElementById('user-stats-detail-title');
+            if (!u || !modal || !body || !title) return;
+
+            title.textContent = u.name;
+            const totalPlayed = u.botPlayed + u.realPlayed;
+            const totalWon = u.botWon + u.realWon;
+            const pct = (w, p) => p > 0 ? Math.round((w / p) * 100) + '%' : '—';
+            const cell = 'padding:.6rem .7rem;border-bottom:1px solid #27272a;';
+            const head = 'padding:.6rem .7rem;border-bottom:1px solid #3f3f46;background:#18181b;color:#a1a1aa;font-size:10px;text-transform:uppercase;letter-spacing:.04em;';
+            body.innerHTML = `
+                <div class="text-[11px] text-zinc-500 mb-3">Joined: <span class="text-zinc-300 font-bold">${escapeAccountStatsHtml(formatUserJoinDate(u.joinedAt))}</span></div>
+                <div class="rounded-xl border border-zinc-800 overflow-hidden bg-black">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                        <thead><tr>
+                            <th style="${head}text-align:left;">Game Type</th>
+                            <th style="${head}text-align:right;">Played</th>
+                            <th style="${head}text-align:right;">Won</th>
+                            <th style="${head}text-align:right;">Win %</th>
+                        </tr></thead>
+                        <tbody>
+                            <tr><td style="${cell}color:#a5b4fc;font-weight:800;">Bot Games</td><td style="${cell}text-align:right;color:#fff;font-weight:800;">${u.botPlayed}</td><td style="${cell}text-align:right;color:#6ee7b7;font-weight:800;">${u.botWon}</td><td style="${cell}text-align:right;color:#d4d4d8;">${pct(u.botWon, u.botPlayed)}</td></tr>
+                            <tr><td style="${cell}color:#6ee7b7;font-weight:800;">Real Games</td><td style="${cell}text-align:right;color:#fff;font-weight:800;">${u.realPlayed}</td><td style="${cell}text-align:right;color:#6ee7b7;font-weight:800;">${u.realWon}</td><td style="${cell}text-align:right;color:#d4d4d8;">${pct(u.realWon, u.realPlayed)}</td></tr>
+                            <tr style="background:#0b1f17;"><td style="padding:.6rem .7rem;color:#fbbf24;font-weight:900;">Total</td><td style="padding:.6rem .7rem;text-align:right;color:#fbbf24;font-weight:900;">${totalPlayed}</td><td style="padding:.6rem .7rem;text-align:right;color:#fbbf24;font-weight:900;">${totalWon}</td><td style="padding:.6rem .7rem;text-align:right;color:#fbbf24;font-weight:900;">${pct(totalWon, totalPlayed)}</td></tr>
+                        </tbody>
+                    </table>
+                </div>`;
+            toggleUserStatsDetail(true);
+        }
+
+        const USERS_STATS_CACHE_KEY = 'leastCountUsersStatsCacheV1';
+        const USERS_STATS_FRESH_MS = 60000;
+
+        function readUsersStatsCache() {
+            try {
+                const raw = localStorage.getItem(USERS_STATS_CACHE_KEY);
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                return parsed && Array.isArray(parsed.users) ? parsed : null;
+            } catch (e) { return null; }
+        }
+
+        function renderUsersStatsView() {
+            const summary = document.getElementById('users-stats-summary');
+            const list = document.getElementById('users-stats-list');
+            if (!summary || !list) return;
+            list.innerHTML = '';
+                const totalBot = usersStatsList.reduce((n, u) => n + u.botPlayed, 0);
+                const totalReal = usersStatsList.reduce((n, u) => n + u.realPlayed, 0);
+                summary.innerHTML =
+                    `<span class="text-white font-bold">${usersStatsList.length}</span> users` +
+                    ` · Bot games played: <span class="text-indigo-300 font-bold">${totalBot}</span>` +
+                    ` · Real games played: <span class="text-emerald-300 font-bold">${totalReal}</span>` +
+                    ` · <span class="text-zinc-500">Latest joined first. Tap a user for details.</span>`;
+
+                if (!usersStatsList.length) {
+                    list.innerHTML = '<div class="text-center text-xs text-zinc-600 py-12">No users found.</div>';
+                    return;
+                }
+
+                const colCount = 4;
+                const table = document.createElement('table');
+                table.style.cssText = 'width:100%;table-layout:fixed;border-collapse:collapse;border:1px solid #52525b;';
+                const tbody = document.createElement('tbody');
+                for (let start = 0; start < usersStatsList.length; start += colCount) {
+                    const tr = document.createElement('tr');
+                    for (let c = 0; c < colCount; c++) {
+                        const i = start + c;
+                        const td = document.createElement('td');
+                        td.style.cssText = 'border:1px solid #52525b;padding:.55rem .5rem;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;height:52px;';
+                        const u = usersStatsList[i];
+                        if (u) {
+                            td.style.cursor = 'pointer';
+                            td.className = 'hover:bg-zinc-900';
+                            td.innerHTML = `<div style="font-weight:800;color:#fcd34d;font-size:10px;">${escapeAccountStatsHtml(u.name)}</div>
+                                <div style="font-size:8px;color:#71717a;margin-top:2px;">${escapeAccountStatsHtml(formatUserJoinDate(u.joinedAt))}</div>`;
+                            td.onclick = () => openUserStatsDetail(i);
+                        }
+                        tr.appendChild(td);
+                    }
+                    tbody.appendChild(tr);
+                }
+                table.appendChild(tbody);
+                list.appendChild(table);
+        }
+
+        async function loadUsersStats(force = false) {
             const summary = document.getElementById('users-stats-summary');
             const list = document.getElementById('users-stats-list');
             if (!summary || !list) return;
@@ -11109,73 +11277,82 @@
                 return;
             }
 
-            summary.innerText = 'Loading user statistics...';
-            list.innerHTML = '';
+            let shownFromCache = false;
+            const cached = readUsersStatsCache();
+            if (cached && cached.users.length) {
+                usersStatsList = cached.users;
+                renderUsersStatsView();          // instant: show saved data first
+                shownFromCache = true;
+                if (!force && Date.now() - Number(cached.savedAt || 0) < USERS_STATS_FRESH_MS) return; // still fresh
+            } else {
+                summary.innerText = 'Loading user statistics...';
+                list.innerHTML = '';
+            }
 
             try {
-                const { data, error } = await supabaseClient.rpc(
-                    'get_least_count_user_statistics',
-                    { p_session_token: authSessionToken }
+                // 1) Game history (source of played / won counts).
+                const response = await fetch(
+                    `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'apikey': SUPABASE_APIKEY,
+                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
                 );
-                if (error) throw error;
+                if (!response.ok) throw new Error(`Game history request failed: ${response.status}`);
+                const historyRows = normalizeDatabaseGameHistoryRows(await response.json());
+                const historyStats = computeUserStatsFromHistory(historyRows);
 
-                const rows = Array.isArray(data) ? data : [];
-                const totalUsers = rows.length;
-                const totalBotGames = rows.reduce((sum, r) => sum + Number(r.bot_games_played || 0), 0);
-                const totalRealGames = rows.reduce((sum, r) => sum + Number(r.real_games_played || 0), 0);
-
-                summary.innerHTML =
-                    `<span class="text-white font-bold">${totalUsers}</span> registered users` +
-                    ` · Bot game records: <span class="text-indigo-300 font-bold">${totalBotGames}</span>` +
-                    ` · Real game records: <span class="text-emerald-300 font-bold">${totalRealGames}</span>`;
-
-                if (!rows.length) {
-                    list.innerHTML = '<div class="text-center text-xs text-zinc-600 py-12">No registered users found.</div>';
-                    return;
+                // 2) Registered users (for the join date). Optional: falls back to history.
+                let registered = [];
+                try {
+                    const { data, error } = await supabaseClient.rpc(
+                        'get_least_count_user_statistics',
+                        { p_session_token: authSessionToken }
+                    );
+                    if (error) throw error;
+                    registered = Array.isArray(data) ? data : [];
+                } catch (rpcError) {
+                    console.warn('User statistics function unavailable, using game history only:', rpcError);
                 }
 
-                const table = document.createElement('div');
-                table.className = 'overflow-x-auto';
-                table.innerHTML = `
-                    <table class="w-full min-w-[760px] text-xs border-collapse">
-                        <thead>
-                            <tr class="border-b border-zinc-800 text-zinc-500 uppercase tracking-wider text-[9px]">
-                                <th class="text-left p-3">Player</th>
-                                <th class="text-right p-3">Bot Games</th>
-                                <th class="text-right p-3">Real Games</th>
-                                <th class="text-right p-3">Total Games</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>`;
-                const tbody = table.querySelector('tbody');
-
-                rows.forEach(row => {
-                    const tr = document.createElement('tr');
-                    tr.className = 'border-b border-zinc-900 hover:bg-zinc-900/60';
-                    const botGames = Number(row.bot_games_played || 0);
-                    const realGames = Number(row.real_games_played || 0);
-                    tr.innerHTML = `
-                        <td class="p-3 text-left">
-                            <button type="button"
-                                    onclick="openTotalUsersPlayerHistory(${JSON.stringify(String(row.name || ''))})"
-                                    class="font-bold text-amber-300 hover:text-amber-200 hover:underline text-left">
-                                ${escapeAccountStatsHtml(row.name)}
-                            </button>
-                        </td>
-                        <td class="p-3 text-right font-black text-indigo-300">${botGames}</td>
-                        <td class="p-3 text-right font-black text-emerald-300">${realGames}</td>
-                        <td class="p-3 text-right font-bold text-white">${botGames + realGames}</td>`;
-                    tbody.appendChild(tr);
+                const users = new Map();
+                registered.forEach(r => {
+                    const name = String(r?.name || '').trim();
+                    if (!name) return;
+                    users.set(name.toLowerCase(), { name, joinedAt: getUserJoinDate(r) });
+                });
+                historyStats.forEach((h, key) => {
+                    if (!users.has(key)) users.set(key, { name: h.name, joinedAt: null });
                 });
 
-                list.appendChild(table);
+                usersStatsList = Array.from(users.entries()).map(([key, u]) => {
+                    const h = historyStats.get(key) || { botPlayed: 0, realPlayed: 0, botWon: 0, realWon: 0, firstSeen: null };
+                    return {
+                        name: u.name,
+                        joinedAt: u.joinedAt || h.firstSeen || null,
+                        botPlayed: h.botPlayed, realPlayed: h.realPlayed,
+                        botWon: h.botWon, realWon: h.realWon
+                    };
+                }).sort((a, b) => {
+                    const ta = a.joinedAt || 0, tb = b.joinedAt || 0;
+                    if (tb !== ta) return tb - ta;            // latest joined first
+                    return a.name.localeCompare(b.name);
+                });
+
+                try { localStorage.setItem(USERS_STATS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), users: usersStatsList })); } catch (e) {}
+                renderUsersStatsView();
             } catch (error) {
                 console.error('Unable to load user statistics:', error);
+                if (shownFromCache) return; // keep showing the saved copy
                 summary.innerText = 'Unable to load user statistics.';
                 list.innerHTML = `<div class="text-center text-xs text-rose-400 py-12">Unable to load user statistics. ${escapeAccountStatsHtml(error?.message || '')}</div>`;
             }
         }
+
 
         // ============================================================
         // ALL-IN-ONE DATABASE HISTORY PAGE
