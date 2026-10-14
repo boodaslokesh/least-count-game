@@ -221,6 +221,11 @@
         </div>
     </nav>
 
+    <!-- TOP 5 WIN % SCROLLING TICKER (real multiplayer games only) -->
+    <div id="top5-ticker-bar" class="hidden w-full bg-black border-b border-zinc-900 shrink-0 overflow-hidden" style="height:24px;">
+        <div id="top5-ticker-track" class="top5-ticker-track"></div>
+    </div>
+
     <!-- STICKY PLAYER SCORES ROW CONTAINER -->
     <div id="sticky-scores-wrapper"
          class="hidden w-full bg-black border-b border-zinc-800 px-2 py-1.5 shrink-0 space-y-1">
@@ -11874,5 +11879,98 @@
     </script>
 
 
+<style>
+    .top5-ticker-track{display:inline-block;white-space:nowrap;line-height:24px;font-size:11px;font-weight:700;color:#fcd34d;padding-left:100%;animation:top5-scroll 30s linear infinite;will-change:transform;}
+    #top5-ticker-bar:hover .top5-ticker-track{animation-play-state:paused;}
+    .top5-ticker-track .t5-item{margin-right:48px;}
+    .top5-ticker-track .t5-rank{color:#34d399;}
+    .top5-ticker-track .t5-name{color:#fff;}
+    .top5-ticker-track .t5-win{color:#6ee7b7;}
+    .top5-ticker-track .t5-loss{color:#fda4af;}
+    .top5-ticker-track .t5-pct{color:#fbbf24;}
+    @keyframes top5-scroll{0%{transform:translateX(0);}100%{transform:translateX(-100%);}}
+</style>
+<script>
+    // Top 5 win % scrolling ticker (real multiplayer games only). Display-only; touches no game logic.
+    (function () {
+        function t5esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+        function t5Compute(rows) {
+            var stats = new Map();
+            var todayKey = getDatabaseHistoryToday(); // daily only: today's games, resets automatically at midnight
+            (Array.isArray(rows) ? rows : []).forEach(function (game) {
+                if (getDatabaseHistoryLocalDate(game && game.created_at) !== todayKey) return;
+                var playersText = String(game && game.players_name || '');
+                if (/\bBot(?:\s+\d+)?\b/i.test(playersText)) return; // real multiplayer only
+                var names = Array.from(new Set(playersText.split(/[,|]/).map(function (n) { return n.trim(); }).filter(Boolean)));
+                var lines = [];
+                try { lines = parseGameStatusLines(game); } catch (e) { lines = []; }
+                if (!lines.length) {
+                    var st = parseGameHistoryStatus(game);
+                    lines = [{ inProgress: st.inProgress, label: st.status === 'COMPLETED' ? (st.winner || 'Nobody') : (st.status === 'ABANDONED' ? 'Abandoned' : '') }];
+                }
+                lines.forEach(function (line) {
+                    if (line.inProgress || String(line.label || '') === 'Abandoned') return; // finished games only
+                    var winner = String(line.label || '').trim().toLowerCase();
+                    names.forEach(function (name) {
+                        var k = name.toLowerCase();
+                        if (!stats.has(k)) stats.set(k, { name: name, played: 0, won: 0 });
+                        var e = stats.get(k);
+                        e.played += 1;
+                        if (winner === k) e.won += 1;
+                    });
+                });
+            });
+            return Array.from(stats.values()).filter(function (e) { return e.played > 0; }).map(function (e) {
+                e.loss = e.played - e.won;
+                e.pct = Math.round((e.won / e.played) * 100);
+                return e;
+            }).sort(function (a, b) {
+                return (b.won / b.played) - (a.won / a.played) || b.won - a.won || b.played - a.played || a.name.localeCompare(b.name);
+            }).slice(0, 5);
+        }
+
+        function t5Render(top) {
+            var bar = document.getElementById('top5-ticker-bar');
+            var track = document.getElementById('top5-ticker-track');
+            if (!bar || !track) return;
+            if (!top.length) { track.innerHTML = ''; bar.dataset.hasData = '0'; bar.classList.add('hidden'); return; }
+            track.innerHTML = top.map(function (p, i) {
+                return '<span class="t5-item">' + (i === 0 ? '<span class="t5-rank">Today:</span> ' : '') + '<span class="t5-rank">Top' + (i + 1) + ':</span> <span class="t5-name">' + t5esc(p.name) + '</span>' +
+                    ' Real games: ' + p.played + ' <span class="t5-win">win: ' + p.won + '</span> <span class="t5-loss">loss: ' + p.loss + '</span>' +
+                    ' win % <span class="t5-pct">' + p.pct + '%</span></span>';
+            }).join('');
+            bar.dataset.hasData = '1';
+            t5Sync();
+        }
+
+        // Visible only on the main lobby (below Your Game History / Total Game Users).
+        function t5Sync() {
+            var bar = document.getElementById('top5-ticker-bar');
+            var lobby = document.getElementById('lobby-screen');
+            var auth = document.getElementById('auth-screen');
+            if (!bar || !lobby) return;
+            var show = bar.dataset.hasData === '1' && !lobby.classList.contains('hidden') && !(auth && !auth.classList.contains('hidden'));
+            bar.classList.toggle('hidden', !show);
+        }
+
+        async function t5Load() {
+            try {
+                var res = await fetch(GAME_HISTORY_URL + '?select=*&order=created_at.desc', {
+                    headers: { 'apikey': SUPABASE_APIKEY, 'Authorization': 'Bearer ' + SUPABASE_APIKEY, 'Content-Type': 'application/json' }
+                });
+                if (!res.ok) return;
+                var rows = normalizeDatabaseGameHistoryRows(await res.json());
+                t5Render(t5Compute(rows));
+            } catch (e) { /* ticker is optional; ignore errors */ }
+        }
+
+        window.addEventListener('load', function () {
+            setTimeout(t5Load, 1500);
+            setInterval(t5Load, 120000);
+            setInterval(t5Sync, 700);
+        });
+    })();
+</script>
 </body>
 </html>
