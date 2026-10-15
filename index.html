@@ -2493,16 +2493,27 @@
         }
     }
 
+    // Unique in-game name: registered name + last 4 digits of the mobile number.
+    // Two different people called "Sravani" become "Sravani 4821" and "Sravani 7305",
+    // so scores, round history, game history and user statistics never merge them.
+    function makeUniqueDisplayName(name, mobile) {
+        const base = String(name || '').trim();
+        const last4 = String(mobile || '').replace(/\D/g, '').slice(-4);
+        return last4 ? `${base} ${last4}` : base;
+    }
+
     async function handleCustomAuthenticatedUser(account) {
+        const uniqueDisplayName = makeUniqueDisplayName(account.name, account.mobile);
+
         currentUser = {
             id: account.player_id,
-            name: account.name,
+            name: uniqueDisplayName,
             mobile: account.mobile
         };
 
         currentProfile = {
             id: account.player_id,
-            name: account.name,
+            name: uniqueDisplayName,
             mobile: account.mobile
         };
 
@@ -9484,8 +9495,16 @@
         hudContainer.innerHTML =
             '';
 
-        players.forEach(
-            (p, idx) => {
+        // Show opponents in true turn order, starting right after me and wrapping around,
+        // so every player sees the same circular sequence the turns follow.
+        const hudSeatOrder = [];
+        for (let off = 1; off <= players.length; off++) {
+            const seat = (((myIndex >= 0 ? myIndex : -1) + off) % players.length + players.length) % players.length;
+            if (seat !== myIndex) hudSeatOrder.push(seat);
+        }
+        hudSeatOrder.forEach(
+            (idx) => {
+                const p = players[idx];
 
                 if (idx === myIndex)
                     return;
@@ -10767,8 +10786,8 @@
             }
             const me = String(currentProfile?.name || currentUser?.name || myName || '').trim();
             if (!me) return false;
-            return playerNamesFromGameRow(row).some(name => name.toLowerCase() === me.toLowerCase()) ||
-                   String(row?.game_host || '').trim().toLowerCase() === me.toLowerCase();
+            return playerNamesFromGameRow(row).some(name => name === me) ||
+                   String(row?.game_host || '').trim() === me;
         }
 
         function normalizeMyGameHistoryRows(rows) {
@@ -10977,9 +10996,9 @@
         }
 
         function getTotalUsersPlayerHistoryPlayerDetail(round, playerName) {
-            const wanted = String(playerName || '').trim().toLowerCase();
+            const wanted = String(playerName || '').trim();
             return (round.details || []).find(detail =>
-                String(detail.name || '').trim().toLowerCase() === wanted
+                String(detail.name || '').trim() === wanted
             ) || null;
         }
 
@@ -10990,7 +11009,7 @@
 
             const playerRows = (Array.isArray(rows) ? rows : []).filter(row =>
                 getTotalUsersPlayerHistoryNames(row).some(name =>
-                    name.toLowerCase() === String(playerName || '').trim().toLowerCase()
+                    name === String(playerName || '').trim()
                 )
             );
 
@@ -11150,7 +11169,7 @@
                 }
                 const when = game?.created_at ? new Date(game.created_at).getTime() : NaN;
                 names.forEach(name => {
-                    const key = name.toLowerCase();
+                    const key = name;
                     if (!stats.has(key)) {
                         stats.set(key, { name, botPlayed: 0, realPlayed: 0, botWon: 0, realWon: 0, firstSeen: null });
                     }
@@ -11159,7 +11178,7 @@
                     lines.forEach(line => {
                         if (String(line.label || '') === 'Abandoned') return;
                         if (isBot) entry.botPlayed += 1; else entry.realPlayed += 1;
-                        if (!line.inProgress && String(line.label || '').trim().toLowerCase() === key) {
+                        if (!line.inProgress && String(line.label || '').trim() === key) {
                             if (isBot) entry.botWon += 1; else entry.realWon += 1;
                         }
                     });
@@ -11326,9 +11345,18 @@
 
                 const users = new Map();
                 registered.forEach(r => {
-                    const name = String(r?.name || '').trim();
-                    if (!name) return;
-                    users.set(name.toLowerCase(), { name, joinedAt: getUserJoinDate(r) });
+                    const rawName = String(r?.name || '').trim();
+                    if (!rawName) return;
+                    const name = makeUniqueDisplayName(rawName, r?.mobile);
+                    // If the statistics function does not return the mobile, avoid adding a
+                    // duplicate plain-name ghost when this user already appears in history
+                    // as "Name 1234".
+                    if (!r?.mobile) {
+                        const hasSuffixed = Array.from(historyStats.keys()).some(k =>
+                            k.startsWith(rawName + ' ') && /^\d{4}$/.test(k.slice(rawName.length + 1)));
+                        if (hasSuffixed) return;
+                    }
+                    users.set(name, { name, joinedAt: getUserJoinDate(r) });
                 });
                 historyStats.forEach((h, key) => {
                     if (!users.has(key)) users.set(key, { name: h.name, joinedAt: null });
@@ -11911,9 +11939,9 @@
                 }
                 lines.forEach(function (line) {
                     if (line.inProgress || String(line.label || '') === 'Abandoned') return; // finished games only
-                    var winner = String(line.label || '').trim().toLowerCase();
+                    var winner = String(line.label || '').trim();
                     names.forEach(function (name) {
-                        var k = name.toLowerCase();
+                        var k = name;
                         if (!stats.has(k)) stats.set(k, { name: name, played: 0, won: 0 });
                         var e = stats.get(k);
                         e.played += 1;
