@@ -11358,9 +11358,49 @@
                     }
                     users.set(name, { name, joinedAt: getUserJoinDate(r) });
                 });
-                historyStats.forEach((h, key) => {
-                    if (!users.has(key)) users.set(key, { name: h.name, joinedAt: null });
-                });
+                // One person = one entry. Older history rows saved the plain name ("Sravani")
+                // before the unique number was added; merge those into the matching
+                // numbered user ("Sravani 4345") instead of listing a second "Sravani".
+                {
+                    const SUFFIX_RE_U = /^(.*\S)\s+\d{4}$/;
+                    const baseOfU = k => { const m = String(k).match(SUFFIX_RE_U); return (m ? m[1] : String(k)).trim().toLowerCase(); };
+                    const plainHistory = [];
+                    historyStats.forEach((h, key) => {
+                        if (SUFFIX_RE_U.test(key)) {
+                            if (!users.has(key)) users.set(key, { name: h.name, joinedAt: null });
+                        } else {
+                            plainHistory.push([key, h]);
+                        }
+                    });
+                    const owners = new Map();
+                    Array.from(users.keys()).forEach(k => {
+                        if (!SUFFIX_RE_U.test(k)) return;
+                        const b = baseOfU(k);
+                        if (!owners.has(b)) owners.set(b, []);
+                        owners.get(b).push(k);
+                    });
+                    plainHistory.forEach(([key, h]) => {
+                        const list = owners.get(baseOfU(key)) || [];
+                        if (list.length === 1) {
+                            const ownerKey = list[0];
+                            const t = historyStats.get(ownerKey) ||
+                                { name: ownerKey, botPlayed: 0, realPlayed: 0, botWon: 0, realWon: 0, firstSeen: null };
+                            t.botPlayed += h.botPlayed; t.realPlayed += h.realPlayed;
+                            t.botWon += h.botWon; t.realWon += h.realWon;
+                            if (h.firstSeen !== null && (t.firstSeen === null || h.firstSeen < t.firstSeen)) t.firstSeen = h.firstSeen;
+                            historyStats.set(ownerKey, t);
+                            users.delete(key);
+                        } else if (list.length > 1) {
+                            users.delete(key); // several numbered users share this name: cannot tell whose old games these are
+                        } else if (!users.has(key)) {
+                            users.set(key, { name: h.name, joinedAt: null });
+                        }
+                    });
+                    // A plain registered name (no mobile returned) must not duplicate a numbered one.
+                    Array.from(users.keys()).forEach(k => {
+                        if (!SUFFIX_RE_U.test(k) && (owners.get(baseOfU(k)) || []).length) users.delete(k);
+                    });
+                }
 
                 usersStatsList = Array.from(users.entries()).map(([key, u]) => {
                     const h = historyStats.get(key) || { botPlayed: 0, realPlayed: 0, botWon: 0, realWon: 0, firstSeen: null };
@@ -12001,28 +12041,51 @@
     })();
 </script>
 
-<!-- DISPLAY-ONLY: hide the 4-digit suffix after player names (internal unique names are unchanged) -->
+<!-- DISPLAY-ONLY: hide the 4-digit suffix after player names everywhere (internal unique names are unchanged) -->
 <script>
 (function () {
-    // "Sravani 4345" -> "Sravani" (letter, space, exactly 4 digits)
-    var SUFFIX_RE = /([\p{L}\p{M}])[ \u00A0](\d{4})(?!\d)/gu;
-    var SKIP_WORDS = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|total|amount|bet|pts|points|score|sum|net|balance|rs|inr|round|game|games|rank|year|id|room|code|pin|otp|since|in|of|fy)$/i;
+    var SKIP_WORDS = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|total|amount|bet|pts|points|score|sum|net|balance|rs|inr|round|game|games|rank|year|id|room|code|pin|otp|since|fy)$/i;
+    // token (no spaces) followed by one space and exactly 4 digits
+    var GENERIC_RE = /(\S+)([ \u00A0]+)(\d{4})(?!\d)/gu;
+    var known = Object.create(null); // full unique names seen in the game -> base name
+    var knownRe = null;
+
+    function esc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+    function register(name) {
+        if (typeof name !== 'string') return;
+        var m = name.match(/^(.*\S)[ \u00A0]+\d{4}$/);
+        if (!m || known[name]) return;
+        known[name] = m[1];
+        var keys = Object.keys(known).sort(function (a, b) { return b.length - a.length; });
+        knownRe = new RegExp(keys.map(esc).join('|'), 'g');
+    }
+
+    function harvest() {
+        try { if (typeof currentProfile !== 'undefined' && currentProfile) register(currentProfile.name); } catch (e) {}
+        try { if (typeof myName !== 'undefined') register(myName); } catch (e) {}
+        try { if (typeof players !== 'undefined' && Array.isArray(players)) players.forEach(function (p) { if (p) register(p.name); }); } catch (e) {}
+    }
 
     function clean(str) {
-        if (!str || str.length < 6) return str;
-        return str.replace(SUFFIX_RE, function (m, ch, digits, offset, whole) {
-            var before = whole.slice(0, offset + 1);
-            var wordMatch = before.match(/([\p{L}\p{M}]+)$/u);
-            if (wordMatch && SKIP_WORDS.test(wordMatch[1])) return m;
-            return ch;
+        if (!str || typeof str !== 'string' || str.length < 6) return str;
+        var out = str;
+        if (knownRe) out = out.replace(knownRe, function (m) { return known[m]; });
+        out = out.replace(GENERIC_RE, function (m, tok, sp, digits) {
+            if (!/[\p{L}\p{M}\p{So}\p{Sk}]/u.test(tok)) return m;      // token has no letter/emoji -> not a name
+            if (/^[\p{Sc}]/u.test(tok)) return m;                       // currency amount
+            if (SKIP_WORDS.test(tok.replace(/[^\p{L}]/gu, ''))) return m; // month / label words
+            return tok;
         });
+        return out;
     }
 
     function cleanTextNode(node) {
-        var v = node.nodeValue;
-        var c = clean(v);
+        var v = node.nodeValue, c = clean(v);
         if (c !== v) node.nodeValue = c;
     }
+
+    var ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
 
     function cleanElement(root) {
         if (!root) return;
@@ -12041,42 +12104,66 @@
         var n;
         while ((n = walker.nextNode())) cleanTextNode(n);
 
-        var els = [root].concat(Array.prototype.slice.call(root.querySelectorAll('[title],input[type="text"]')));
+        var els = [root].concat(Array.prototype.slice.call(root.querySelectorAll('*')));
         els.forEach(function (el) {
-            if (el.hasAttribute && el.hasAttribute('title')) {
-                var t = el.getAttribute('title'), ct = clean(t);
-                if (ct !== t) el.setAttribute('title', ct);
+            for (var i = 0; i < ATTRS.length; i++) {
+                if (el.hasAttribute && el.hasAttribute(ATTRS[i])) {
+                    var a = el.getAttribute(ATTRS[i]), ca = clean(a);
+                    if (ca !== a) el.setAttribute(ATTRS[i], ca);
+                }
             }
-            if (el.tagName === 'INPUT' && el.type === 'text' && el.readOnly) {
+            if (el.tagName === 'INPUT' && (el.type === 'text' || !el.type) && (el.readOnly || el.disabled)) {
                 var cv = clean(el.value);
                 if (cv !== el.value) el.value = cv;
             }
         });
+        if (document.title) { var ct = clean(document.title); if (ct !== document.title) document.title = ct; }
     }
+
+    // Spoken announcements, alerts and confirms
+    try {
+        if (window.speechSynthesis && !window.speechSynthesis.__nameClean) {
+            var origSpeak = window.speechSynthesis.speak.bind(window.speechSynthesis);
+            window.speechSynthesis.speak = function (u) {
+                try { harvest(); if (u && typeof u.text === 'string') u.text = clean(u.text); } catch (e) {}
+                return origSpeak(u);
+            };
+            window.speechSynthesis.__nameClean = true;
+        }
+    } catch (e) {}
+    ['alert', 'confirm'].forEach(function (fn) {
+        try {
+            var orig = window[fn];
+            window[fn] = function (msg) { harvest(); return orig.call(window, typeof msg === 'string' ? clean(msg) : msg); };
+        } catch (e) {}
+    });
+
+    function pass() { harvest(); cleanElement(document.body); }
 
     var scheduled = false;
     function schedule() {
         if (scheduled) return;
         scheduled = true;
-        requestAnimationFrame(function () {
-            scheduled = false;
-            cleanElement(document.body);
-        });
+        requestAnimationFrame(function () { scheduled = false; pass(); });
     }
 
     function start() {
-        cleanElement(document.body);
+        pass();
         new MutationObserver(function (muts) {
+            harvest();
             for (var i = 0; i < muts.length; i++) {
                 var m = muts[i];
-                if (m.type === 'characterData') { cleanTextNode(m.target); }
+                if (m.type === 'characterData') cleanTextNode(m.target);
                 else if (m.type === 'childList') {
                     for (var j = 0; j < m.addedNodes.length; j++) cleanElement(m.addedNodes[j]);
+                } else if (m.type === 'attributes') {
+                    cleanElement(m.target);
                 }
             }
             schedule();
-        }).observe(document.body, { childList: true, subtree: true, characterData: true });
-        setInterval(function () { cleanElement(document.body); }, 1500);
+        }).observe(document.body, { childList: true, subtree: true, characterData: true,
+                                    attributes: true, attributeFilter: ATTRS.concat(['value']) });
+        setInterval(pass, 500);
     }
 
     if (document.body) start();
