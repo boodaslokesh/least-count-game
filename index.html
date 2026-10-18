@@ -869,14 +869,12 @@
 
     function getGameHistoryHostName() {
         if (gameHistoryHostName) return gameHistoryHostName;
-
-        const hostPlayer = players.find(p => p && p.isHost);
-        gameHistoryHostName =
-            (hostPlayer && hostPlayer.name) ||
-            myName ||
-            'Host';
-
-        return gameHistoryHostName;
+        const hostPlayer = (Array.isArray(players) ? players : []).find(p => p && p.isHost);
+        if (hostPlayer && hostPlayer.name) {
+            gameHistoryHostName = hostPlayer.name;
+            return gameHistoryHostName;
+        }
+        return myName || 'Host';
     }
 
     // ============================================================
@@ -1301,7 +1299,22 @@
         };
     }
 
+    let saveSessionTimer = null;
     function saveLocalRoomSession() {
+        if (saveSessionTimer) return;
+        saveSessionTimer = setTimeout(() => {
+            saveSessionTimer = null;
+            try { saveLocalRoomSessionNow(); } catch (e) {}
+        }, 500);
+    }
+    window.addEventListener('pagehide', () => {
+        try {
+            if (saveSessionTimer) { clearTimeout(saveSessionTimer); saveSessionTimer = null; }
+            saveLocalRoomSessionNow();
+        } catch (e) {}
+    });
+
+    function saveLocalRoomSessionNow() {
         if (isSpectator) return;
         const snapshot = buildPersistentRoomSnapshot();
         if (!snapshot) return;
@@ -1391,58 +1404,150 @@
         return true;
     }
 
+    // ============================================================
+    // RELIABLE DATABASE WRITER
+    //  - one writer per row key (game_code), newest payload wins
+    //  - never two concurrent writes to the same row (no duplicate rows,
+    //    no old write overwriting a newer one)
+    //  - HTTP errors are detected (fetch does not throw on 4xx/5xx)
+    //  - automatic retry with back-off, and a background retry if still failing
+    //  - 1 request per update (row id cached) instead of lookup + update
+    // ============================================================
+    const dbRowIdCache = new Map();
+    const dbWriters = new Map();
+    const dbSleep = ms => new Promise(r => setTimeout(r, ms));
+
+    function dbHeaders(extra) {
+        return Object.assign({
+            'apikey': SUPABASE_APIKEY,
+            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
+            'Content-Type': 'application/json'
+        }, extra || {});
+    }
+
+    async function dbFetchRetry(url, options, attempts = 3) {
+        let lastErr = new Error('Request failed');
+        for (let i = 1; i <= attempts; i++) {
+            try {
+                const res = await fetch(url, options);
+                if (res.ok) return res;
+                lastErr = new Error('HTTP ' + res.status);
+                // 4xx (except timeout / rate limit) will not succeed on retry
+                if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) break;
+            } catch (e) { lastErr = e; }
+            if (i < attempts) await dbSleep(400 * Math.pow(2, i - 1));
+        }
+        throw lastErr;
+    }
+
+    async function upsertHistoryRowByCode(code, payload) {
+        const key = String(code);
+        const body = JSON.stringify(payload);
+
+        // 1) Update by cached id (fastest path)
+        const cachedId = dbRowIdCache.get(key);
+        if (cachedId) {
+            try {
+                const res = await dbFetchRetry(
+                    `${GAME_HISTORY_URL}?id=eq.${encodeURIComponent(cachedId)}`,
+                    { method: 'PATCH', headers: dbHeaders({ 'Prefer': 'return=minimal,count=exact' }), body }
+                );
+                const cr = res.headers.get('Content-Range');
+                if (!(cr && /\/0$/.test(cr))) return true; // row exists and was updated
+            } catch (e) { /* fall through to code based update */ }
+            dbRowIdCache.delete(key);
+        }
+
+        // 2) Update by game_code (also learns the row id)
+        const upd = await dbFetchRetry(
+            `${GAME_HISTORY_URL}?game_code=eq.${encodeURIComponent(key)}&select=id`,
+            { method: 'PATCH', headers: dbHeaders({ 'Prefer': 'return=representation' }), body }
+        );
+        let rows = [];
+        try { rows = await upd.json(); } catch (e) {}
+        if (Array.isArray(rows) && rows.length) {
+            dbRowIdCache.set(key, rows[0].id);
+            return true;
+        }
+
+        // 3) Row does not exist yet: insert it
+        const ins = await dbFetchRetry(
+            `${GAME_HISTORY_URL}?select=id`,
+            { method: 'POST', headers: dbHeaders({ 'Prefer': 'return=representation' }), body }
+        );
+        let created = [];
+        try { created = await ins.json(); } catch (e) {}
+        if (Array.isArray(created) && created[0] && created[0].id) dbRowIdCache.set(key, created[0].id);
+        return true;
+    }
+
+    function enqueueDbUpsert(code, payload) {
+        const key = String(code);
+        let w = dbWriters.get(key);
+        if (!w) {
+            w = { pending: null, running: false, waiters: [], retryTimer: null };
+            dbWriters.set(key, w);
+        }
+        w.pending = payload; // newest snapshot always wins
+        if (w.retryTimer) { clearTimeout(w.retryTimer); w.retryTimer = null; }
+
+        return new Promise(resolve => {
+            w.waiters.push(resolve);
+            if (w.running) return;
+            w.running = true;
+            (async () => {
+                let ok = true;
+                while (w.pending) {
+                    const job = w.pending;
+                    w.pending = null;
+                    try {
+                        await upsertHistoryRowByCode(key, job);
+                        ok = true;
+                    } catch (e) {
+                        ok = false;
+                        console.warn('Database write failed:', key, e);
+                        if (!w.pending) { w.pending = job; break; } // keep it for the background retry
+                    }
+                }
+                w.running = false;
+                const waiting = w.waiters.splice(0);
+                if (!ok && w.pending) {
+                    w.retryTimer = setTimeout(() => {
+                        w.retryTimer = null;
+                        const p = w.pending;
+                        w.pending = null;
+                        if (p) enqueueDbUpsert(key, p);
+                    }, 8000);
+                }
+                waiting.forEach(r => r(ok));
+            })();
+        });
+    }
+
     function queueRoomStatePersistence() {
         if (!isHost || !currentUser || !roomCode) return;
         if (Number(roundCounter) <= 0 && !roundActive) return;
-
-        const snapshot = buildPersistentRoomSnapshot();
-        if (!snapshot) return;
-        const version = Number(authoritativeStateVersion) || 0;
-        roomStateWriteQueuedVersion = Math.max(roomStateWriteQueuedVersion, version);
-
-        roomStateWriteChain = roomStateWriteChain
-            .catch(() => {})
-            .then(() => persistRoomStateToSupabase(snapshot, version));
+        persistRoomStateToSupabase();
     }
 
-    async function persistRoomStateToSupabase(snapshotOverride = null, versionOverride = null) {
+    async function persistRoomStateToSupabase() {
         if (!roomCode) return false;
 
-        // Do not create/update game-history room-state records while the
-        // room is still only waiting in the lobby. The first database
-        // snapshot is written only after the actual game starts.
+        // Do not create/update room-state records while the room is only
+        // waiting in the lobby. The first database snapshot is written only
+        // after the actual game starts.
         if (Number(roundCounter) <= 0 && !roundActive) return false;
 
-        if (!snapshotOverride) {
-            const queuedSnapshot = buildPersistentRoomSnapshot();
-            if (!queuedSnapshot) return false;
-            const queuedVersion = Number(authoritativeStateVersion) || 0;
-            roomStateWriteQueuedVersion = Math.max(roomStateWriteQueuedVersion, queuedVersion);
-            // Coalesce: only the newest snapshot is written; older pending ones are dropped.
-            roomStateLatestJob = { snapshot: queuedSnapshot, version: queuedVersion };
-            if (!roomStateWriterRunning) {
-                roomStateWriterRunning = true;
-                roomStateWriteChain = (async () => {
-                    try {
-                        while (roomStateLatestJob) {
-                            const job = roomStateLatestJob;
-                            roomStateLatestJob = null;
-                            try { await persistRoomStateToSupabase(job.snapshot, job.version); }
-                            catch (e) { console.warn('Room state write failed:', e); }
-                        }
-                    } finally { roomStateWriterRunning = false; }
-                })();
-            }
-            return roomStateWriteChain;
-        }
-
-        const snapshot = snapshotOverride || buildPersistentRoomSnapshot();
+        const snapshot = buildPersistentRoomSnapshot();
         if (!snapshot) return false;
 
         saveLocalRoomSession();
 
         // Only the authoritative host writes the shared room snapshot.
         if (!isHost || !currentUser) return true;
+
+        const version = Number(authoritativeStateVersion) || 0;
+        roomStateWriteQueuedVersion = Math.max(roomStateWriteQueuedVersion, version);
 
         const stateCode = `${GAME_ROOM_STATE_PREFIX}${String(roomCode).toUpperCase()}`;
         const payload = {
@@ -1453,61 +1558,10 @@
                 ? players.map(p => p?.name || '').filter(Boolean).join(', ')
                 : '',
             game_points: 'ROOM_STATE',
-            game_history: `${GAME_ROOM_STATE_PREFIX}${JSON.stringify({ ...snapshot, stateVersion: Number(versionOverride ?? authoritativeStateVersion) || 0 })}`
+            game_history: `${GAME_ROOM_STATE_PREFIX}${JSON.stringify({ ...snapshot, stateVersion: version })}`
         };
 
-        try {
-            const lookup = await fetch(
-                `${GAME_HISTORY_URL}?game_code=eq.${encodeURIComponent(stateCode)}&select=id`,
-                {
-                    headers: {
-                        'apikey': SUPABASE_APIKEY,
-                        'Authorization': `Bearer ${SUPABASE_APIKEY}`,
-                        'Content-Type': 'application/json'
-                    }
-                }
-            );
-
-            if (!lookup.ok) throw new Error('Room state lookup failed');
-            const rows = await lookup.json();
-
-            if (Array.isArray(rows) && rows.length) {
-                const response = await fetch(
-                    `${GAME_HISTORY_URL}?id=eq.${encodeURIComponent(rows[0].id)}`,
-                    {
-                        method: 'PATCH',
-                        headers: {
-                            'apikey': SUPABASE_APIKEY,
-                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
-                            'Content-Type': 'application/json',
-                            'Prefer': 'return=minimal'
-                        },
-                        body: JSON.stringify(payload)
-                    }
-                );
-                if (!response.ok) throw new Error('Room state update failed');
-            } else {
-                const response = await fetch(
-                    GAME_HISTORY_URL,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'apikey': SUPABASE_APIKEY,
-                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
-                            'Content-Type': 'application/json',
-                            'Prefer': 'return=minimal'
-                        },
-                        body: JSON.stringify(payload)
-                    }
-                );
-                if (!response.ok) throw new Error('Room state insert failed');
-            }
-
-            return true;
-        } catch (error) {
-            console.error('Persistent room state sync failed:', error);
-            return false;
-        }
+        return enqueueDbUpsert(stateCode, payload);
     }
 
     async function loadPersistentRoomState(roomKey) {
@@ -1671,74 +1725,24 @@
 
         // Never create a game-history row for a room that is merely waiting
         // in the lobby. A game record begins only when the actual game starts.
-        // roundCounter is initialized to 1 by startHostGame().
         if (Number(roundCounter) <= 0 && !roundActive && !String(finalWinner || '').trim()) {
             return;
         }
 
         try {
+            // The payload is built NOW (latest state) and written through the
+            // serialized writer: the row is matched by game_code only, so a
+            // host change / new joiner / reconnect can never create a second
+            // row or skip an update.
             const payload = buildGameHistoryPayload(finalWinner);
-            const query =
-                `?game_host=eq.${encodeURIComponent(payload.game_host)}` +
-                `&game_code=eq.${encodeURIComponent(payload.game_code)}` +
-                `&select=id`;
-
-            const lookupResponse = await fetch(
-                `${GAME_HISTORY_URL}${query}`,
-                {
-                    method: 'GET',
-                    headers: {
-                        'apikey': SUPABASE_APIKEY,
-                        'Authorization': `Bearer ${SUPABASE_APIKEY}`,
-                        'Content-Type': 'application/json'
-                    }
-                }
-            );
-
-            if (!lookupResponse.ok) {
-                throw new Error('Failed to check game history record');
-            }
-
-            const existingRows = await lookupResponse.json();
-
-            if (Array.isArray(existingRows) && existingRows.length > 0) {
-                const id = existingRows[0].id;
-
-                await fetch(
-                    `${GAME_HISTORY_URL}?id=eq.${encodeURIComponent(id)}`,
-                    {
-                        method: 'PATCH',
-                        headers: {
-                            'apikey': SUPABASE_APIKEY,
-                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
-                            'Content-Type': 'application/json',
-                            'Prefer': 'return=representation'
-                        },
-                        body: JSON.stringify(payload)
-                    }
-                );
-            } else {
-                await fetch(
-                    GAME_HISTORY_URL,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'apikey': SUPABASE_APIKEY,
-                            'Authorization': `Bearer ${SUPABASE_APIKEY}`,
-                            'Content-Type': 'application/json',
-                            'Prefer': 'return=representation'
-                        },
-                        body: JSON.stringify(payload)
-                    }
-                );
-            }
+            await Promise.all([
+                enqueueDbUpsert(payload.game_code, payload),
+                // hidden state row so the live room is recoverable
+                persistRoomStateToSupabase()
+            ]);
         } catch (error) {
             console.error('Game history sync failed:', error);
         }
-
-        // Keep a separate hidden state row so the visible game-history
-        // record remains human-readable while the live room is recoverable.
-        await persistRoomStateToSupabase();
     }
 
     const nicknameInput = document.getElementById('nickname-input');
@@ -2757,6 +2761,18 @@
     }
 
     function sendRealtimeMessage(payload) {
+        // Every packet sent by the host carries the fun-bet settings and the
+        // original host name, so guests (and any future host after a
+        // takeover) always have the data needed for bet history / settlement.
+        try {
+            if (isHost && !isSoloMode && roomCode && payload && typeof payload === 'object' && payload.type) {
+                const extra = {};
+                if (payload.betMode === undefined) { extra.betMode = betMode; extra.betAmountPaise = betAmountPaise; }
+                if (payload.gameHistoryHostName === undefined && gameHistoryHostName) extra.gameHistoryHostName = gameHistoryHostName;
+                if (Object.keys(extra).length) payload = Object.assign({}, payload, extra);
+            }
+        } catch (e) {}
+
         if (!roomChannel) {
             return Promise.resolve(false);
         }
@@ -5653,6 +5669,19 @@
     // ============================================================
 
     async function handleIncomingNetworkData(data) {
+
+        // Keep fun-bet settings and host name in sync on every client.
+        try {
+            if (data && !isHost && data.betMode !== undefined) {
+                betMode = data.betMode === 'fun' ? 'fun' : 'free';
+                if (data.betAmountPaise !== undefined) {
+                    betAmountPaise = Math.max(1, Number(data.betAmountPaise) || 1000);
+                }
+            }
+            if (data && !isHost && !gameHistoryHostName && typeof data.gameHistoryHostName === 'string' && data.gameHistoryHostName) {
+                gameHistoryHostName = data.gameHistoryHostName;
+            }
+        } catch (e) {}
 
         // Save shortly after processing starts; incoming authoritative state
         // is applied synchronously before any awaited work.
@@ -10949,7 +10978,7 @@
                 // Your Game History and Admin Game History now use the same
                 // database table. This includes completed and in-progress games.
                 const response = await fetch(
-                    `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                    `${GAME_HISTORY_URL}?select=*&game_points=neq.ROOM_STATE&order=created_at.desc`,
                     {
                         method: 'GET',
                         headers: {
@@ -11109,7 +11138,7 @@
 
                 if (!Array.isArray(rows) || !rows.length) {
                     const response = await fetch(
-                        `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                        `${GAME_HISTORY_URL}?select=*&game_points=neq.ROOM_STATE&order=created_at.desc`,
                         {
                             method: 'GET',
                             headers: {
@@ -11316,7 +11345,7 @@
             try {
                 // 1) Game history (source of played / won counts).
                 const response = await fetch(
-                    `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                    `${GAME_HISTORY_URL}?select=*&game_points=neq.ROOM_STATE&order=created_at.desc`,
                     {
                         method: 'GET',
                         headers: {
@@ -11910,7 +11939,7 @@
 
             try {
                 const response = await fetch(
-                    `${GAME_HISTORY_URL}?select=*&order=created_at.desc`,
+                    `${GAME_HISTORY_URL}?select=*&game_points=neq.ROOM_STATE&order=created_at.desc`,
                     {
                         method: 'GET',
                         headers: {
@@ -12024,7 +12053,7 @@
 
         async function t5Load() {
             try {
-                var res = await fetch(GAME_HISTORY_URL + '?select=*&order=created_at.desc', {
+                var res = await fetch(GAME_HISTORY_URL + '?select=*&game_points=neq.ROOM_STATE&order=created_at.desc', {
                     headers: { 'apikey': SUPABASE_APIKEY, 'Authorization': 'Bearer ' + SUPABASE_APIKEY, 'Content-Type': 'application/json' }
                 });
                 if (!res.ok) return;
@@ -12035,7 +12064,7 @@
 
         window.addEventListener('load', function () {
             setTimeout(t5Load, 1500);
-            setInterval(t5Load, 120000);
+            setInterval(t5Load, 300000);
             setInterval(t5Sync, 700);
         });
     })();
@@ -12160,10 +12189,9 @@
                     cleanElement(m.target);
                 }
             }
-            schedule();
         }).observe(document.body, { childList: true, subtree: true, characterData: true,
                                     attributes: true, attributeFilter: ATTRS.concat(['value']) });
-        setInterval(pass, 500);
+        setInterval(pass, 5000);
     }
 
     if (document.body) start();
