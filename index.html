@@ -327,8 +327,8 @@
                 <div class="mt-2">
                     <label class="block text-[10px] uppercase tracking-wider text-zinc-400 mb-1 font-semibold">Joker Card</label>
                     <select id="joker-option-select" class="w-full px-2 py-2 rounded-xl bg-zinc-900 border border-zinc-800 focus:outline-none focus:border-emerald-500 text-white font-medium text-xs">
-                        <option value="no" selected>No Joker</option>
-                        <option value="yes">Include 1 Joker (0 Points)</option>
+                        <option value="no">No Joker</option>
+                        <option value="yes" selected>Include 1 Joker (0 Points)</option>
                     </select>
                 </div>
             </div>
@@ -423,7 +423,7 @@
                     • Target:
                     <span id="display-target-pts">100</span> pts
                     • Joker:
-                    <span id="display-joker-option">No</span>
+                    <span id="display-joker-option">Yes (0)</span>
                 </h3>
 
                 <ul id="player-list-ul"
@@ -2143,7 +2143,7 @@
     let maxPlayersLimit = 4;
     let cardsPerPlayer = 7;
     let targetEliminationPoints = 100;
-    let includeJoker = false;
+    let includeJoker = true;
     let roomCode = '';
 
     let players = [];
@@ -2943,6 +2943,7 @@
                     p.left !== true && p.viewOnly !== true && p.rejoinPending !== true) {
                     p.connected = true;
                     p.presenceDropped = false;
+                    hostEnsureHandFor(p);
                     broadcastPlayerList();
                     if (roundActive) broadcastGameState(`${p.name} reconnected.`);
                     updateWaitingRoomUI();
@@ -2984,6 +2985,31 @@
         });
         if (changed) { try { broadcastPlayerList(); updateWaitingRoomUI(); } catch (e) {} }
         return changed;
+    }
+
+    // Safety net: if a player returns to a running round and somehow holds no
+    // cards (e.g. they were offline when the game was dealt), give them a fresh
+    // hand from the deck so they never sit at the table with 0 cards.
+    function hostEnsureHandFor(p) {
+        try {
+            if (!isHost && !isSoloMode) return false;
+            if (!roundActive || !p) return false;
+            if (p.eliminated === true || p.viewOnly === true || p.left === true) return false;
+            if (Array.isArray(p.hand) && p.hand.length > 0) return false;
+            const need = Number(cardsPerPlayer) || 7;
+            if (!Array.isArray(deck)) deck = [];
+            if (deck.length < need && Array.isArray(discardPile) && discardPile.length > 1) {
+                const top = discardPile.pop();
+                const rest = discardPile.splice(0);
+                deck = deck.concat(shuffleInPlace(rest));
+                discardPile = [top];
+            }
+            if (deck.length < need) return false;
+            p.hand = sortHandCards(deck.splice(0, need));
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     function hostMarkPlayerOffline(tok) {
@@ -3842,6 +3868,7 @@
             player.connected = true; player.left = false;
             player.viewOnly = false;
             player.rejoinPending = false;
+            hostEnsureHandFor(player);
 
             sendRealtimeMessage({
                 type: 'REJOIN_PERMISSION_RESPONSE',
@@ -4081,10 +4108,12 @@
         const playersSelect = document.getElementById('max-players-select');
         const cardsSelect = document.getElementById('cards-count-select');
         const pointsSelect = document.getElementById('target-points-select');
+        const jokerDefaultSelect = document.getElementById('joker-option-select');
 
         if (playersSelect) playersSelect.value = '4';
-        if (cardsSelect) cardsSelect.value = '5';
+        if (cardsSelect) cardsSelect.value = '7';
         if (pointsSelect) pointsSelect.value = '50';
+        if (jokerDefaultSelect) jokerDefaultSelect.value = 'yes';
     }
 
     function setupDeckCapacityGuard() {
@@ -4114,7 +4143,7 @@
     }
 
     // On every fresh app load, the lobby starts with:
-    // 4 players, 5 cards, 50 elimination points.
+    // 4 players, 7 cards, 50 elimination points, Joker included.
     try {
         if (
             document.getElementById('lobby-screen') &&
@@ -5819,6 +5848,7 @@
                         existingPlayer.rejoinPending = false;
                         existingPlayer.isHost =
                             getPlayerRoomToken(existingPlayer) === String(roomHostToken || '').trim();
+                        hostEnsureHandFor(existingPlayer);
 
                         myIndex = players.findIndex(p => getPlayerRoomToken(p) === myClientToken);
 
@@ -5860,6 +5890,8 @@
 
                         existingPlayer.viewOnly =
                             false;
+
+                        hostEnsureHandFor(existingPlayer);
 
                         broadcastPlayerList();
 
@@ -7761,10 +7793,14 @@
         let fullDeck =
             createDeck();
 
+        // Deal to EVERY seated player who has not explicitly left or been set to
+        // view-only, including one who is only temporarily offline (minimised /
+        // exited) or waiting for rejoin approval. Previously those players were
+        // skipped, so when they came back to the new game they had 0 cards.
         players.forEach(p => {
 
             if (
-                p.connected !== false &&
+                p.left !== true &&
                 !p.viewOnly
             ) {
 
@@ -9364,8 +9400,7 @@
             if (
                 !p.eliminated &&
                 p.left !== true &&
-                p.viewOnly !== true &&
-                p.rejoinPending !== true
+                p.viewOnly !== true
             ) {
 
                 p.hand =
