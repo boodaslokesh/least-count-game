@@ -218,6 +218,11 @@
                     class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-amber-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
                 Total Game Users
             </button>
+            <span class="text-zinc-700">|</span>
+            <button type="button" onclick="toggleStatsMenuModal(true)"
+                    class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-fuchsia-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
+                Stats
+            </button>
         </div>
     </nav>
 
@@ -894,8 +899,27 @@
         );
     }
 
+    // A player whose score has reached the elimination limit is OUT, even if the
+    // 'eliminated' flag was not set yet (limit changed mid-game, stale/restored state ...).
+    function isPastEliminationLimit(p) {
+        return !!p && Number(targetEliminationPoints) > 0 &&
+            Number(p.scores || 0) >= Number(targetEliminationPoints);
+    }
+
+    // Marks every player at/over the limit as eliminated. Returns true if anything changed.
+    function enforceEliminationThreshold() {
+        let changed = false;
+        (Array.isArray(players) ? players : []).forEach(p => {
+            if (p && p.eliminated !== true && p.left !== true && isPastEliminationLimit(p)) {
+                p.eliminated = true;
+                changed = true;
+            }
+        });
+        return changed;
+    }
+
     function isEligibleTurnPlayer(p) {
-        return !!p && !p.eliminated && p.left !== true && p.connected !== false &&
+        return !!p && !p.eliminated && !isPastEliminationLimit(p) && p.left !== true && p.connected !== false &&
             p.viewOnly !== true && p.rejoinPending !== true;
     }
 
@@ -2723,7 +2747,8 @@
             player.connected !== false &&
             player.viewOnly !== true &&
             player.rejoinPending !== true &&
-            !player.eliminated
+            !player.eliminated &&
+            !isPastEliminationLimit(player)
         );
     }
 
@@ -4780,6 +4805,12 @@
 
         targetEliminationPoints = nextPoints;
 
+        // Anyone already at/over the new limit is eliminated immediately (cannot keep playing).
+        const eliminatedByLimitChange = enforceEliminationThreshold();
+        if (eliminatedByLimitChange && roundActive && !isEligibleTurnPlayer(players[currentTurnIndex])) {
+            advanceTurn();
+        }
+
         const select = document.getElementById('game-target-points-select');
         if (select) select.value = String(targetEliminationPoints);
 
@@ -4797,8 +4828,15 @@
             saveLocalRoomSession();
         }
 
+        if (eliminatedByLimitChange && isHost && !isSoloMode && roundActive) {
+            broadcastGameState('Elimination limit changed. Players over the limit are out.');
+        }
         renderGameBoard();
         logTicker(`Elimination limit changed to ${targetEliminationPoints} points.`);
+        if (eliminatedByLimitChange && roundActive) {
+            try { await finishTournamentIfNeeded(); } catch (e) {}
+            if (isSoloMode) checkBotTurn();
+        }
     }
 
     // ============================================================
@@ -8437,6 +8475,7 @@
             (
                 !players[currentTurnIndex] ||
                 players[currentTurnIndex].eliminated ||
+                isPastEliminationLimit(players[currentTurnIndex]) ||
                 players[currentTurnIndex].connected === false ||
                 players[currentTurnIndex].viewOnly === true ||
                 players[currentTurnIndex].rejoinPending === true ||
@@ -9321,6 +9360,10 @@
         setTimeout(() => { nextRoundInFlight = false; }, 15000);
 
         if (!assertValidDeckConfiguration()) { nextRoundInFlight = false; return; }
+
+        // Make sure nobody at/over the limit is dealt in; eliminated players hold no cards.
+        enforceEliminationThreshold();
+        players.forEach(p => { if (p && p.eliminated === true) p.hand = []; });
 
         let activePlayers =
             players.filter(
@@ -12054,6 +12097,171 @@
         }
     </script>
 
+
+
+    <!-- STATS MENU (links to standings) -->
+    <div id="stats-menu-modal"
+         class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-3 z-[215]">
+        <div class="bg-zinc-950 border border-fuchsia-500/30 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800">
+                <div>
+                    <h2 class="text-base font-black text-fuchsia-300">Stats &amp; Standings</h2>
+                    <p class="text-[11px] text-zinc-500 mt-1">Tap a link to see the Top 10 table.</p>
+                </div>
+                <button type="button" onclick="toggleStatsMenuModal(false)"
+                        class="shrink-0 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
+            </div>
+            <div class="p-4 space-y-2 text-sm">
+                <div class="text-[10px] uppercase tracking-wider text-emerald-400 font-black">Real Multiplayer Games</div>
+                <a href="#" onclick="openStatsStanding('realPlayed'); return false;" class="block px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-emerald-500/60 text-emerald-300 font-bold underline underline-offset-2">Highest Real Games Played (Top 10)</a>
+                <a href="#" onclick="openStatsStanding('realWon'); return false;" class="block px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-emerald-500/60 text-emerald-300 font-bold underline underline-offset-2">Highest Real Game Winners (All Time)</a>
+                <div class="text-[10px] uppercase tracking-wider text-indigo-400 font-black pt-2">Bot Games</div>
+                <a href="#" onclick="openStatsStanding('botPlayed'); return false;" class="block px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-indigo-500/60 text-indigo-300 font-bold underline underline-offset-2">Highest Bot Games Played (Top 10)</a>
+                <a href="#" onclick="openStatsStanding('botWon'); return false;" class="block px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-indigo-500/60 text-indigo-300 font-bold underline underline-offset-2">Highest Bot Game Winners (All Time)</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- STATS STANDING TABLE -->
+    <div id="stats-standing-modal"
+         class="fixed inset-0 bg-black/90 backdrop-blur-sm hidden items-center justify-center p-3 z-[225]">
+        <div class="bg-zinc-950 border border-fuchsia-500/30 w-full max-w-lg max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800 shrink-0">
+                <div class="min-w-0">
+                    <h2 id="stats-standing-title" class="text-base font-black text-fuchsia-300 truncate">Standings</h2>
+                    <p id="stats-standing-sub" class="text-[11px] text-zinc-500 mt-1"></p>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <button type="button" onclick="toggleStatsStandingModal(false); toggleStatsMenuModal(true)"
+                            class="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-fuchsia-300 hover:bg-zinc-800">Back</button>
+                    <button type="button" onclick="toggleStatsStandingModal(false)"
+                            class="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-bold text-white hover:bg-zinc-800">Close</button>
+                </div>
+            </div>
+            <div id="stats-standing-body" class="p-4 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <script>
+    // ============================================================
+    // STATS: Top-10 standings (real / bot games played and won)
+    // ============================================================
+    let statsStandingData = null;
+    let statsStandingLoadedAt = 0;
+
+    function toggleStatsMenuModal(show) {
+        const m = document.getElementById('stats-menu-modal');
+        if (!m) return;
+        m.classList.toggle('hidden', !show);
+        m.classList.toggle('flex', show);
+    }
+
+    function toggleStatsStandingModal(show) {
+        const m = document.getElementById('stats-standing-modal');
+        if (!m) return;
+        m.classList.toggle('hidden', !show);
+        m.classList.toggle('flex', show);
+    }
+
+    // Loads every saved game and counts played / won per player (bot vs real).
+    async function loadStatsStandingData(force) {
+        if (!force && statsStandingData && Date.now() - statsStandingLoadedAt < 30000) return statsStandingData;
+        const response = await fetch(
+            `${GAME_HISTORY_URL}?select=*&game_points=neq.ROOM_STATE&order=created_at.desc`,
+            { method: 'GET', headers: { 'apikey': SUPABASE_APIKEY, 'Authorization': `Bearer ${SUPABASE_APIKEY}`, 'Content-Type': 'application/json' } }
+        );
+        if (!response.ok) throw new Error(`Game history request failed: ${response.status}`);
+        const rows = normalizeDatabaseGameHistoryRows(await response.json());
+        const stats = computeUserStatsFromHistory(rows);
+
+        // Old rows saved a plain name ("Sravani") before the 4-digit number was added:
+        // merge them into the one matching numbered player so nobody is listed twice.
+        const SUFFIX = /^(.*\S)\s+\d{4}$/;
+        const baseOf = k => { const m = String(k).match(SUFFIX); return (m ? m[1] : String(k)).trim().toLowerCase(); };
+        const owners = new Map();
+        stats.forEach((v, k) => { if (SUFFIX.test(k)) { const b = baseOf(k); if (!owners.has(b)) owners.set(b, []); owners.get(b).push(k); } });
+        Array.from(stats.keys()).forEach(k => {
+            if (SUFFIX.test(k)) return;
+            const list = owners.get(baseOf(k)) || [];
+            if (list.length === 1) {
+                const t = stats.get(list[0]), h = stats.get(k);
+                t.botPlayed += h.botPlayed; t.realPlayed += h.realPlayed;
+                t.botWon += h.botWon; t.realWon += h.realWon;
+                stats.delete(k);
+            }
+        });
+
+        statsStandingData = Array.from(stats.values());
+        statsStandingLoadedAt = Date.now();
+        return statsStandingData;
+    }
+
+    const STATS_STANDING_CONFIG = {
+        realPlayed: { title: 'Highest Real Games Played', sub: 'Top 10 · real multiplayer games', played: 'realPlayed', won: 'realWon', sortBy: 'played', color: '#6ee7b7' },
+        botPlayed:  { title: 'Highest Bot Games Played',  sub: 'Top 10 · games vs computer',     played: 'botPlayed',  won: 'botWon',  sortBy: 'played', color: '#a5b4fc' },
+        realWon:    { title: 'Highest Real Game Winners', sub: 'Top 10 · all time · real multiplayer', played: 'realPlayed', won: 'realWon', sortBy: 'won', color: '#6ee7b7' },
+        botWon:     { title: 'Highest Bot Game Winners',  sub: 'Top 10 · all time · games vs computer', played: 'botPlayed',  won: 'botWon',  sortBy: 'won', color: '#a5b4fc' }
+    };
+
+    async function openStatsStanding(kind) {
+        const cfg = STATS_STANDING_CONFIG[kind];
+        if (!cfg) return;
+        const title = document.getElementById('stats-standing-title');
+        const sub = document.getElementById('stats-standing-sub');
+        const body = document.getElementById('stats-standing-body');
+        if (!title || !sub || !body) return;
+
+        title.textContent = cfg.title;
+        sub.textContent = cfg.sub;
+        body.innerHTML = '<div class="text-center text-xs text-zinc-500 py-10">Loading standings...</div>';
+        toggleStatsMenuModal(false);
+        toggleStatsStandingModal(true);
+
+        try {
+            const data = await loadStatsStandingData(false);
+            const list = data
+                .map(u => ({ name: u.name, played: u[cfg.played], won: u[cfg.won] }))
+                .filter(u => (cfg.sortBy === 'won' ? u.won > 0 : u.played > 0))
+                .sort((a, b) => cfg.sortBy === 'won'
+                    ? (b.won - a.won) || ((b.won / b.played) - (a.won / a.played)) || (a.played - b.played) || a.name.localeCompare(b.name)
+                    : (b.played - a.played) || (b.won - a.won) || a.name.localeCompare(b.name))
+                .slice(0, 10);
+
+            if (!list.length) {
+                body.innerHTML = '<div class="text-center text-xs text-zinc-600 py-10">No games found yet.</div>';
+                return;
+            }
+
+            const head = 'padding:.55rem .5rem;background:#18181b;color:#a1a1aa;font-size:10px;text-transform:uppercase;letter-spacing:.04em;border:1px solid #3f3f46;';
+            const cell = 'padding:.55rem .5rem;border:1px solid #27272a;font-size:12px;';
+            const medal = i => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1);
+            const pct = u => u.played > 0 ? Math.round((u.won / u.played) * 100) + '%' : '—';
+            body.innerHTML = `
+                <table style="width:100%;table-layout:fixed;border-collapse:collapse;background:#050505;">
+                    <colgroup><col style="width:12%"><col style="width:36%"><col style="width:17%"><col style="width:17%"><col style="width:18%"></colgroup>
+                    <thead><tr>
+                        <th style="${head}text-align:center;">Rank</th>
+                        <th style="${head}text-align:left;">Player</th>
+                        <th style="${head}text-align:right;">Played</th>
+                        <th style="${head}text-align:right;">Won</th>
+                        <th style="${head}text-align:right;">Win %</th>
+                    </tr></thead>
+                    <tbody>${list.map((u, i) => `
+                        <tr style="${i % 2 ? 'background:#09090b;' : ''}">
+                            <td style="${cell}text-align:center;font-weight:900;color:#fbbf24;">${medal(i)}</td>
+                            <td style="${cell}font-weight:800;color:#fff;overflow-wrap:anywhere;">${escapeAccountStatsHtml(u.name)}</td>
+                            <td style="${cell}text-align:right;font-weight:${cfg.sortBy === 'played' ? '900' : '700'};color:${cfg.sortBy === 'played' ? cfg.color : '#d4d4d8'};">${u.played}</td>
+                            <td style="${cell}text-align:right;font-weight:${cfg.sortBy === 'won' ? '900' : '700'};color:${cfg.sortBy === 'won' ? cfg.color : '#d4d4d8'};">${u.won}</td>
+                            <td style="${cell}text-align:right;color:#d4d4d8;">${pct(u)}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        } catch (error) {
+            console.error('Unable to load standings:', error);
+            body.innerHTML = `<div class="text-center text-xs text-rose-400 py-10">Unable to load standings. ${escapeAccountStatsHtml(error?.message || '')}</div>`;
+        }
+    }
+    </script>
 
 <style>
     .top5-ticker-track{display:inline-block;white-space:nowrap;line-height:24px;font-size:11px;font-weight:700;color:#fcd34d;padding-left:100%;animation:top5-scroll 30s linear infinite;will-change:transform;}
