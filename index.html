@@ -221,7 +221,7 @@
             <span class="text-zinc-700">|</span>
             <button type="button" onclick="toggleStatsMenuModal(true)"
                     class="px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold text-fuchsia-300 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition">
-                Stats
+                Standings
             </button>
         </div>
     </nav>
@@ -514,7 +514,6 @@
                         <input type="text"
                                id="room-chat-input"
                                placeholder="Type chat..."
-                               maxlength="40"
                                class="w-full px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-white text-[10px] focus:outline-none focus:border-emerald-500 placeholder-zinc-500">
 
                         <button onclick="sendRoomChatMessage()"
@@ -540,6 +539,13 @@
                 </div>
             </div>
 
+            <!-- EXTRA OPTIONS ROW (above the cards division) -->
+                <div id="special-radio-row" class="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-2 mt-2 pt-2 pb-2 border-t border-b border-zinc-800 shrink-0">
+                    <button type="button" id="radio-autoplay" onclick="lcToggleAutoPlay()" class="lc-radio hidden" aria-pressed="false"><span class="lc-radio-dot"></span><span>Auto Play</span></button>
+                    <button type="button" id="radio-speak" onclick="lcToggleSpeak()" class="lc-radio" aria-pressed="false"><span class="lc-radio-dot"></span><span>🎤 Say Card to Play</span></button>
+                    <button type="button" id="radio-autostart" onclick="lcToggleAutoStart()" class="lc-radio hidden" aria-pressed="false"><span class="lc-radio-dot"></span><span>Auto Game Start</span></button>
+                </div>
+
             <!-- PLAYER'S HAND CONTAINER -->
             <div class="bg-black border border-zinc-800 p-2 sm:p-3 rounded-xl flex flex-col space-y-2 shrink-0">
 
@@ -550,6 +556,7 @@
                               id="my-display-name">
                             You
                         </span>
+                        <span id="spoken-card-badge" class="hidden text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-full border border-amber-400/60 bg-amber-500/10 text-amber-300"></span>
 
                         <span class="text-[10px] sm:text-xs bg-zinc-900 text-zinc-300 px-2 py-0.5 rounded-full border border-zinc-800">
                             Sum:
@@ -570,6 +577,7 @@
                         </button>
                     </div>
                 </div>
+
 
                 <div id="my-hand-cards"
                      class="flex flex-nowrap overflow-x-auto gap-1.5 sm:gap-3 justify-start sm:justify-center min-h-[95px] sm:min-h-[110px] p-1 items-center"></div>
@@ -1096,7 +1104,12 @@
             if (key === lastShowCallKey) return;
             lastShowCallKey = key;
             const synth = window.speechSynthesis;
-            const u = new SpeechSynthesisUtterance(`${name} called the show`);
+            let failedShow = false;
+            try {
+                const lastRound = Array.isArray(gameHistory) && gameHistory.length ? gameHistory[gameHistory.length - 1] : null;
+                failedShow = !!(lastRound && /^failed/i.test(String(lastRound.outcome || '')) && String(lastRound.callerName || '') === name);
+            } catch (e) {}
+            const u = new SpeechSynthesisUtterance(failedShow ? `${name} called the show but failed show` : `${name} called the show`);
             applyAnnouncerVoice(u);
             try { synth.cancel(); } catch (e) {}
             synth.speak(u);
@@ -4380,16 +4393,42 @@
     // Returns { winner } when a background finish was run, otherwise null.
     function runSoloBackgroundFinish() {
         if (!isSoloMode || !roomCode || !Array.isArray(players)) return null;
-        const human = players.find(p => p && !p.isBot);
-        if (!human || human.eliminated !== true) return null;       // only after the human is eliminated
+        // Applies whenever the human exits a computer game before it is finished (eliminated or not).
         if (gameTerminalRecord) return null;                         // already finished/abandoned
         if (resolveTerminalOutcome().done) return null;              // winner already recorded
-        if (players.filter(p => p && p.isBot && !p.eliminated).length < 2) return null;
+        const botList = players.filter(p => p && p.isBot);
+        if (!botList.length) return null;
 
-        const result = simulateSoloRemainder({
-            players, deck, discardPile, currentTurnIndex, roundActive, gameHistory, roundCounter,
-            targetPoints: targetEliminationPoints, cardsPerPlayer
-        });
+        // Human left: the human is excluded even with the lowest score; the lowest-scoring bot(s) win. Equal lowest = joint winners.
+        const lowest = Math.min.apply(null, botList.map(b => Number(b.scores) || 0));
+        const winnerNames = botList.filter(b => (Number(b.scores) || 0) === lowest).map(b => String(b.name));
+        // Record the exit in the round history so it is visible in the game history DB.
+        const exitingHuman = players.find(p => p && !p.isBot);
+        let exitHistory = Array.isArray(gameHistory) ? gameHistory.slice() : [];
+        let exitRoundCounter = Number(roundCounter) || 0;
+        if (exitingHuman) {
+            const exitScore = Number(exitingHuman.scores) || 0;
+            exitHistory.push({
+                roundNumber: exitRoundCounter,
+                callerName: 'N/A',
+                callerSum: 'N/A',
+                outcome: exitingHuman.eliminated === true
+                    ? `${exitingHuman.name} was eliminated in the middle of the game with score ${exitScore} and exited`
+                    : `${exitingHuman.name} exited in the middle of the game with score ${exitScore}`,
+                details: players.filter(p => p).map(p => ({
+                    name: p.name,
+                    sum: '-',
+                    pointsAdded: 0,
+                    totalAfterRound: Number(p.scores) || 0
+                }))
+            });
+            exitRoundCounter += 1;
+        }
+        const result = {
+            winner: winnerNames.join(' & '),
+            reason: 'LOWEST_POINTS',
+            players, deck, discardPile, currentTurnIndex, gameHistory: exitHistory, roundCounter: exitRoundCounter
+        };
 
         // Build the database rows from the finished copy, then restore the live globals.
         const saved = { players, deck, discardPile, currentTurnIndex, turnPhase, roundActive, gameHistory, roundCounter, gameTerminalRecord };
@@ -12105,7 +12144,7 @@
         <div class="bg-zinc-950 border border-fuchsia-500/30 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
             <div class="flex items-center justify-between gap-3 p-4 border-b border-zinc-800">
                 <div>
-                    <h2 class="text-base font-black text-fuchsia-300">Stats &amp; Standings</h2>
+                    <h2 class="text-base font-black text-fuchsia-300">Standings</h2>
                     <p class="text-[11px] text-zinc-500 mt-1">Tap a link to see the Top 10 table.</p>
                 </div>
                 <button type="button" onclick="toggleStatsMenuModal(false)"
@@ -12355,6 +12394,236 @@
             setInterval(t5Sync, 700);
         });
     })();
+</script>
+
+
+<style>
+    .lc-radio{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#d4d4d8;background:transparent;border:0;padding:2px 0;cursor:pointer;}
+    .lc-radio-dot{width:13px;height:13px;border-radius:50%;border:2px solid #71717a;display:inline-block;flex-shrink:0;}
+    .lc-radio.on{color:#6ee7b7;}
+    .lc-radio.on .lc-radio-dot{border-color:#34d399;background:radial-gradient(circle,#34d399 45%,transparent 50%);}
+</style>
+<script>
+// ============================================================
+// EXTRA GAME-ROOM OPTIONS (added; existing game logic untouched)
+//  - Auto Play (only mobile 9912517895)
+//  - Speak a card (all users)
+//  - Auto Start next game after 10s (only mobile 9912517895)
+// ============================================================
+(function () {
+    var SPECIAL_MOBILE = '9912517895';
+    var autoPlayOn = false, speakOn = false, autoStartOn = false;
+    // All options always start OFF on every page load.
+    var phaseKey = '', phaseSeenAt = 0, lastAutoActionAt = 0, autoStartTimer = null, recognition = null, badgeTimer = null;
+
+    function isSpecialUser() {
+        try { return String((currentUser && currentUser.mobile) || '').replace(/\D/g, '').slice(-10) === SPECIAL_MOBILE; }
+        catch (e) { return false; }
+    }
+
+    function renderRadios() {
+        var set = function (id, on, show) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.classList.toggle('on', !!on);
+            el.setAttribute('aria-pressed', on ? 'true' : 'false');
+            if (show !== undefined) el.classList.toggle('hidden', !show);
+        };
+        var special = isSpecialUser();
+        set('radio-autoplay', special && autoPlayOn, special);
+        set('radio-speak', speakOn);
+        set('radio-autostart', special && autoStartOn, special);
+    }
+
+    window.lcToggleAutoPlay = function () {
+        if (!isSpecialUser()) return;
+        autoPlayOn = !autoPlayOn;
+        try { localStorage.setItem('lcAutoPlay', autoPlayOn ? '1' : '0'); } catch (e) {}
+        renderRadios();
+        logTicker(autoPlayOn ? 'Auto Play enabled.' : 'Auto Play disabled.');
+    };
+    window.lcToggleAutoStart = function () {
+        if (!isSpecialUser()) return;
+        autoStartOn = !autoStartOn;
+        try { localStorage.setItem('lcAutoStart', autoStartOn ? '1' : '0'); } catch (e) {}
+        if (!autoStartOn && autoStartTimer) { clearTimeout(autoStartTimer); autoStartTimer = null; }
+        renderRadios();
+        logTicker(autoStartOn ? 'Auto Start enabled.' : 'Auto Start disabled.');
+    };
+    window.lcToggleSpeak = function () {
+        if (speakOn) { setSpeak(false); return; }
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) { showGameNotice('Voice input is not supported in this browser. Please use Chrome.'); return; }
+        setSpeak(true);
+    };
+
+    function setSpeak(on) {
+        speakOn = !!on;
+        if (speakOn) startRecognition(); else stopRecognition();
+        renderRadios();
+        logTicker(speakOn ? 'Speak enabled. Say the card on your turn (e.g. J, 5, Queen).' : 'Speak disabled.');
+    }
+
+    function stopRecognition() {
+        var r = recognition; recognition = null;
+        if (r) { try { r.onend = null; r.onresult = null; r.onerror = null; r.stop(); } catch (e) {} }
+    }
+
+    function startRecognition() {
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) return;
+        stopRecognition();
+        var r = new SR();
+        recognition = r;
+        r.lang = 'en-IN';
+        r.continuous = true;
+        r.interimResults = false;
+        r.maxAlternatives = 5;
+        r.onresult = function (e) {
+            for (var i = e.resultIndex; i < e.results.length; i++) {
+                if (!e.results[i].isFinal) continue;
+                var alts = [];
+                for (var k = 0; k < e.results[i].length; k++) alts.push(String(e.results[i][k].transcript || ''));
+                try { handleSpoken(alts); } catch (err) { console.warn(err); }
+            }
+        };
+        r.onerror = function (e) {
+            if (e && (e.error === 'not-allowed' || e.error === 'service-not-allowed')) {
+                showGameNotice('Microphone permission denied. Speak option turned off.');
+                setSpeak(false);
+            }
+        };
+        r.onend = function () {
+            if (speakOn && recognition === r) setTimeout(function () { try { if (speakOn && recognition === r) r.start(); } catch (e) {} }, 300);
+        };
+        try { r.start(); } catch (e) {}
+    }
+
+    // Letter cards are spoken as the LETTER itself: "J", "Q", "K", "A" (common speech-engine spellings included).
+    // Number cards are spoken as the number: "seven" or "7".
+    var SPOKEN = {
+        j:'J', jay:'J', jae:'J', jaye:'J', jj:'J',
+        q:'Q', queue:'Q', cue:'Q', kyu:'Q', kew:'Q', cu:'Q', cute:'Q',
+        k:'K', kay:'K', kaye:'K', okay:'K', ok:'K', cay:'K',
+        a:'A', ay:'A', eh:'A', hey:'A', aye:'A', eight_a:'A',
+        two:'2', to:'2', too:'2', '2':'2',
+        three:'3', tree:'3', free:'3', '3':'3',
+        four:'4', for:'4', fore:'4', '4':'4',
+        five:'5', '5':'5',
+        six:'6', sex:'6', '6':'6',
+        seven:'7', '7':'7',
+        eight:'8', ate:'8', '8':'8',
+        nine:'9', nein:'9', '9':'9',
+        ten:'10', '10':'10',
+        joker:'JOKER'
+    };
+
+    function showBadge(text, ok) {
+        var b = document.getElementById('spoken-card-badge');
+        if (!b) return;
+        b.textContent = text;
+        b.classList.remove('hidden');
+        b.style.color = ok ? '#fcd34d' : '#fda4af';
+        b.style.borderColor = ok ? 'rgba(251,191,36,.6)' : 'rgba(244,63,94,.6)';
+        if (badgeTimer) clearTimeout(badgeTimer);
+        badgeTimer = setTimeout(function () { b.classList.add('hidden'); }, 4000);
+    }
+
+    function isMyDropTurn() {
+        var me = Array.isArray(players) ? players[myIndex] : null;
+        return !!(roundActive && me && currentTurnIndex === myIndex && turnPhase === 'drop' && isPlayerAllowedToPlay(me));
+    }
+
+    function handleSpoken(alts) {
+        if (!speakOn || !isMyDropTurn()) return;
+        var me = players[myIndex];
+        var firstGuess = '';
+        for (var a = 0; a < alts.length; a++) {
+            var tokens = String(alts[a]).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+            for (var t = tokens.length - 1; t >= 0; t--) {
+                var val = SPOKEN[tokens[t]];
+                if (!val) continue;
+                if (!firstGuess) firstGuess = val;
+                var card = (me.hand || []).find(function (c) { return c && c.val === val; });
+                if (card) {
+                    showBadge('🎤 ' + (val === 'JOKER' ? 'Joker' : val), true);
+                    lastAutoActionAt = Date.now();
+                    handleCardClick(card.uid); // same rules as tapping; matching board card = no draw
+                    return;
+                }
+            }
+        }
+        if (firstGuess) showBadge('🎤 ' + firstGuess + ' ✗', false);
+    }
+
+    function autoPlayDrop(me) {
+        var hand = Array.isArray(me.hand) ? me.hand : [];
+        if (!hand.length) return;
+        var sum = calculateHandSum(hand);
+        if (sum <= 5 && (sum <= 3 || Math.random() < 0.7)) { callShow(); return; }
+        var top = discardPile[discardPile.length - 1];
+        var match = top ? hand.find(function (c) { return c && c.val === top.val; }) : null;
+        if (match) { handleCardClick(match.uid); return; }
+        var groups = {};
+        hand.forEach(function (c) {
+            if (!groups[c.val]) groups[c.val] = { total: 0, uid: c.uid };
+            groups[c.val].total += Number(c.points) || 0;
+        });
+        var best = null;
+        Object.keys(groups).forEach(function (k) { if (!best || groups[k].total > best.total) best = groups[k]; });
+        if (best) handleCardClick(best.uid);
+    }
+
+    function tick() {
+        try {
+            renderRadios();
+            if (!roomCode && speakOn) setSpeak(false);
+
+            // Auto start next game (special user only)
+            var finished = !!(roomCode && !roundActive && tournamentWinnerShown === true && !isSpectator);
+            if (autoStartOn && isSpecialUser() && finished) {
+                if (!autoStartTimer) {
+                    logTicker('Auto Start: next game begins in 10 seconds...');
+                    autoStartTimer = setTimeout(async function () {
+                        autoStartTimer = null;
+                        try {
+                            if (autoStartOn && isSpecialUser() && roomCode && !roundActive && tournamentWinnerShown === true) {
+                                await startAgainSamePlayers();
+                            }
+                        } catch (e) { console.warn('Auto start failed:', e); }
+                    }, 10000);
+                }
+            } else if (!finished && autoStartTimer) {
+                clearTimeout(autoStartTimer); autoStartTimer = null;
+            }
+
+            // Auto play / auto draw after spoken drop
+            if (!((autoPlayOn && isSpecialUser()) || speakOn) || !roundActive || isSpectator) return;
+            var me = Array.isArray(players) ? players[myIndex] : null;
+            if (!me || !isPlayerAllowedToPlay(me) || currentTurnIndex !== myIndex) return;
+            if (showRoundInFlight || showExecuting) return;
+            var now = Date.now();
+            var key = [roomCode, currentTurnIndex, turnPhase, discardPile.length, deck.length, me.hand ? me.hand.length : 0].join('|');
+            if (key !== phaseKey) { phaseKey = key; phaseSeenAt = now; }
+            var autoMode = autoPlayOn && isSpecialUser();
+            // Auto Play: 1.5 seconds total from the start of the turn. Drop happens at 1.5s,
+            // and the draw follows immediately (no second 1.5s wait).
+            var waitMs = autoMode ? (turnPhase === 'draw' ? 150 : 1500) : 1100;
+            var gapMs = autoMode ? 150 : 1100;
+            if (now - phaseSeenAt < waitMs || now - lastAutoActionAt < gapMs) return;
+            if (turnPhase === 'draw') {
+                lastAutoActionAt = now;
+                drawFromDeck();
+            } else if (turnPhase === 'drop' && autoMode) {
+                lastAutoActionAt = now;
+                autoPlayDrop(me);
+            }
+        } catch (e) { console.warn('Extra options tick failed:', e); }
+    }
+
+    renderRadios();
+    setInterval(tick, 250);
+})();
 </script>
 
 <!-- DISPLAY-ONLY: hide the 4-digit suffix after player names everywhere (internal unique names are unchanged) -->
