@@ -540,9 +540,9 @@
             </div>
 
             <!-- EXTRA OPTIONS ROW (above the cards division) -->
-                <div id="special-radio-row" class="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-2 mt-2 pt-2 pb-2 border-t border-b border-zinc-800 shrink-0">
+                <div id="special-radio-row" class="hidden flex flex-wrap items-center gap-x-5 gap-y-1.5 px-2 mt-2 pt-2 pb-2 border-t border-b border-zinc-800 shrink-0">
                     <button type="button" id="radio-autoplay" onclick="lcToggleAutoPlay()" class="lc-radio hidden" aria-pressed="false"><span class="lc-radio-dot"></span><span>Auto Play</span></button>
-                    <button type="button" id="radio-speak" onclick="lcToggleSpeak()" class="lc-radio" aria-pressed="false"><span class="lc-radio-dot"></span><span>🎤 Say Card to Play</span></button>
+                    <button type="button" id="radio-speak" onclick="lcToggleSpeak()" class="lc-radio hidden" aria-pressed="false"><span class="lc-radio-dot"></span><span>🎤 Say Card to Play</span></button>
                     <button type="button" id="radio-autostart" onclick="lcToggleAutoStart()" class="lc-radio hidden" aria-pressed="false"><span class="lc-radio-dot"></span><span>Auto Game Start</span></button>
                 </div>
 
@@ -12431,8 +12431,10 @@
         };
         var special = isSpecialUser();
         set('radio-autoplay', special && autoPlayOn, special);
-        set('radio-speak', speakOn);
+        set('radio-speak', speakOn, special); // Say Card to Play: only for 9912517895
         set('radio-autostart', special && autoStartOn, special);
+        var rowEl = document.getElementById('special-radio-row');
+        if (rowEl) { rowEl.classList.toggle('hidden', !special); rowEl.classList.toggle('flex', special); }
     }
 
     window.lcToggleAutoPlay = function () {
@@ -12451,6 +12453,7 @@
         logTicker(autoStartOn ? 'Auto Start enabled.' : 'Auto Start disabled.');
     };
     window.lcToggleSpeak = function () {
+        if (!isSpecialUser()) return; // only for 9912517895
         if (speakOn) { setSpeak(false); return; }
         var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) { showGameNotice('Voice input is not supported in this browser. Please use Chrome.'); return; }
